@@ -55,9 +55,6 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
     @Value("${app.admin-id:}")
     private String adminId;
 
-    @Value("${app.backup-password:}")
-    private String backupPassword;
-
     public static final ConcurrentHashMap<String, String> TG_USER_MAP = new ConcurrentHashMap<>();
     public static final ConcurrentHashMap<String, String> TG_URL_MAP = new ConcurrentHashMap<>();
 
@@ -212,26 +209,12 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
             } catch (Exception e) {
                 sendText(chatId, "❌ 同步失败: " + e.getMessage());
             }
-        } else if ("/backup".equals(text)) {
-            sendText(chatId, "🗄️ 正在触发系统安全备份...");
-            try {
-                ScheduledTasksService tasks = ScheduledTasksService.getInstance();
-                if (tasks != null) {
-                    tasks.dailyBackup();
-                    sendText(chatId, "✅ 备份完成！已同步到配置的目标仓库。");
-                } else {
-                    sendText(chatId, "⚠️ 定时任务服务尚未就绪。");
-                }
-            } catch (Exception e) {
-                sendText(chatId, "❌ 备份异常: " + e.getMessage());
-            }
         } else if ("/help".equals(text)) {
             String help = "👑 <b>【OCI Personal 个人管理指令】</b>\n\n"
                     + "/start - 打开主控台菜单\n"
                     + "/list - 查看所有 OCI 云主机\n"
                     + "/traffic - 查询全账号当月出站流量\n"
                     + "/sync - 立即同步所有账号实例状态\n"
-                    + "/backup - 触发 SQLite 数据库安全备份\n"
                     + "/help - 显示指令帮助";
             sendHtmlText(chatId, help);
         } else {
@@ -260,7 +243,6 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
 
         InlineKeyboardRow r2 = new InlineKeyboardRow();
         r2.add(InlineKeyboardButton.builder().text("🔄 全局立即同步").callbackData("menu_sync").build());
-        r2.add(InlineKeyboardButton.builder().text("🗄️ 数据库安全备份").callbackData("menu_backup").build());
         rows.add(r2);
 
         InlineKeyboardMarkup markup = InlineKeyboardMarkup.builder().keyboard(rows).build();
@@ -421,19 +403,6 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 renderStartView(chatId, messageId);
             } catch (Exception e) {
                 answerCallback(queryId, "❌ 同步失败: " + e.getMessage(), true);
-            }
-        } else if ("menu_backup".equals(data)) {
-            answerCallback(queryId, "正在执行安全备份...", false);
-            try {
-                ScheduledTasksService tasks = ScheduledTasksService.getInstance();
-                if (tasks != null) {
-                    tasks.dailyBackup();
-                    answerCallback(queryId, "✅ 备份完成！", true);
-                } else {
-                    answerCallback(queryId, "⚠️ 定时任务服务未就绪", true);
-                }
-            } catch (Exception e) {
-                answerCallback(queryId, "❌ 备份失败: " + e.getMessage(), true);
             }
         } else if (data.startsWith("page_")) {
             int page = 0;

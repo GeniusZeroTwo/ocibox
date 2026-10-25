@@ -120,9 +120,6 @@ EXISTING_ADMIN_USER=""
 EXISTING_ADMIN_PWD=""
 EXISTING_BOT_TOKEN=""
 EXISTING_ADMIN_ID=""
-EXISTING_GH_TOKEN=""
-EXISTING_GH_REPO=""
-EXISTING_BACKUP_PWD=""
 
 if [[ -f "${EXISTING_CONFIG}" ]]; then
     EXISTING_PORT=$(get_yaml_val "port" "${EXISTING_CONFIG}")
@@ -130,9 +127,6 @@ if [[ -f "${EXISTING_CONFIG}" ]]; then
     EXISTING_ADMIN_PWD=$(get_yaml_val "admin-password" "${EXISTING_CONFIG}")
     EXISTING_BOT_TOKEN=$(get_yaml_val "bot-token" "${EXISTING_CONFIG}")
     EXISTING_ADMIN_ID=$(get_yaml_val "admin-id" "${EXISTING_CONFIG}")
-    EXISTING_GH_TOKEN=$(get_yaml_val "github-token" "${EXISTING_CONFIG}")
-    EXISTING_GH_REPO=$(get_yaml_val "github-repo" "${EXISTING_CONFIG}")
-    EXISTING_BACKUP_PWD=$(get_yaml_val "backup-password" "${EXISTING_CONFIG}")
     echo -e "${GREEN}🔍 检测到本地已存在历史配置 (${EXISTING_CONFIG})，支持一键无损沿用！${PLAIN}\n"
 fi
 
@@ -329,9 +323,6 @@ app:
   admin-password: "${ADMIN_PWD}"
   bot-token: "${BOT_TOKEN}"
   admin-id: "${ADMIN_ID}"
-  github-token: "${EXISTING_GH_TOKEN:-}"
-  github-repo: "${EXISTING_GH_REPO:-}"
-  backup-password: "${EXISTING_BACKUP_PWD:-}"
 
 ${OCI_SECTION}
 YAML

@@ -43,8 +43,7 @@ public class ScheduledTasksService {
 
     @Autowired private OciCloudService ociCloudService;
     @Autowired private TelegramBotService telegramBotService;
-        @Autowired private TrafficLimitRepository limitRepo;
-    @Autowired private GitHubService githubService;
+    @Autowired private TrafficLimitRepository limitRepo;
     @Autowired private OciProperties ociProperties;
     @Autowired private JdbcTemplate jdbcTemplate;
     @Autowired private OciAccountBillingService billingService;
@@ -55,9 +54,6 @@ public class ScheduledTasksService {
     @Autowired private ObjectMapper objectMapper;
 
     @Value("${app.admin-id}") private String adminId;
-
-    // 🔒 【硬编码密钥修复】备份加密口令改为配置注入，杜绝源码明文 "199852.."。
-    @Value("${app.backup-password:}") private String backupPassword;
 
     private static ScheduledTasksService instance;
 
@@ -785,31 +781,13 @@ public class ScheduledTasksService {
     }
 
     @Scheduled(cron = "0 0 3 * * ?", zone = "UTC")
-    public void dailyBackup() {
+    public void dailyDatabaseMaintenance() {
         System.out.println("🗄️ [数据库维护] 正在执行 SQLite WAL 日志合并与截断...");
         try {
             jdbcTemplate.execute("PRAGMA wal_checkpoint(TRUNCATE);");
-            System.out.println("✅ [数据库维护] WAL 日志清理完成，准备执行代码备份！");
+            System.out.println("✅ [数据库维护] WAL 日志清理截断完成！");
         } catch (Exception e) {
             System.err.println("❌ [数据库维护] WAL 日志清理失败: " + e.getMessage());
-        }
-
-        String basePath = new java.io.File("/root/ocibox").exists() ? "/root/ocibox" : (new java.io.File("/root/oci-personal").exists() ? "/root/oci-personal" : ".");
-        List<String> filesToBackup = Arrays.asList(
-            basePath + "/data",
-            basePath + "/application.yml",
-            basePath + "/keys"
-        );
-
-        if (backupPassword == null || backupPassword.isBlank()) {
-            System.err.println("❌ [自动备份] 未配置备份加密口令，已跳过备份以保护密钥。");
-            return;
-        }
-        try {
-            githubService.backupFilesWithPassword(filesToBackup, "oci_personal_backup.zip", backupPassword);
-            System.out.println("✅ [自动备份] 数据已安全打包并推送到 GitHub 仓库！");
-        } catch (Exception e) {
-            System.err.println("❌ [自动备份] 执行备份时发生异常: " + e.getMessage());
         }
     }
 }

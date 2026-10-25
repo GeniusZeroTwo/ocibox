@@ -73,10 +73,6 @@ app:
   admin-password: "${ADMIN_PASSWORD:}"
   bot-token: "${BOT_TOKEN:}"
   admin-id: "${ADMIN_ID:}"
-  github-token: "${GITHUB_TOKEN:}"
-  github-repo: "${GITHUB_REPO:}"
-  github-pull-token: "YOUR_GITHUB_PULL_TOKEN"
-  backup-password: "${BACKUP_PASSWORD:}"
   
 # OCI 个人多账号配置结构
 oci:
