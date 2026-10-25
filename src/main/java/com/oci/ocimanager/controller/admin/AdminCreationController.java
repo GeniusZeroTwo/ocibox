@@ -44,7 +44,7 @@ public class AdminCreationController {
             List<Map<String, String>> images = ociCloudService.getAvailableImages(account, shape, region);
             return Map.of("success", true, "images", images);
         } catch (Exception e) {
-            return Map.of("success", false, "error", "API查询失败: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("镜像查询失败", e);
         }
     }
 
@@ -101,7 +101,7 @@ public class AdminCreationController {
             String taskId = creationTaskService.startTask(account, instanceName, region, shape, osName, osVersion, cpu, ram, disk, count, interval, ipv4, ipv6, rootLogin, safeRootPwd, safeSsh);
             return Map.of("success", true, "taskId", taskId);
         } catch (Exception e) {
-            return Map.of("success", false, "error", "参数异常：" + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("创建任务参数无效", e);
         }
     }
 
@@ -204,7 +204,7 @@ public class AdminCreationController {
         try {
             return generateEd25519KeyPair();
         } catch (Exception e) {
-            return Map.of("success", false, "error", "密钥生成异常: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("密钥生成失败", e);
         }
     }
 

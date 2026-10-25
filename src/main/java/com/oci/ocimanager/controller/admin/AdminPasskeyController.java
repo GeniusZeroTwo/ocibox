@@ -50,10 +50,17 @@ public class AdminPasskeyController {
             HttpServletRequest request) {
         String token = resolveToken(headerToken, payload);
         if (!checkAuth(token)) {
-            return Map.of("success", false, "error", "未授权访问：首次添加通行密钥需要在 TG 登录后台后方可添加！");
+            return Map.of("success", false, "error", "请先登录后再绑定通行密钥");
         }
         String rpId = resolveSafeRpId(request, payload);
-        return adminPasskeyService.generateRegisterOptions(token, rpId);
+        String username = payload != null && payload.get("username") != null ? payload.get("username").toString() : null;
+        String stepUpSecret = null;
+        if (payload != null) {
+            Object secret = payload.get("stepUpSecret");
+            if (secret == null) secret = payload.get("password");
+            if (secret != null) stepUpSecret = secret.toString();
+        }
+        return adminPasskeyService.generateRegisterOptions(token, rpId, username, stepUpSecret, request);
     }
 
     /**

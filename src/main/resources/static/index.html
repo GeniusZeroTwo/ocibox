@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OCI Personal - 甲骨文云个人轻量管理面板</title>
+    <title>OCIBox - 甲骨文云轻量管理面板</title>
     <!-- 外部样式表：现代规范，支持浏览器强缓存，通过版本号破除陈旧缓存 -->
     <link rel="stylesheet" href="css/main.css?v=20261016_02">
     <!-- 🛡️ 彻底杜绝首屏模板插值花括号与未渲染内容闪烁乱码 (Anti-FOUC) -->
@@ -518,7 +518,7 @@
 
     <div id="app" v-cloak :class="{ 'is-logged-in': !!sessionToken, 'is-login': !sessionToken }">
         <!-- 🌸 背景壁纸与动态景深毛玻璃遮罩（内联直接相对寻址，彻底杜绝路径与缓存异常） -->
-        <div class="app-wallpaper" :class="{ 'is-blurred': sessionToken }" style="background-image: url('bg.png') !important;"></div>
+        <div class="app-wallpaper" :class="{ 'is-blurred': sessionToken }" style="background-image: url('bg.png?v=20261026_01') !important;"></div>
         <div class="app-wallpaper-overlay" :class="{ 'is-dashboard': sessionToken }"></div>
 
         <!-- 🌓 主题切换与通行密钥管理浮动组件 (竖向对齐，仅保留按钮与图标) -->
@@ -541,8 +541,8 @@
             <div class="container" id="loginArea">
                 <div class="login-brand">
                     <span class="login-brand-icon">☁️</span>
-                    <span class="login-brand-title">OCI PERSONAL</span>
-                    <span class="login-brand-badge">PERSONAL</span>
+                    <span class="login-brand-title">OCIBOX</span>
+                    <span class="login-brand-badge">BOX</span>
                 </div>
                 <h2>后台安全登录</h2>
                 <div class="login-subtext" v-if="tgBotRunning">
@@ -627,7 +627,7 @@
             <div class="brandbar">
                 <div style="display:flex; align-items:center; gap:10px;">
                     <span class="brand-logo">☁️</span>
-                    <span class="brand-title">OCI MANAGER</span>
+                    <span class="brand-title">OCIBOX</span>
                 </div>
                 <div class="brandbar-right">
                     <span class="pill" :class="isEditing ? 'pill-amber' : 'pill-cyan'" title="系统刷新状态">{{ isEditing ?
@@ -1093,7 +1093,7 @@
                         <div style="margin-top:15px;">
                             <label>🏷️ 自定义实例名称 (可选)</label>
                             <input type="text" v-model="createForm.instanceName"
-                                placeholder="留空则系统自动生成 (例如: OCI-Manager-1234)" @focus="setEditing(true)"
+                                placeholder="留空则系统自动生成 (例如: OCIBox-1234)" @focus="setEditing(true)"
                                 @blur="setEditing(false)">
                         </div>
 
@@ -2192,6 +2192,17 @@
                                 <span>绑定新通行密钥</span>
                             </div>
                         </div>
+                        <div class="passkey-input-group" style="margin-bottom: 8px;">
+                            <div class="passkey-input-wrapper">
+                                <input type="password"
+                                       name="passkey_step_up"
+                                       autocomplete="current-password"
+                                       v-model="modals.passkey.stepUpSecret"
+                                       placeholder="再次输入管理员密码或动态码"
+                                       class="passkey-name-input"
+                                       :disabled="modals.passkey.isRegistering">
+                            </div>
+                        </div>
                         <div class="passkey-input-group">
                             <div class="passkey-input-wrapper">
                                 <span class="passkey-input-icon">
@@ -2218,7 +2229,7 @@
                             <button type="button"
                                     class="btn-add-passkey"
                                     @click="registerPasskey"
-                                    :disabled="modals.passkey.isRegistering || !modals.passkey.newName.trim()">
+                                    :disabled="modals.passkey.isRegistering || !modals.passkey.newName.trim() || !modals.passkey.stepUpSecret.trim()">
                                 <svg v-if="!modals.passkey.isRegistering" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
                                 </svg>
@@ -2345,7 +2356,7 @@
     <!-- 🚀 首屏无缝加载指示层：Vue 挂载前优雅占位，杜绝任何模板插值花括号/未渲染 DOM 闪烁 -->
     <div id="app-loader">
         <div class="app-loader-icon">☁️</div>
-        <div class="app-loader-title">OCI PERSONAL</div>
+        <div class="app-loader-title">OCIBOX</div>
         <div class="app-loader-bar">
             <div class="app-loader-bar-inner"></div>
         </div>

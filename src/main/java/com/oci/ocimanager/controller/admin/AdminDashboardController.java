@@ -202,7 +202,7 @@ public class AdminDashboardController {
                 accInfo.put("clientPhaseOffset", fp.phaseOffsetMs() + "ms");
             }
             accInfo.put("clientIdentifier", acc.getClientIdentifier() != null ? acc.getClientIdentifier() : "");
-            accInfo.put("proxy", acc.getProxy() != null ? acc.getProxy() : "");
+            accInfo.put("proxy", com.oci.ocimanager.service.OciClientWrapper.redactProxy(acc.getProxy()));
 
             accInfo.put("registerTime", regTime);
             accInfo.put("isPayg", ociCloudService.getPaygStatusString(accountName));

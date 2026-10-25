@@ -1,6 +1,6 @@
 #!/bin/bash
 # ================================================================
-#  OCI Personal - 甲骨文云个人管理面板 一键部署脚本
+#  OCIBox - 甲骨文云专属管理面板 一键部署脚本
 #  完全面向客户自用，零商业租户与配额依赖，极简纯净 SQLite 架构
 # ================================================================
 
@@ -260,7 +260,8 @@ OCI_SECTION=$'oci:\n  accounts: {}'
 if [[ -f "${EXISTING_CONFIG}" ]] && grep -q "^oci:" "${EXISTING_CONFIG}"; then
     RAW_OCI=$(sed -n '/^oci:/,$p' "${EXISTING_CONFIG}")
     if echo "${RAW_OCI}" | grep -qE "user:|fingerprint:"; then
-        OCI_SECTION="${RAW_OCI}"
+        # 确保已有账号节点时清除 accounts: 后缀的 {}，防止 YAML 语法非法
+        OCI_SECTION=$(echo "${RAW_OCI}" | sed -E 's/accounts:[[:space:]]*\{\}/accounts:/')
         echo -e "  ${GREEN}✅ 已自动保留原有 OCI 云账号配置与本地密钥映射！${PLAIN}"
     else
         OCI_SECTION=$'oci:\n  accounts: {}'
@@ -271,7 +272,7 @@ fi
 cat << YAML > "${INSTALL_DIR}/application.yml"
 server:
   port: ${PORT}
-  address: 0.0.0.0
+  address: 127.0.0.1
   servlet:
     encoding:
       charset: UTF-8
@@ -323,6 +324,7 @@ app:
   admin-password: "${ADMIN_PWD}"
   bot-token: "${BOT_TOKEN}"
   admin-id: "${ADMIN_ID}"
+  trust-forwarded-for: false
 
 ${OCI_SECTION}
 YAML
@@ -334,8 +336,12 @@ echo -e "${GREEN}✅ 配置文件已安全生成至 ${INSTALL_DIR}/application.y
 # 5. 安装核心程序 JAR 包
 # 如果当前执行目录下存在编译好的 target/*.jar，优先复制
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [[ -f "${SCRIPT_DIR}/target/oci-personal.jar" ]]; then
+if [[ -f "${SCRIPT_DIR}/target/ocibox.jar" ]]; then
+    cp -f "${SCRIPT_DIR}/target/ocibox.jar" "${INSTALL_DIR}/app.jar"
+elif [[ -f "${SCRIPT_DIR}/target/oci-personal.jar" ]]; then
     cp -f "${SCRIPT_DIR}/target/oci-personal.jar" "${INSTALL_DIR}/app.jar"
+elif [[ -f "${SCRIPT_DIR}/ocibox.jar" ]]; then
+    cp -f "${SCRIPT_DIR}/ocibox.jar" "${INSTALL_DIR}/app.jar"
 elif [[ -f "${SCRIPT_DIR}/oci-personal.jar" ]]; then
     cp -f "${SCRIPT_DIR}/oci-personal.jar" "${INSTALL_DIR}/app.jar"
 elif compgen -G "${SCRIPT_DIR}/target/*.jar" > /dev/null; then
@@ -396,6 +402,11 @@ cat << 'CLI' > /usr/local/bin/ocibox
 # ================================================================
 #  OCIBox - 个人专属云管理面板 系统快捷指令
 # ================================================================
+
+# 自动处理普通用户/无 root 权限问题 (如 instabox、ubuntu、debian 默认免密 sudo 用户)
+if [ "$(id -u)" -ne 0 ]; then
+    exec sudo bash "$0" "$@"
+fi
 
 INSTALL_DIR="/root/ocibox"
 [[ ! -d "${INSTALL_DIR}" && -d "/root/oci-personal" ]] && INSTALL_DIR="/root/oci-personal"
@@ -486,7 +497,7 @@ ocibox_info() {
         tg_status="已绑定 (Admin ID: ${admin_id}) [保留原配置]"
     fi
 
-    echo -e "${GREEN}       🎉 OCI box 个人轻量管理面板 ${PLAIN}"
+    echo -e "${GREEN}       🎉 OCIBox 个人专属管理面板 ${PLAIN}"
     echo -e "${GREEN}================================================================${PLAIN}"
     echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${ip}:${port}${PLAIN}"
     if [[ -n "$user" && ! "$user" =~ ^\$\{ ]]; then
@@ -645,7 +656,7 @@ ln -sf /usr/local/bin/ocibox /usr/local/bin/oci-personal 2>/dev/null || true
 SERVER_IP=$(curl -s4 --max-time 3 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 3 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 3 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
 
 echo -e "\n${GREEN}================================================================${PLAIN}"
-echo -e "${GREEN}       🎉 OCI box 个人轻量管理面板 部署成功！${PLAIN}"
+echo -e "${GREEN}       🎉 OCIBox 个人专属管理面板 部署成功！${PLAIN}"
 echo -e "${GREEN}================================================================${PLAIN}"
 echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${SERVER_IP}:${PORT}${PLAIN}"
 echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${ADMIN_USER}${PLAIN}"

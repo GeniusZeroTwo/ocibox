@@ -33,7 +33,7 @@ public class AdminNetworkController {
             ociCloudService.fixRouteTables(account);
             return Map.of("success", true);
         } catch (Exception e) {
-            return Map.of("success", false, "error", "一键修复路由表失败: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("一键修复路由表失败", e);
         }
     }
 
@@ -45,7 +45,7 @@ public class AdminNetworkController {
             ociCloudService.openAllPorts(account);
             return Map.of("success", true);
         } catch (Exception e) {
-            return Map.of("success", false, "error", "执行异常: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("端口放行失败", e);
         }
     }
 }

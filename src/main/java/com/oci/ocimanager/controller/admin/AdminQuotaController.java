@@ -33,7 +33,7 @@ public class AdminQuotaController {
             ociCloudService.injectFreeTierQuota(account);
             return Map.of("success", true);
         } catch (Exception e) {
-            return Map.of("success", false, "error", "防扣费配额注入失败: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("防扣费配额注入失败", e);
         }
     }
 
@@ -46,7 +46,7 @@ public class AdminQuotaController {
             ociCloudService.deleteFreeTierQuota(account);
             return Map.of("success", true);
         } catch (Exception e) {
-            return Map.of("success", false, "error", "解除配额锁定失败: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("解除配额锁定失败", e);
         }
     }
 
@@ -57,7 +57,7 @@ public class AdminQuotaController {
             String template = ociCloudService.getQuotaTemplate();
             return Map.of("success", true, "template", template);
         } catch (Exception e) {
-            return Map.of("success", false, "error", e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("读取配额模板失败", e);
         }
     }
 
@@ -72,7 +72,7 @@ public class AdminQuotaController {
             ociCloudService.saveQuotaTemplate(template);
             return Map.of("success", true);
         } catch (Exception e) {
-            return Map.of("success", false, "error", "保存模板失败: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("保存模板失败", e);
         }
     }
 }

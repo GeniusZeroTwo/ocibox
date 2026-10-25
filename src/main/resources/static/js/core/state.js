@@ -6,7 +6,30 @@ import { genRandomPwd, getDisplayAccountName } from '../utils/helpers.js';
 export const isInitializing = ref(true);
 export const tgBotRunning = ref(false);
 export const isDarkTheme = ref(false);
-const storedSessionToken = localStorage.getItem('oci_session_token') || '';
+const SESSION_KEY = 'oci_session_token';
+
+function readStoredSessionToken() {
+    let token = '';
+    try {
+        token = sessionStorage.getItem(SESSION_KEY) || '';
+        const legacy = localStorage.getItem(SESSION_KEY) || '';
+        if (!token && legacy) {
+            sessionStorage.setItem(SESSION_KEY, legacy);
+            token = legacy;
+        }
+        if (legacy) localStorage.removeItem(SESSION_KEY);
+    } catch (e) {}
+    return token;
+}
+
+export function persistSessionToken(token) {
+    try {
+        if (token) sessionStorage.setItem(SESSION_KEY, token);
+        else sessionStorage.removeItem(SESSION_KEY);
+        localStorage.removeItem(SESSION_KEY);
+    } catch (e) {}
+}
+
 try {
     const params = new URLSearchParams(window.location.search);
     if (params.has('token')) {
@@ -16,7 +39,7 @@ try {
         history.replaceState(null, '', path);
     }
 } catch (e) {}
-export const sessionToken = ref(storedSessionToken);
+export const sessionToken = ref(readStoredSessionToken());
 export const currentTab = ref('auth');
 export const isEditing = ref(false);
 
@@ -125,7 +148,7 @@ export const modals = reactive({
     import: { show: false, accountName: '', configText: '', fileText: '', fileName: '', isSubmitting: false, keyMode: 'file' },
     danger: { show: false, title: '', message: '', expectedKeyword: '', inputKeyword: '', actionCallback: null },
     confirm: { show: false, title: '', message: '', confirmText: '确认', isDanger: false, actionCallback: null },
-    passkey: { show: false, list: [], isLoading: false, isRegistering: false, newName: '', msg: { text: '', isSuccess: true } },
+    passkey: { show: false, list: [], isLoading: false, isRegistering: false, newName: '', stepUpSecret: '', msg: { text: '', isSuccess: true } },
     subscribeRegion: {
         show: false,
         account: '',

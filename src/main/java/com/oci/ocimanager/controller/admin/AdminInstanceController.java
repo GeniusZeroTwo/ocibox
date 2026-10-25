@@ -65,7 +65,7 @@ public class AdminInstanceController {
             return Map.of("success", true, "publicIp", publicIp);
         } catch (Exception e) {
             LOG.log(java.util.logging.Level.WARNING, "开启 500Mbps 失败", e);
-            return Map.of("success", false, "error", e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("开启 500Mbps 失败", e);
         }
     }
 
@@ -86,7 +86,7 @@ public class AdminInstanceController {
             return Map.of("success", true, "publicIp", publicIp);
         } catch (Exception e) {
             LOG.log(java.util.logging.Level.WARNING, "删除 500Mbps 失败", e);
-            return Map.of("success", false, "error", e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("关闭 500Mbps 失败", e);
         }
     }
 
@@ -107,7 +107,7 @@ public class AdminInstanceController {
             return Map.of("success", true, "ipv6", ipv6 != null ? ipv6 : "");
         } catch (Exception e) {
             LOG.log(java.util.logging.Level.WARNING, "开启 IPv6 失败", e);
-            return Map.of("success", false, "error", e.getMessage() != null ? e.getMessage() : "开启 IPv6 异常");
+            return com.oci.ocimanager.controller.ApiErrors.fail("开启 IPv6 失败", e);
         }
     }
 
@@ -128,7 +128,7 @@ public class AdminInstanceController {
             return Map.of("success", ok);
         } catch (Exception e) {
             LOG.log(java.util.logging.Level.WARNING, "删除 IPv6 失败", e);
-            return Map.of("success", false, "error", e.getMessage() != null ? e.getMessage() : "删除 IPv6 异常");
+            return com.oci.ocimanager.controller.ApiErrors.fail("删除 IPv6 失败", e);
         }
     }
 
@@ -297,7 +297,7 @@ public class AdminInstanceController {
             
             return Map.of("success", true, "generatedPwd", (hasPwd ? safeRootPwd : "（通过 SSH 密钥登录）"));
         } catch (Exception e) {
-            return Map.of("success", false, "error", e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("系统重装失败", e);
         }
     }
 
@@ -349,8 +349,8 @@ public class AdminInstanceController {
                     scheduleMonitorTask(ocid, account, instanceName, rootPwd, oldBootVolumeId, attempt + 1);
                 }
             } catch (Exception e) {
-                String safeError = e.getMessage() != null ? e.getMessage().replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") : "未知异常";
-                telegramBotService.sendHtmlText(Long.parseLong(adminId), "💿 ❌ <b>系统重装监控异常</b>\n\n实例: <code>" + safeInstance + "</code>\n错误信息:\n" + safeError);
+                LOG.warning("系统重装监控异常: " + e.getMessage());
+                telegramBotService.sendHtmlText(Long.parseLong(adminId), "💿 ❌ <b>系统重装监控异常</b>\n\n实例: <code>" + safeInstance + "</code>\n请到网页后台或服务日志查看详情。");
             }
         }, 30, TimeUnit.SECONDS);
     }

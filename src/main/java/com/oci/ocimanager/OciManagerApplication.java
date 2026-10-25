@@ -42,7 +42,7 @@ public class OciManagerApplication {
 
         SpringApplication.run(OciManagerApplication.class, args);
         System.out.println("===========================================");
-        System.out.println("🚀 OCI Personal (Java + SQLite 纯轻量版) 启动成功！");
+        System.out.println("🚀 OCIBox (Java + SQLite 纯轻量版) 启动成功！");
         System.out.println("===========================================");
     }
 

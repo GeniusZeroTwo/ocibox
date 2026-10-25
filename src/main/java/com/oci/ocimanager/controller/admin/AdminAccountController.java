@@ -135,7 +135,7 @@ public class AdminAccountController {
             res.put("clientTimeouts", fp.connectTimeoutMillis() + "ms / " + fp.readTimeoutMillis() + "ms");
             res.put("clientPhaseOffset", fp.phaseOffsetMs() + "ms");
         }
-        res.put("proxy", acc.getProxy() != null ? acc.getProxy() : "");
+        res.put("proxy", com.oci.ocimanager.service.OciClientWrapper.redactProxy(acc.getProxy()));
         res.put("clientIdentifier", acc.getClientIdentifier() != null ? acc.getClientIdentifier() : "");
         return res;
     }
@@ -267,7 +267,7 @@ public class AdminAccountController {
 
             } catch (Exception e) {
                 LOG.log(java.util.logging.Level.WARNING, "账号重命名失败", e);
-                return Map.of("success", false, "error", "重命名失败: " + e.getMessage());
+                return com.oci.ocimanager.controller.ApiErrors.fail("重命名失败", e);
             }
         }
     }
@@ -399,7 +399,7 @@ public class AdminAccountController {
                 
                 return Map.of("success", true);
             } catch (Exception e) {
-                return Map.of("success", false, "error", "配置彻底清理阶段发生异常: " + e.getMessage());
+                return com.oci.ocimanager.controller.ApiErrors.fail("账号清理失败", e);
             }
         }
     }
@@ -517,6 +517,9 @@ public class AdminAccountController {
                     }
                     
                     if (accountsLine != -1) {
+                        // 确保 accounts 节点后若带有 {} 则清除，避免追加子节点后破坏 YAML 语法
+                        lines.set(accountsLine, lines.get(accountsLine).replaceFirst(":\\s*\\{\\}\\s*$", ":"));
+
                         int accountsIndent = accountYamlService.getLeadingWhitespaceCount(lines.get(accountsLine));
                         int insertIndex = accountsLine + 1;
                         
@@ -587,7 +590,7 @@ public class AdminAccountController {
 
             return Map.of("success", true, "msg", "账号导入成功，已在后台自动建立预热缓存！");
         } catch (Exception e) {
-            return Map.of("success", false, "error", "导入处理时发生异常: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("账号导入失败", e);
         }
     }
 

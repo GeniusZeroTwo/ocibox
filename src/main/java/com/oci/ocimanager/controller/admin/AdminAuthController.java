@@ -1,6 +1,5 @@
 package com.oci.ocimanager.controller.admin;
 
-import com.oci.ocimanager.config.ClientIpResolver;
 import com.oci.ocimanager.service.AdminAuthService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,7 +22,7 @@ public class AdminAuthController {
 
     @PostMapping("/send-code")
     public Map<String, Object> sendCode(HttpServletRequest request) {
-        return adminAuthService.sendCode(ClientIpResolver.resolve(request));
+        return adminAuthService.sendCode(adminAuthService.resolveClientIp(request));
     }
 
     @PostMapping("/login")
@@ -33,7 +32,7 @@ public class AdminAuthController {
         if (password == null && payload != null) {
             password = payload.get("code");
         }
-        return adminAuthService.login(username, password, ClientIpResolver.resolve(request));
+        return adminAuthService.login(username, password, adminAuthService.resolveClientIp(request));
     }
 
     @PostMapping("/logout")

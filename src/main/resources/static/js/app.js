@@ -14,7 +14,7 @@ import {
     createImages, reinstallImages, createForm, modals, isDragging,
     availableRegionsForSelectedAccount, isRegionDropdownOpen, kpiStats,
     sortedTrafficData, trafficStats, isUpgradedAccount, groupedInstances,
-    serverSearchKeyword, isBootVolumeCollapsed
+    serverSearchKeyword, isBootVolumeCollapsed, persistSessionToken
 } from './core/state.js';
 
 import { apiCall } from './core/api.js';
@@ -101,7 +101,7 @@ const app = createApp({
                     localStorage.setItem('oci_admin_username', loginUsername.value.trim());
                 }
                 sessionToken.value = data.token;
-                localStorage.setItem('oci_session_token', data.token);
+                persistSessionToken(data.token);
                 await checkSession();
             }
             isLoggingIn.value = false;
@@ -111,7 +111,7 @@ const app = createApp({
             try {
                 await apiCall('logout', {}, null);
             } catch (ignored) {}
-            localStorage.removeItem('oci_session_token');
+            persistSessionToken('');
             sessionToken.value = '';
             loginCode.value = '';
             clearAllTimers();
@@ -191,13 +191,13 @@ const app = createApp({
                 const verifyRes = await apiCall('passkey/login/verify', verifyPayload, loginMsg);
                 if (verifyRes.success) {
                     sessionToken.value = verifyRes.token;
-                    localStorage.setItem('oci_session_token', verifyRes.token);
+                    persistSessionToken(verifyRes.token);
                     showMessage(loginMsg, `✅ 通行密钥 [${verifyRes.name || '验证通过'}] 登录成功！`, true);
                     await checkSession();
                 }
             } catch (err) {
                 if (err.name === 'NotAllowedError') {
-                    showMessage(loginMsg, 'ℹ️ 已取消通行密钥验证', false);
+                    showMessage(loginMsg, 'ℹ️ 未完成通行密钥验证', false);
                 } else {
                     showMessage(loginMsg, `❌ 通行密钥验证异常: ${err.message}`, false);
                 }
@@ -213,6 +213,7 @@ const app = createApp({
             }
             modals.passkey.show = true;
             modals.passkey.newName = '';
+            modals.passkey.stepUpSecret = '';
             modals.passkey.msg = { text: '', isSuccess: true };
             await fetchPasskeys();
         }
@@ -252,6 +253,10 @@ const app = createApp({
 
         async function registerPasskey() {
             const name = (modals.passkey.newName || '').trim();
+            const stepUpSecret = (modals.passkey.stepUpSecret || '').trim();
+            if (!stepUpSecret) {
+                return showMessage(modals.passkey.msg, '绑定前请再次输入管理员密码或动态码', false);
+            }
             if (!name) {
                 return showMessage(modals.passkey.msg, '请输入通行密钥设备名称/备注', false);
             }
@@ -260,7 +265,11 @@ const app = createApp({
             }
             modals.passkey.isRegistering = true;
             try {
-                const optRes = await apiCall('passkey/register/options', { rpId: window.location.hostname }, modals.passkey.msg);
+                const optRes = await apiCall('passkey/register/options', {
+                    rpId: window.location.hostname,
+                    username: loginUsername.value ? loginUsername.value.trim() : '',
+                    stepUpSecret: stepUpSecret
+                }, modals.passkey.msg);
                 if (!optRes.success) {
                     modals.passkey.isRegistering = false;
                     return;
@@ -319,6 +328,7 @@ const app = createApp({
                 if (verifyRes.success) {
                     showMessage(modals.passkey.msg, `✅ ${verifyRes.message || '通行密钥添加成功！'}`, true);
                     modals.passkey.newName = '';
+                    modals.passkey.stepUpSecret = '';
                     await fetchPasskeys();
                 }
             } catch (err) {

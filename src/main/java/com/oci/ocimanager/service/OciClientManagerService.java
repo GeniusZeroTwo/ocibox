@@ -308,8 +308,9 @@ public class OciClientManagerService {
             res.put("allRegions", allRegions);
             return res;
         } catch (Exception e) {
+            System.err.println("获取账号区域信息失败 [" + accountName + "]: " + e.getMessage());
             res.put("success", false);
-            res.put("error", "获取账号区域信息失败: " + e.getMessage());
+            res.put("error", "获取账号区域信息失败");
             return res;
         }
     }
@@ -562,27 +563,30 @@ public class OciClientManagerService {
             res.put("message", "✅ 区域 [" + (canonicalName != null ? canonicalName : regionKey) + " (" + regionKey + ")] 订阅请求已成功提交！甲骨文正在后台配置该区域。");
             return res;
         } catch (com.oracle.bmc.model.BmcException bmcEx) {
+            System.err.println("提交区域订阅被拒绝 [" + accountName + "]: " + bmcEx.getMessage());
             String msg = bmcEx.getMessage();
             int status = bmcEx.getStatusCode();
+            String publicMsg = "甲骨文 API 拒绝订阅 (HTTP " + status + ")";
             if (status == 404) {
-                msg = "未找到目标实体 (404 EntityNotFound)：请检查输入的 Region Key (当前解析为: " + regionKey + ") 是否准确；若使用的是非主区域凭证，请确认请求已正确路由至主区域 (" + homeRegion + ")。原错误: " + msg;
+                publicMsg = "未找到目标实体 (404 EntityNotFound)：请检查输入的 Region Key (当前解析为: " + regionKey + ") 是否准确；若使用的是非主区域凭证，请确认请求已正确路由至主区域 (" + homeRegion + ")。";
             } else if (status == 502 || status == 504) {
-                msg = "甲骨文官方网关超时 (HTTP " + status + " Bad Gateway)：此错误为甲骨文官方跨区域控制面响应超时导致，但订阅请求极大概率已在甲骨文后台排队处理中！请稍候 1~2 分钟刷新区域列表查看状态，或登录甲骨文云官网控制台（管理 -> 区域）核对。原错误: " + msg;
+                publicMsg = "甲骨文官方网关超时 (HTTP " + status + " Bad Gateway)：此错误为甲骨文官方跨区域控制面响应超时导致，但订阅请求极大概率已在甲骨文后台排队处理中！请稍候 1~2 分钟刷新区域列表查看状态，或登录甲骨文云官网控制台（管理 -> 区域）核对。";
             } else if (status == 400 || status == 403) {
                 if (msg != null && (msg.contains("multiregion is not supported") || msg.contains("Free Tier") || msg.contains("trial") || msg.contains("Trial") || msg.contains("not supported for this tenancy"))) {
-                    msg = "甲骨文官方限制：免费试用/未升级账户 (Free Tier) 不允许订阅多区域。需先在甲骨文控制台升级为 PAYG 付费账户后方可开通多区域。原错误: " + msg;
+                    publicMsg = "甲骨文官方限制：免费试用/未升级账户 (Free Tier) 不允许订阅多区域。需先在甲骨文控制台升级为 PAYG 付费账户后方可开通多区域。";
                 } else if (msg != null && (msg.contains("AlreadyExists") || msg.contains("already subscribed"))) {
-                    msg = "该区域在甲骨文租户中已经存在订阅记录。";
+                    publicMsg = "该区域在甲骨文租户中已经存在订阅记录。";
                 } else if (msg != null && (msg.contains("NotAuthorized") || msg.contains("Authorization failed"))) {
-                    msg = "权限不足：当前 API 用户缺少管理租户订阅权限 (TENANCY_UPDATE 或 manage tenancy-subscriptions in tenancy)。";
+                    publicMsg = "权限不足：当前 API 用户缺少管理租户订阅权限 (TENANCY_UPDATE 或 manage tenancy-subscriptions in tenancy)。";
                 }
             }
             res.put("success", false);
-            res.put("error", "甲骨文 API 拒绝订阅: " + (msg != null ? msg : "未知错误 (HTTP " + status + ")"));
+            res.put("error", publicMsg);
             return res;
         } catch (Exception e) {
+            System.err.println("提交区域订阅失败 [" + accountName + "]: " + e.getMessage());
             res.put("success", false);
-            res.put("error", "提交区域订阅失败: " + e.getMessage());
+            res.put("error", "提交区域订阅失败");
             return res;
         }
     }

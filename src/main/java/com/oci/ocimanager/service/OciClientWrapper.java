@@ -96,12 +96,9 @@ public class OciClientWrapper {
         return proxyConfig;
     }
 
-    private static final java.util.Set<Integer> FORBIDDEN_PROXY_PORTS = java.util.Set.of(
-            22, 25, 80, 443, 3306, 5432, 6379, 9527, 11211, 27017
-    );
-
     /**
-     * 校验代理地址合法性与安全性（成功返回 null，不安全或格式非法返回错误原因）
+     * 校验代理地址。局域网代理仍允许；本机回环、链路本地和云元数据地址一律拒绝。
+     * 成功返回 null。
      */
     public static String validateProxySafety(String proxyStr) {
         if (proxyStr == null || proxyStr.trim().isEmpty()) return null;
@@ -119,28 +116,82 @@ public class OciClientWrapper {
             if (host == null || host.isBlank() || port <= 0 || port > 65535) {
                 return "代理地址必须包含合法的主机名与端口号 (1~65535)";
             }
-            String lowerHost = host.trim().toLowerCase();
-            if ("169.254.169.254".equals(lowerHost)
-                    || lowerHost.startsWith("169.254.")
-                    || "metadata.google.internal".equals(lowerHost)
-                    || "0.0.0.0".equals(lowerHost)) {
-                return "安全拦截：禁止将代理指向云元数据服务或保留地址";
+            if (uri.getUserInfo() != null && uri.getUserInfo().indexOf('@') >= 0) {
+                return "代理地址格式不合法";
             }
-            if (FORBIDDEN_PROXY_PORTS.contains(port)
-                    && ("localhost".equals(lowerHost) || lowerHost.startsWith("127.") || "::1".equals(lowerHost) || "[::1]".equals(lowerHost))) {
-                return "安全拦截：禁止将本机内部敏感服务端口 (" + port + ") 配置为代理";
+            String blocked = blockedProxyHost(host.trim());
+            if (blocked != null) return blocked;
+            java.net.InetAddress[] resolved;
+            try {
+                resolved = java.net.InetAddress.getAllByName(host.trim());
+            } catch (java.net.UnknownHostException e) {
+                return "代理主机无法解析";
+            }
+            if (resolved == null || resolved.length == 0) return "代理主机无法解析";
+            for (java.net.InetAddress address : resolved) {
+                if (isBlockedProxyAddress(address)) {
+                    return "安全拦截：禁止将代理指向本机、链路本地或云元数据地址";
+                }
             }
             return null;
         } catch (Exception e) {
-            return "代理地址 URI 格式不合法: " + e.getMessage();
+            return "代理地址格式不合法";
         }
+    }
+
+    /** 返回给浏览器时去掉代理里的账号口令。 */
+    public static String redactProxy(String proxy) {
+        if (proxy == null || proxy.isBlank()) return "";
+        try {
+            java.net.URI uri = java.net.URI.create(proxy.trim());
+            if (uri.getRawUserInfo() == null || uri.getRawUserInfo().isEmpty()) return proxy.trim();
+            String host = uri.getHost();
+            if (uri.getScheme() == null || host == null) return "";
+            int port = uri.getPort();
+            return uri.getScheme() + "://" + host + (port > 0 ? ":" + port : "");
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private static String blockedProxyHost(String host) {
+        String lower = host.toLowerCase(java.util.Locale.ROOT);
+        if (lower.endsWith(".")) lower = lower.substring(0, lower.length() - 1);
+        if (lower.equals("localhost") || lower.endsWith(".localhost")
+                || lower.equals("metadata.google.internal")
+                || lower.equals("metadata.internal")
+                || lower.equals("0.0.0.0")
+                || lower.equals("::1")
+                || lower.equals("[::1]")) {
+            return "安全拦截：禁止将代理指向本机或云元数据地址";
+        }
+        if (lower.matches("\\d+") || lower.matches("0x[0-9a-f]+") || lower.contains("%")) {
+            return "安全拦截：代理主机名格式不被接受";
+        }
+        return null;
+    }
+
+    private static boolean isBlockedProxyAddress(java.net.InetAddress address) {
+        if (address.isAnyLocalAddress() || address.isLoopbackAddress()
+                || address.isLinkLocalAddress() || address.isMulticastAddress()) {
+            return true;
+        }
+        byte[] raw = address.getAddress();
+        if (raw.length == 4) {
+            int a = raw[0] & 0xff;
+            int b = raw[1] & 0xff;
+            if (a == 0 || a == 127) return true;
+            if (a == 169 && b == 254) return true;
+            if (a == 255 && b == 255 && (raw[2] & 0xff) == 255 && (raw[3] & 0xff) == 255) return true;
+        }
+        return false;
     }
 
     public static com.oracle.bmc.http.client.ProxyConfiguration parseProxy(String proxyStr) {
         if (proxyStr == null || proxyStr.trim().isEmpty()) return null;
         String unsafeReason = validateProxySafety(proxyStr);
         if (unsafeReason != null) {
-            System.err.println("🚨 拒绝加载不安全的账号代理配置 [" + proxyStr + "]: " + unsafeReason);
+            System.err.println("🚨 拒绝加载不安全的账号代理配置: " + unsafeReason);
             return null;
         }
         try {
@@ -166,7 +217,7 @@ public class OciClientWrapper {
             }
             return builder.build();
         } catch (Exception e) {
-            System.err.println("解析账号代理配置异常 [" + proxyStr + "]: " + e.getMessage());
+            System.err.println("解析账号代理配置异常: " + e.getMessage());
             return null;
         }
     }

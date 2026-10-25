@@ -516,8 +516,11 @@ public class ScheduledTasksService {
             return resp;
 
         } catch (Exception e) {
-            String errMsg = "❌ 月初自动开机任务异常: " + e.getMessage();
-            telegramBotService.sendText(Long.parseLong(adminId), errMsg);
+            System.err.println("❌ 月初自动开机任务异常: " + e.getMessage());
+            String errMsg = "❌ 月初自动开机任务异常，请到服务日志查看详情。";
+            try {
+                telegramBotService.sendText(Long.parseLong(adminId), errMsg);
+            } catch (Exception ignored) {}
             return Map.of("success", false, "error", errMsg);
         }
     }

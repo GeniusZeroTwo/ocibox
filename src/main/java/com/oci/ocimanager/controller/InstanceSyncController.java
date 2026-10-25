@@ -62,8 +62,7 @@ public class InstanceSyncController {
 
             return Map.of("success", true, "ocid", ocid, "instance", info);
         } catch (Exception e) {
-            String msg = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
-            return Map.of("success", false, "error", msg);
+            return com.oci.ocimanager.controller.ApiErrors.fail("实例同步失败", e);
         } finally {
             lock.unlock();
         }

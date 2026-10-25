@@ -2,7 +2,6 @@ package com.oci.ocimanager.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.oci.ocimanager.config.ClientIpResolver;
 import com.oci.ocimanager.entity.AdminPasskey;
 import com.oci.ocimanager.repository.AdminPasskeyRepository;
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,10 +40,20 @@ public class AdminPasskeyService {
     /**
      * 生成注册选项 (WebAuthn Creation Options)
      */
-    public Map<String, Object> generateRegisterOptions(String token, String rpId) {
+    public Map<String, Object> generateRegisterOptions(String token, String rpId, String username, String stepUpSecret, HttpServletRequest request) {
         if (!adminAuthService.checkAuth(token)) {
-            return Map.of("success", false, "error", "首次添加通行密钥需要在 TG 登录后台后方可添加，请先登录！");
+            return Map.of("success", false, "error", "请先登录后再绑定通行密钥");
         }
+        Map<String, Object> confirmed = adminAuthService.confirmCredential(
+                username, stepUpSecret, adminAuthService.resolveClientIp(request));
+        if (!Boolean.TRUE.equals(confirmed.get("success"))) {
+            Map<String, Object> denied = new HashMap<>();
+            denied.put("success", false);
+            denied.put("stepUpRequired", true);
+            denied.put("error", confirmed.get("error") != null ? confirmed.get("error") : "绑定通行密钥前需要再次验证管理员密码或动态码");
+            return denied;
+        }
+        adminAuthService.markStepUp(token);
 
         byte[] challengeBytes = new byte[32];
         SECURE_RANDOM.nextBytes(challengeBytes);
@@ -62,7 +71,7 @@ public class AdminPasskeyService {
         }
 
         Map<String, Object> rp = new HashMap<>();
-        rp.put("name", "OCI Manager Pro");
+        rp.put("name", "OCIBox");
         if (rpId != null && !rpId.isBlank() && !"localhost".equalsIgnoreCase(rpId)) {
             rp.put("id", rpId.trim());
         }
@@ -81,7 +90,7 @@ public class AdminPasskeyService {
         Map<String, Object> authenticatorSelection = Map.of(
                 "residentKey", "preferred",
                 "requireResidentKey", false,
-                "userVerification", "preferred"
+                "userVerification", "required"
         );
 
         return Map.of(
@@ -109,7 +118,10 @@ public class AdminPasskeyService {
      */
     public Map<String, Object> verifyAndSaveRegistration(String token, Map<String, Object> body, HttpServletRequest request) {
         if (!adminAuthService.checkAuth(token)) {
-            return Map.of("success", false, "error", "首次添加通行密钥需要在 TG 登录后台后方可添加，请先登录！");
+            return Map.of("success", false, "error", "请先登录后再绑定通行密钥");
+        }
+        if (!adminAuthService.hasStepUp(token)) {
+            return Map.of("success", false, "stepUpRequired", true, "error", "绑定已过期，请重新输入管理员密码或动态码");
         }
 
         String expectedChallenge = redisTemplate.opsForValue().get("oci:passkey:reg_challenge:" + token);
@@ -146,13 +158,15 @@ public class AdminPasskeyService {
             String origin = clientDataNode.path("origin").asText();
 
             if (!"webauthn.create".equals(type)) {
-                return Map.of("success", false, "error", "客户端认证类型异常: " + type);
+                LOG.warning("通行密钥注册类型异常: " + type);
+                return Map.of("success", false, "error", "通行密钥注册失败");
             }
             if (!expectedChallenge.equals(challenge)) {
-                return Map.of("success", false, "error", "Challenge 校验失败");
+                return Map.of("success", false, "error", "通行密钥注册失败");
             }
             if (!verifyOrigin(origin, expectedRpId, request)) {
-                return Map.of("success", false, "error", "WebAuthn 注册来源非法 (Origin 不匹配: " + origin + ")");
+                LOG.warning("通行密钥注册来源不匹配: " + origin);
+                return Map.of("success", false, "error", "通行密钥注册失败");
             }
 
             // 2. 公钥和凭证 ID 只从 attestationObject.authData 解析，客户端字段必须与之一致
@@ -164,8 +178,8 @@ public class AdminPasskeyService {
                 return Map.of("success", false, "error", "WebAuthn 注册域校验失败 (rpIdHash 不匹配)");
             }
             int authFlags = authData[32] & 0xFF;
-            if ((authFlags & 0x01) == 0) {
-                return Map.of("success", false, "error", "未检测到用户确认交互 (User Present)");
+            if ((authFlags & 0x01) == 0 || (authFlags & 0x04) == 0) {
+                return Map.of("success", false, "error", "通行密钥需要完成 PIN 或生物识别验证");
             }
             if ((authFlags & 0x40) == 0) {
                 return Map.of("success", false, "error", "认证器未携带可绑定的公钥");
@@ -222,7 +236,7 @@ public class AdminPasskeyService {
             return Map.of("success", true, "message", "通行密钥 [" + finalName + "] 绑定成功！");
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "注册通行密钥异常", e);
-            return Map.of("success", false, "error", "添加失败: " + e.getMessage());
+            return Map.of("success", false, "error", "通行密钥注册失败");
         }
     }
 
@@ -248,9 +262,6 @@ public class AdminPasskeyService {
         }
 
         List<AdminPasskey> passkeys = adminPasskeyRepository.findAll();
-        if (passkeys.isEmpty()) {
-            return Map.of("success", false, "error", "当前未绑定任何通行密钥。首次添加通行密钥需要在 TG 登录后台后方可添加，请先使用 Telegram 动态验证码登录！");
-        }
 
         byte[] challengeBytes = new byte[32];
         SECURE_RANDOM.nextBytes(challengeBytes);
@@ -262,8 +273,16 @@ public class AdminPasskeyService {
         redisTemplate.opsForValue().set("oci:passkey:login_rpid:" + challengeId, rpId != null ? rpId.trim() : "", 2, TimeUnit.MINUTES);
 
         List<Map<String, Object>> allowCredentials = new ArrayList<>();
-        for (AdminPasskey p : passkeys) {
-            allowCredentials.add(Map.of("id", p.getCredentialId(), "type", "public-key"));
+        if (passkeys.isEmpty()) {
+            byte[] placeholder = new byte[32];
+            SECURE_RANDOM.nextBytes(placeholder);
+            allowCredentials.add(Map.of(
+                    "id", Base64.getUrlEncoder().withoutPadding().encodeToString(placeholder),
+                    "type", "public-key"));
+        } else {
+            for (AdminPasskey p : passkeys) {
+                allowCredentials.add(Map.of("id", p.getCredentialId(), "type", "public-key"));
+            }
         }
 
         Map<String, Object> res = new HashMap<>();
@@ -271,7 +290,7 @@ public class AdminPasskeyService {
         res.put("challengeId", challengeId);
         res.put("challenge", challenge);
         res.put("timeout", 60000);
-        res.put("userVerification", "preferred");
+        res.put("userVerification", "required");
         res.put("allowCredentials", allowCredentials);
         if (rpId != null && !rpId.isBlank() && !"localhost".equalsIgnoreCase(rpId)) {
             res.put("rpId", rpId.trim());
@@ -309,14 +328,14 @@ public class AdminPasskeyService {
             String signatureStr = (String) body.get("signature");
 
             if (credentialId == null || clientDataJsonStr == null || authenticatorDataStr == null || signatureStr == null) {
-                return Map.of("success", false, "error", "凭证认证参数不完整");
+                return Map.of("success", false, "error", "通行密钥验证失败");
             }
 
             // 1. 查找数据库中注册的凭证
             Optional<AdminPasskey> opt = adminPasskeyRepository.findByCredentialId(credentialId);
             if (opt.isEmpty()) {
                 adminAuthService.recordAuthFailure(clientIp);
-                return Map.of("success", false, "error", "该通行密钥在服务端未找到，可能已被解绑");
+                return Map.of("success", false, "error", "通行密钥验证失败");
             }
             AdminPasskey passkey = opt.get();
 
@@ -329,15 +348,17 @@ public class AdminPasskeyService {
 
             if (!"webauthn.get".equals(type)) {
                 adminAuthService.recordAuthFailure(clientIp);
-                return Map.of("success", false, "error", "认证动作类型异常: " + type);
+                LOG.warning("通行密钥登录类型异常: " + type);
+                return Map.of("success", false, "error", "通行密钥验证失败");
             }
             if (!expectedChallenge.equals(challenge)) {
                 adminAuthService.recordAuthFailure(clientIp);
-                return Map.of("success", false, "error", "Challenge 不匹配");
+                return Map.of("success", false, "error", "通行密钥验证失败");
             }
             if (!verifyOrigin(origin, expectedRpId, request)) {
                 adminAuthService.recordAuthFailure(clientIp);
-                return Map.of("success", false, "error", "WebAuthn 认证来源非法 (Origin 不匹配: " + origin + ")");
+                LOG.warning("通行密钥登录来源不匹配: " + origin);
+                return Map.of("success", false, "error", "通行密钥验证失败");
             }
 
             // 3. 校验 authenticatorData 标志位 (UP 用户在场位) 与 rpIdHash
@@ -352,13 +373,13 @@ public class AdminPasskeyService {
                     || !rpIdHashMatches(Arrays.copyOfRange(authDataBytes, 0, 32), expectedRpId)) {
                 LOG.warning("⚠️ WebAuthn rpIdHash 校验失败，预期 RP: " + expectedRpId);
                 adminAuthService.recordAuthFailure(clientIp);
-                return Map.of("success", false, "error", "WebAuthn 认证域校验失败 (rpIdHash 不匹配)");
+                return Map.of("success", false, "error", "通行密钥验证失败");
             }
 
             byte flags = authDataBytes[32];
-            if ((flags & 0x01) == 0) {
+            if ((flags & 0x01) == 0 || (flags & 0x04) == 0) {
                 adminAuthService.recordAuthFailure(clientIp);
-                return Map.of("success", false, "error", "未检测到用户确认交互 (User Present)");
+                return Map.of("success", false, "error", "通行密钥需要完成 PIN 或生物识别验证");
             }
 
             // 4. 密码学数字签名验证: Signature over (authData || SHA256(clientDataJSON))
@@ -384,7 +405,7 @@ public class AdminPasskeyService {
                 LOG.warning("⚠️ 通行密钥签名验证失败，密钥名称: " + passkey.getName());
                 adminAuthService.recordAuthFailure(clientIp);
                 sendPasskeyFailedTgAlert(passkey, request, "数字签名校验未通过 (可能存在伪造签名或重放攻击)");
-                return Map.of("success", false, "error", "通行密钥数字签名校验未通过");
+                return Map.of("success", false, "error", "通行密钥验证失败");
             }
 
             // 5. 校验通过，更新最后使用时间与 signCount (含硬件凭据克隆与重放检测)
@@ -399,7 +420,7 @@ public class AdminPasskeyService {
                 LOG.warning("🚨 [安全告警] 通行密钥签名计数器异常 (current=" + currentSignCount + ", received=" + signCount + ")，疑似硬件凭据克隆攻击！");
                 adminAuthService.recordAuthFailure(clientIp);
                 sendPasskeyFailedTgAlert(passkey, request, "签名计数器异常 (疑似克隆攻击或重放)");
-                return Map.of("success", false, "error", "安全拦截：通行密钥计数器异常，可能存在克隆风险");
+                return Map.of("success", false, "error", "通行密钥验证失败");
             }
             adminAuthService.clearAuthFailures(clientIp);
             passkey.setSignCount(signCount);
@@ -408,8 +429,7 @@ public class AdminPasskeyService {
             adminPasskeyRepository.save(passkey);
 
             // 6. 签发后台管理员会话 Token (与常规验证码登录保持统一)
-            String token = UUID.randomUUID().toString();
-            redisTemplate.opsForValue().set("oci:admin_session:" + token, "1", 24, TimeUnit.HOURS);
+            String token = adminAuthService.issueSession();
 
             // 7. 📲 向管理员 Telegram 推送登录通知
             sendPasskeyLoginTgNotification(passkey, request, nowStr);
@@ -423,7 +443,7 @@ public class AdminPasskeyService {
 
         } catch (Exception e) {
             LOG.log(Level.SEVERE, "通行密钥登录校验异常", e);
-            return Map.of("success", false, "error", "验证异常: " + e.getMessage());
+            return Map.of("success", false, "error", "通行密钥验证失败");
         }
     }
 
@@ -493,7 +513,6 @@ public class AdminPasskeyService {
             Map<String, Object> item = new HashMap<>();
             item.put("id", p.getId());
             item.put("name", p.getName());
-            item.put("credentialId", p.getCredentialId());
             item.put("algorithm", p.getAlgorithm());
             item.put("createdAt", p.getCreatedAt());
             item.put("lastUsedAt", p.getLastUsedAt());
@@ -678,7 +697,7 @@ public class AdminPasskeyService {
     }
 
     private String resolveClientIp(HttpServletRequest request) {
-        String ip = ClientIpResolver.resolve(request);
+        String ip = adminAuthService.resolveClientIp(request);
         if (ip == null || ip.isBlank() || "UNKNOWN".equals(ip)) return "未知 IP";
         return ip;
     }

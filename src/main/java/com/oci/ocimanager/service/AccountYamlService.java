@@ -10,6 +10,7 @@ import org.yaml.snakeyaml.Yaml;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.regex.Matcher;
@@ -241,6 +242,50 @@ public class AccountYamlService {
         Matcher m = Pattern.compile("(?i)^\\s*" + key + "\\s*=\\s*(.+)$", Pattern.MULTILINE).matcher(text);
         if (m.find()) return m.group(1).trim();
         return null;
+    }
+
+    /**
+     * 把配置文件里的明文 admin-password 换成哈希。环境变量占位符和已经是哈希的值不动。
+     */
+    public boolean replacePlaintextAdminPassword(String plaintext, String hashed) {
+        if (plaintext == null || plaintext.isBlank() || hashed == null || hashed.isBlank()) return false;
+        if (hashed.indexOf('"') >= 0 || hashed.indexOf('\n') >= 0 || hashed.indexOf('\r') >= 0) return false;
+        synchronized (YAML_FILE_LOCK) {
+            try {
+                File ymlFile = getConfigFile();
+                if (ymlFile == null || !ymlFile.exists()) return false;
+                List<String> lines = Files.readAllLines(ymlFile.toPath());
+                boolean changed = false;
+                Pattern pattern = Pattern.compile("^(\\s*)admin-password\\s*:\\s*(.*)$");
+                for (int i = 0; i < lines.size(); i++) {
+                    Matcher matcher = pattern.matcher(lines.get(i));
+                    if (!matcher.matches()) continue;
+                    String raw = matcher.group(2).trim();
+                    if (raw.contains("${")) return false;
+                    String value = unquoteYaml(raw);
+                    if (!value.equals(plaintext) || PasswordHasher.isHashed(value)) return false;
+                    lines.set(i, matcher.group(1) + "admin-password: \"" + hashed + "\"");
+                    changed = true;
+                    break;
+                }
+                if (!changed) return false;
+                Files.write(ymlFile.toPath(), lines, StandardCharsets.UTF_8);
+                return true;
+            } catch (Exception e) {
+                System.err.println("升级管理员密码哈希失败: " + e.getMessage());
+                return false;
+            }
+        }
+    }
+
+    private static String unquoteYaml(String raw) {
+        if (raw.length() >= 2) {
+            char quote = raw.charAt(0);
+            if ((quote == '"' || quote == '\'') && raw.charAt(raw.length() - 1) == quote) {
+                return raw.substring(1, raw.length() - 1);
+            }
+        }
+        return raw;
     }
 
     // 🔒 账号别名将被写成 YAML 键 "[name]"，禁止会破坏 YAML 结构的元字符与控制字符。

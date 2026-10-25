@@ -1,6 +1,7 @@
 server:
   port: 5000
-  address: 0.0.0.0
+  # 只监听本机。对外发布请走自己的反向代理，不要把管理面直接绑到所有网卡。
+  address: ${SERVER_ADDRESS:127.0.0.1}
   servlet:
     encoding:
       charset: UTF-8
@@ -73,7 +74,9 @@ app:
   admin-password: "${ADMIN_PASSWORD:}"
   bot-token: "${BOT_TOKEN:}"
   admin-id: "${ADMIN_ID:}"
-  
+  # 默认不信 X-Forwarded-For。只有反向代理会覆盖并追加真实客户端地址时才改为 true。
+  trust-forwarded-for: false
+
 # OCI 个人多账号配置结构
 oci:
   accounts: {}

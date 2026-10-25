@@ -4,7 +4,7 @@ import { showMessage } from '../utils/helpers.js';
 
 export async function apiCall(endpoint, payload = {}, msgTarget = null) {
     try {
-        const token = sessionToken.value || (typeof localStorage !== 'undefined' ? (localStorage.getItem('oci_session_token') || '') : '') || '';
+        const token = sessionToken.value || (typeof sessionStorage !== 'undefined' ? (sessionStorage.getItem('oci_session_token') || '') : '') || '';
         if (!sessionToken.value && token) {
             sessionToken.value = token;
         }

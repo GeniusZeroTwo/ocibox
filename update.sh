@@ -101,8 +101,14 @@ systemctl stop ocibox >/dev/null 2>&1 || true
 systemctl stop oci-personal >/dev/null 2>&1 || true
 
 # 2. 更新核心 JAR
-if [[ -f "${SCRIPT_DIR}/target/oci-personal.jar" ]]; then
+if [[ -f "${SCRIPT_DIR}/target/ocibox.jar" ]]; then
+    cp -f "${SCRIPT_DIR}/target/ocibox.jar" "${INSTALL_DIR}/app.jar"
+    echo -e "✅ 已更新核心程序包！"
+elif [[ -f "${SCRIPT_DIR}/target/oci-personal.jar" ]]; then
     cp -f "${SCRIPT_DIR}/target/oci-personal.jar" "${INSTALL_DIR}/app.jar"
+    echo -e "✅ 已更新核心程序包！"
+elif [[ -f "${SCRIPT_DIR}/ocibox.jar" ]]; then
+    cp -f "${SCRIPT_DIR}/ocibox.jar" "${INSTALL_DIR}/app.jar"
     echo -e "✅ 已更新核心程序包！"
 elif [[ -f "${SCRIPT_DIR}/app.jar" ]]; then
     cp -f "${SCRIPT_DIR}/app.jar" "${INSTALL_DIR}/app.jar"
@@ -163,6 +169,11 @@ cat << 'CLI' > /usr/local/bin/ocibox
 # ================================================================
 #  OCIBox - 个人专属云管理面板 系统快捷指令
 # ================================================================
+
+# 自动处理普通用户/无 root 权限问题 (如 instabox、ubuntu、debian 默认免密 sudo 用户)
+if [ "$(id -u)" -ne 0 ]; then
+    exec sudo bash "$0" "$@"
+fi
 
 INSTALL_DIR="/root/ocibox"
 [[ ! -d "${INSTALL_DIR}" && -d "/root/oci-personal" ]] && INSTALL_DIR="/root/oci-personal"
@@ -253,7 +264,7 @@ ocibox_info() {
         tg_status="已绑定 (Admin ID: ${admin_id}) [保留原配置]"
     fi
 
-    echo -e "${GREEN}       🎉 OCI box 个人轻量管理面板 ${PLAIN}"
+    echo -e "${GREEN}       🎉 OCIBox 个人专属管理面板 ${PLAIN}"
     echo -e "${GREEN}================================================================${PLAIN}"
     echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${ip}:${port}${PLAIN}"
     if [[ -n "$user" && ! "$user" =~ ^\$\{ ]]; then

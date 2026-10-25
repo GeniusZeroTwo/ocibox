@@ -15,7 +15,7 @@
     <artifactId>oci-personal</artifactId>
     <version>1.0.0-SNAPSHOT</version>
     <name>oci-personal</name>
-    <description>OCI Personal Self-Hosted Management Panel</description>
+    <description>OCIBox Cloud Management Panel</description>
 
     <properties>
         <java.version>21</java.version>
@@ -116,7 +116,7 @@
     </dependencies>
 
     <build>
-        <finalName>oci-personal</finalName>
+        <finalName>ocibox</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

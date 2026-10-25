@@ -30,7 +30,7 @@ public class AdminBootVolumeController {
         try {
             return Map.of("success", true, "data", ociCloudService.getBootVolumes(payload.get("account")));
         } catch (Exception e) {
-            return Map.of("success", false, "error", "获取引导卷失败: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("获取引导卷失败", e);
         }
     }
 
@@ -56,7 +56,7 @@ public class AdminBootVolumeController {
             boolean ok = ociCloudService.expandBootVolume(payload.get("bootVolumeId"), size, payload.get("account"));
             return Map.of("success", ok, "error", ok ? "" : "API 扩容调用失败");
         } catch (Exception e) {
-            return Map.of("success", false, "error", "扩容请求异常: " + e.getMessage());
+            return com.oci.ocimanager.controller.ApiErrors.fail("扩容请求失败", e);
         }
     }
 }

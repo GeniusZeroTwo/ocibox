@@ -71,7 +71,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
     private boolean isBotRunning = false;
 
     private final ExecutorService botWorker = Executors.newFixedThreadPool(2, r -> {
-        Thread t = new Thread(r, "tg-personal-bot");
+        Thread t = new Thread(r, "tg-ocibox-bot");
         t.setDaemon(true);
         return t;
     });
@@ -123,7 +123,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
     }
 
     public String getBotUsername() {
-        return "OCI_Personal_Bot";
+        return "OCIBox_Bot";
     }
 
     public static String extractTelegramUsername(org.telegram.telegrambots.meta.api.objects.User user) {
@@ -207,10 +207,11 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 int accCount = ociProperties.getAccounts() != null ? ociProperties.getAccounts().size() : 0;
                 sendText(chatId, "✅ 同步完成！共纳管 " + accCount + " 个甲骨文账号，" + instances.size() + " 台实例。");
             } catch (Exception e) {
-                sendText(chatId, "❌ 同步失败: " + e.getMessage());
+                System.err.println("❌ 同步失败: " + e.getMessage());
+                sendText(chatId, "❌ 同步失败，请稍后在网页后台查看。");
             }
         } else if ("/help".equals(text)) {
-            String help = "👑 <b>【OCI Personal 个人管理指令】</b>\n\n"
+            String help = "👑 <b>【OCIBox 个人管理指令】</b>\n\n"
                     + "/start - 打开主控台菜单\n"
                     + "/list - 查看所有 OCI 云主机\n"
                     + "/traffic - 查询全账号当月出站流量\n"
@@ -227,7 +228,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
         int accCount = ociProperties.getAccounts() != null ? ociProperties.getAccounts().size() : 0;
         int totalChanges = getTotalSystemChanges();
 
-        String msg = "👑 <b>【OCI Personal 个人专属控制台】</b>\n\n"
+        String msg = "👑 <b>【OCIBox 个人专属控制台】</b>\n\n"
                 + "👤 <b>管理员专属服务</b>：个人独占 / 零配额限制 / 极简纯净\n"
                 + "☁️ <b>纳管账号</b>: <code>" + accCount + "</code> 个\n"
                 + "🖥️ <b>云服务器</b>: <code>" + instances.size() + "</code> 台\n"
@@ -345,13 +346,13 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 ("STOPPED".equalsIgnoreCase(state) ? "🔴 已停止 (STOPPED)" : "🟡 " + state);
 
         String msg = "🖥️ <b>【实例运维详情】</b>\n\n"
-                + "💻 <b>实例名称</b>: <code>" + cleanName + "</code>\n"
-                + "⚡ <b>运行状态</b>: " + stateDisplay + "\n"
-                + "🌐 <b>公网 IPv4</b>: <code>" + ip + "</code>\n"
-                + "🌍 <b>IPv6 地址</b>: <code>" + ipv6 + "</code>\n"
-                + "☁️ <b>所属账号</b>: <code>" + accName + "</code>\n"
-                + "📍 <b>所在区域</b>: <code>" + region + "</code>\n"
-                + "📐 <b>机型规格</b>: <code>" + shape + " (" + ocpu + "C / " + memory + "G)</code>\n\n"
+                + "💻 <b>实例名称</b>: <code>" + escapeHtml(cleanName) + "</code>\n"
+                + "⚡ <b>运行状态</b>: " + escapeHtml(stateDisplay) + "\n"
+                + "🌐 <b>公网 IPv4</b>: <code>" + escapeHtml(ip) + "</code>\n"
+                + "🌍 <b>IPv6 地址</b>: <code>" + escapeHtml(ipv6) + "</code>\n"
+                + "☁️ <b>所属账号</b>: <code>" + escapeHtml(accName) + "</code>\n"
+                + "📍 <b>所在区域</b>: <code>" + escapeHtml(region) + "</code>\n"
+                + "📐 <b>机型规格</b>: <code>" + escapeHtml(shape) + " (" + escapeHtml(ocpu) + "C / " + escapeHtml(memory) + "G)</code>\n\n"
                 + "👇 请选择管理操作：";
 
         List<InlineKeyboardRow> rows = new ArrayList<>();
@@ -402,7 +403,8 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 answerCallback(queryId, "✅ 同步成功！共 " + instances.size() + " 台实例", true);
                 renderStartView(chatId, messageId);
             } catch (Exception e) {
-                answerCallback(queryId, "❌ 同步失败: " + e.getMessage(), true);
+                System.err.println("❌ 同步失败: " + e.getMessage());
+                answerCallback(queryId, "❌ 同步失败，请稍后在网页后台查看。", true);
             }
         } else if (data.startsWith("page_")) {
             int page = 0;
@@ -466,8 +468,8 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 if (newIp != null && !newIp.isBlank()) {
                     getAndIncrementTotalSystemChanges();
                     String success = "✅ <b>【公网 IP 更换成功】</b>\n\n"
-                            + "💻 <b>实例名称</b>: <code>" + (info != null ? cleanInstanceDisplayName(info.get("name"), accName) : "实例") + "</code>\n"
-                            + "🌐 <b>全新公网 IP</b>: <code>" + newIp + "</code>\n\n"
+                            + "💻 <b>实例名称</b>: <code>" + escapeHtml(info != null ? cleanInstanceDisplayName(info.get("name"), accName) : "实例") + "</code>\n"
+                            + "🌐 <b>全新公网 IP</b>: <code>" + escapeHtml(newIp) + "</code>\n\n"
                             + "💡 提示：新 IP 已立即生效，请使用新 IP 重新建立 SSH 连接。";
 
                     List<InlineKeyboardRow> rows = new ArrayList<>();
@@ -481,7 +483,8 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                     updateMessage(chatId, messageId, "❌ 更换 IP 失败：未能获取到新分配的 IP 地址。", null);
                 }
             } catch (Exception e) {
-                updateMessage(chatId, messageId, "❌ 更换 IP 异常: " + e.getMessage(), null);
+                System.err.println("更换 IP 异常: " + e.getMessage());
+                updateMessage(chatId, messageId, "❌ 更换 IP 失败，请稍后在网页后台查看。", null);
             }
         });
     }
@@ -507,7 +510,8 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 answerCallback(queryId, "✅ 已成功发送" + actionName + "指令！", true);
                 renderInstanceDetail(chatId, messageId, shortId, ocid);
             } catch (Exception e) {
-                answerCallback(queryId, "❌ 操作失败: " + e.getMessage(), true);
+                System.err.println("实例电源操作异常: " + e.getMessage());
+                answerCallback(queryId, "❌ 操作失败，请稍后在网页后台查看。", true);
             }
         });
     }
@@ -563,13 +567,14 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 rows.add(back);
 
                 String msg = "💿 <b>【选择重装操作系统】</b>\n\n"
-                        + "🖥️ <b>目标实例</b>: <code>" + cleanName + "</code>\n"
+                        + "🖥️ <b>目标实例</b>: <code>" + escapeHtml(cleanName) + "</code>\n"
                         + "⚠️ <b>注意</b>: 重装系统将格式化引导卷，机器上所有现有数据将被清空！\n\n"
                         + "👇 请选择要安装的官方镜像：";
 
                 updateMessage(chatId, messageId, msg, InlineKeyboardMarkup.builder().keyboard(rows).build());
             } catch (Exception e) {
-                updateMessage(chatId, messageId, "❌ 获取系统镜像列表失败: " + e.getMessage(), null);
+                System.err.println("获取系统镜像列表失败: " + e.getMessage());
+                updateMessage(chatId, messageId, "❌ 获取系统镜像列表失败，请稍后重试。", null);
             }
         });
     }
@@ -593,7 +598,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
         answerCallback(queryId, "已选中: " + imgName, false);
 
         String msg = "⚠️ <b>【高危操作：系统重装最终确认】</b>\n\n"
-                + "🐧 <b>选定镜像</b>: <code>" + imgName + "</code>\n"
+                + "🐧 <b>选定镜像</b>: <code>" + escapeHtml(imgName) + "</code>\n"
                 + "⚡ <b>注意</b>: 系统盘将完全重置，执行后不可逆！\n\n"
                 + "确认要立即开始重装吗？";
 
@@ -622,7 +627,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
         }
 
         answerCallback(queryId, "🚀 开始重装...", false);
-        updateMessage(chatId, messageId, "⏳ <b>正在执行系统重装...</b>\n\n正在停止实例并更换引导卷镜像为 <code>" + imgName + "</code>，预计耗时 2~5 分钟...", null);
+        updateMessage(chatId, messageId, "⏳ <b>正在执行系统重装...</b>\n\n正在停止实例并更换引导卷镜像为 <code>" + escapeHtml(imgName) + "</code>，预计耗时 2~5 分钟...", null);
 
         CompletableFuture.runAsync(() -> {
             try {
@@ -637,15 +642,16 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 boolean ok = ociCloudService.reinstallInstance(ocid, accName, (info != null ? info.get("name") : null), osName, osVersion, null, null, randomPwd);
                 if (ok) {
                     String success = "✅ <b>【系统重装任务已成功派发】</b>\n\n"
-                            + "🐧 <b>安装镜像</b>: <code>" + imgName + "</code>\n"
-                            + "🔑 <b>初始 root 密码</b>: <code>" + randomPwd + "</code>\n\n"
+                            + "🐧 <b>安装镜像</b>: <code>" + escapeHtml(imgName) + "</code>\n"
+                            + "🔑 <b>初始 root 密码</b>: <code>" + escapeHtml(randomPwd) + "</code>\n\n"
                             + "引导卷正在后台拉起开机，稍后请使用该密码建立连接。";
                     sendHtmlText(chatId, success);
                 } else {
                     sendHtmlText(chatId, "❌ 系统重装失败，请在网页后台查看详细错误日志。");
                 }
             } catch (Exception e) {
-                sendHtmlText(chatId, "❌ 重装执行异常: " + e.getMessage());
+                System.err.println("重装执行异常: " + e.getMessage());
+                sendHtmlText(chatId, "❌ 重装执行失败，请稍后在网页后台查看。");
             }
         });
     }
@@ -666,7 +672,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
             int limitGb = (limit != null && limit.getLimitGb() != null) ? limit.getLimitGb() : 0;
             String region = accounts.get(accName).getRegion();
 
-            sb.append("☁️ <b>").append(accName).append("</b> (<code>").append(region).append("</code>)\n");
+            sb.append("☁️ <b>").append(escapeHtml(accName)).append("</b> (<code>").append(escapeHtml(region)).append("</code>)\n");
             if (usage >= 0) {
                 if (limitGb > 0) {
                     double pct = (usage / limitGb) * 100;
@@ -827,5 +833,10 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
 
     private String generateShortId() {
         return UUID.randomUUID().toString().substring(0, 8);
+    }
+
+    private static String escapeHtml(String text) {
+        if (text == null) return "";
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 }
