@@ -1,0 +1,88 @@
+server:
+  port: 5000
+  address: 0.0.0.0
+  servlet:
+    encoding:
+      charset: UTF-8
+      force: true
+      enabled: true
+  tomcat:
+    threads:
+      max: 16
+      min-spare: 1
+    max-connections: 100
+    accept-count: 20
+    connection-timeout: 15000
+    keep-alive-timeout: 30000
+    processor-cache: 10
+    max-http-form-post-size: 2MB
+    max-swallow-size: 2MB
+ 
+spring:
+  main:
+    banner-mode: "off"
+
+  jmx:
+    enabled: false
+
+  mvc:
+    async:
+      request-timeout: 75000
+
+  datasource:
+    url: jdbc:sqlite:/root/oci-personal/data/oci_personal.db?journal_mode=WAL&busy_timeout=60000&cache_size=-2000
+    driver-class-name: org.sqlite.JDBC
+    hikari:
+      maximum-pool-size: 1
+      minimum-idle: 1
+      connection-timeout: 30000
+      max-lifetime: 0
+      idle-timeout: 0
+      pool-name: SQLitePool
+      connection-init-sql: "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=60000; PRAGMA cache_size=-2000; PRAGMA synchronous=NORMAL;"
+ 
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        generate_statistics: false
+        jdbc:
+          batch_size: 20
+        query:
+          plan_cache_max_size: 16
+          plan_parameter_metadata_max_size: 16
+        cache:
+          use_second_level_cache: false
+          use_query_cache: false
+  
+  threads:
+    virtual:
+      enabled: true
+      
+  task:
+    scheduling:
+      pool:
+        size: 2
+ 
+# 核心系统配置
+app:
+  bot-token: "${BOT_TOKEN:}"
+  admin-id: "${ADMIN_ID:}"
+  github-token: "${GITHUB_TOKEN:}"
+  github-repo: "${GITHUB_REPO:}"
+  github-pull-token: "YOUR_GITHUB_PULL_TOKEN"
+  backup-password: "${BACKUP_PASSWORD:}"
+  
+# OCI 个人多账号配置结构
+oci:
+  accounts:
+    # 示例配置：
+    # "[my-oracle-1]":
+    #   user: "ocid1.user.oc1..example"
+    #   fingerprint: "xx:xx:xx:xx:11"
+    #   tenancy: "ocid1.tenancy.oc1..example"
+    #   region: "ap-tokyo-1"
+    #   key-file: "/root/oci-personal/keys/my_oracle_1.pem"

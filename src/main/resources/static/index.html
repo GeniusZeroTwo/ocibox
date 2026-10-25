@@ -1,0 +1,2355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OCI Personal - 甲骨文云个人轻量管理面板</title>
+    <!-- 外部样式表：现代规范，支持浏览器强缓存，通过版本号破除陈旧缓存 -->
+    <link rel="stylesheet" href="css/main.css?v=20261016_02">
+    <!-- 🛡️ 彻底杜绝首屏模板插值花括号与未渲染内容闪烁乱码 (Anti-FOUC) -->
+    <style>
+        [v-cloak] {
+            display: none !important;
+        }
+        #app-loader {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: #080f1a;
+            z-index: 999999;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif;
+            color: #f2fbf7;
+            user-select: none;
+            transition: opacity 0.25s ease, visibility 0.25s ease;
+        }
+        #app:not([v-cloak]) ~ #app-loader {
+            display: none !important;
+        }
+        .app-loader-icon {
+            font-size: 42px;
+            margin-bottom: 14px;
+            filter: drop-shadow(0 0 16px rgba(16, 185, 129, 0.45));
+            animation: appLoaderPulse 1.6s infinite ease-in-out;
+        }
+        .app-loader-title {
+            font-size: 16px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            color: #f2fbf7;
+            margin-bottom: 14px;
+        }
+        .app-loader-bar {
+            width: 130px;
+            height: 3px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 99px;
+            overflow: hidden;
+            position: relative;
+            margin-bottom: 12px;
+        }
+        .app-loader-bar-inner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            bottom: 0;
+            width: 40%;
+            background: linear-gradient(90deg, #10b981, #3b82f6);
+            border-radius: 99px;
+            animation: appLoaderSlide 1.2s infinite ease-in-out;
+        }
+        .app-loader-sub {
+            font-size: 12px;
+            color: #8fb3a9;
+            opacity: 0.85;
+            letter-spacing: 0.5px;
+        }
+        @keyframes appLoaderPulse {
+            0%, 100% { transform: scale(1); opacity: 0.85; }
+            50% { transform: scale(1.08); opacity: 1; }
+        }
+        @keyframes appLoaderSlide {
+            0% { left: -40%; width: 30%; }
+            50% { left: 30%; width: 50%; }
+            100% { left: 100%; width: 30%; }
+        }
+
+        /* 🛡️ 正在安全恢复会话状态 浮层弹窗严格全局视口绝对居中 */
+        .init-loader {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: #10b981;
+            font-size: 15px;
+            font-weight: 600;
+            z-index: 99999;
+            background: var(--surface, #0f172a);
+            padding: 16px 32px;
+            border-radius: 30px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.35);
+            border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+            animation: initLoaderPulse 2s infinite ease-in-out;
+            pointer-events: none;
+            user-select: none;
+            white-space: nowrap;
+            max-width: calc(100vw - 32px);
+            box-sizing: border-box;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+        @keyframes initLoaderPulse {
+            0%, 100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+            50% {
+                opacity: 0.75;
+                transform: translate(-50%, -50%) scale(0.98);
+            }
+        }
+
+        /* ========================================================
+           🛒 待租机器上架与销售管理 - 专属高优先级样式与布局规范 (内联直出防强刷缓存)
+           ======================================================== */
+        .tenant-top-toolbar {
+            display: flex !important;
+            flex-direction: column !important;
+            gap: 6px !important;
+            margin-bottom: 8px !important;
+            flex-shrink: 0 !important;
+            width: 100% !important;
+        }
+
+        /* 第一行：左侧 标题 + 统计徽章 + 搜索框；右侧 操作按钮组 (🔄 刷新 + ➕ 上架机器) */
+        .rentable-header-row {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            gap: 8px !important;
+            width: 100% !important;
+            flex-wrap: wrap !important;
+        }
+
+        .rentable-header-left {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-wrap: wrap !important;
+            flex: 1 !important;
+            min-width: 0 !important;
+        }
+
+        .rentable-header-right {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-shrink: 0 !important;
+            white-space: nowrap !important;
+        }
+
+        .rentable-search-wrapper {
+            position: relative !important;
+            width: 220px !important;
+            max-width: 100% !important;
+            flex-shrink: 0 !important;
+        }
+
+        .rentable-search-wrapper input {
+            width: 100% !important;
+            height: 28px !important;
+            font-size: 12px !important;
+            padding: 0 24px 0 8px !important;
+            border-radius: 6px !important;
+            border: 1px solid var(--border, rgba(255, 255, 255, 0.15)) !important;
+            background: var(--surface, #1e293b) !important;
+            color: var(--text-main, #f1f5f9) !important;
+            outline: none !important;
+            box-sizing: border-box !important;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+        }
+
+        .rentable-search-wrapper input:focus {
+            border-color: var(--primary, #10b981) !important;
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) !important;
+        }
+
+        .rentable-search-clear-btn {
+            position: absolute !important;
+            right: 8px !important;
+            top: 50% !important;
+            transform: translateY(-50%) !important;
+            cursor: pointer !important;
+            color: var(--text-muted, #94a3b8) !important;
+            font-size: 11px !important;
+            line-height: 1 !important;
+            user-select: none !important;
+        }
+
+        /* 顶部右上角两个核心按钮 (🔄 刷新 与 ➕ 上架机器) - 杜绝大胶囊与绿光 */
+        button.rentable-top-btn {
+            height: 28px !important;
+            min-height: 28px !important;
+            max-height: 28px !important;
+            padding: 0 12px !important;
+            font-size: 12px !important;
+            border-radius: 6px !important;
+            cursor: pointer !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 4px !important;
+            user-select: none !important;
+            white-space: nowrap !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            margin: 0 !important;
+            width: auto !important;
+            transition: all 0.18s ease !important;
+            letter-spacing: normal !important;
+        }
+
+        button.rentable-top-btn.btn-refresh {
+            background: var(--surface, #1e293b) !important;
+            border: 1px solid var(--border, rgba(255, 255, 255, 0.15)) !important;
+            color: var(--text-main, #f1f5f9) !important;
+            font-weight: 500 !important;
+        }
+
+        button.rentable-top-btn.btn-refresh:hover:not(:disabled) {
+            background: rgba(255, 255, 255, 0.08) !important;
+            border-color: rgba(255, 255, 255, 0.25) !important;
+            transform: translateY(-1px) !important;
+        }
+
+        button.rentable-top-btn.btn-add {
+            background: linear-gradient(135deg, #10b981, #059669) !important;
+            border: 1px solid #059669 !important;
+            color: #ffffff !important;
+            font-weight: 600 !important;
+            box-shadow: 0 1px 3px rgba(16, 185, 129, 0.3) !important;
+        }
+
+        button.rentable-top-btn.btn-add:hover {
+            background: linear-gradient(135deg, #059669, #047857) !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 3px 8px rgba(16, 185, 129, 0.4) !important;
+        }
+
+        /* 第二行：快捷筛选药丸栏 (全部/在售/已下架 + 区域) - 彻底清除绿胶囊与阴影 */
+        .rentable-filters-row {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-wrap: wrap !important;
+            width: 100% !important;
+        }
+
+        .rentable-pills-wrap {
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            flex-wrap: wrap !important;
+        }
+
+        .rentable-pills-divider {
+            width: 1px !important;
+            height: 14px !important;
+            background: var(--border, rgba(255, 255, 255, 0.15)) !important;
+            margin: 0 2px !important;
+        }
+
+        button.rentable-filter-pill {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            height: 22px !important;
+            min-height: 22px !important;
+            max-height: 22px !important;
+            padding: 0 9px !important;
+            border-radius: 999px !important;
+            font-size: 11px !important;
+            font-weight: 500 !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            white-space: nowrap !important;
+            transition: all 0.15s ease !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            margin: 0 !important;
+            width: auto !important;
+            line-height: 20px !important;
+            border: 1px solid var(--border, rgba(255, 255, 255, 0.12)) !important;
+            background: var(--surface, #1e293b) !important;
+            color: var(--text-muted, #94a3b8) !important;
+        }
+
+        button.rentable-filter-pill:hover {
+            color: var(--text-main, #f1f5f9) !important;
+            border-color: rgba(255, 255, 255, 0.25) !important;
+        }
+
+        button.rentable-filter-pill.is-all.active {
+            background: rgba(59, 130, 246, 0.18) !important;
+            border-color: #3b82f6 !important;
+            color: #60a5fa !important;
+            font-weight: 700 !important;
+        }
+
+        button.rentable-filter-pill.is-on-sale.active {
+            background: rgba(16, 185, 129, 0.18) !important;
+            border-color: #10b981 !important;
+            color: #34d399 !important;
+            font-weight: 700 !important;
+        }
+
+        button.rentable-filter-pill.is-off-sale.active {
+            background: rgba(245, 158, 11, 0.18) !important;
+            border-color: #f59e0b !important;
+            color: #fbbf24 !important;
+            font-weight: 700 !important;
+        }
+
+        button.rentable-filter-pill.is-region.active {
+            background: rgba(139, 92, 246, 0.18) !important;
+            border-color: #8b5cf6 !important;
+            color: #c084fc !important;
+            font-weight: 700 !important;
+        }
+
+        /* 卡片与底部按钮 - 杜绝溢出、高清晰高对比 */
+        .rentable-card {
+            background: var(--bg-color, #111827) !important;
+            border: 1px solid var(--border, rgba(255, 255, 255, 0.1)) !important;
+            border-radius: 8px !important;
+            padding: 10px 12px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            overflow: hidden !important; /* 关键：坚决杜绝卡片内子元素向外溢出穿透 */
+            box-sizing: border-box !important;
+            position: relative !important;
+            transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease !important;
+        }
+
+        .rentable-card:hover {
+            border-color: rgba(59, 130, 246, 0.4) !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+        }
+
+        .rentable-card-foot {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            border-top: 1px dashed var(--border, rgba(255, 255, 255, 0.1)) !important;
+            padding-top: 6px !important;
+            margin-top: 6px !important;
+            gap: 6px !important;
+            flex-wrap: nowrap !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+        }
+
+        .rentable-card-actions {
+            display: flex !important;
+            align-items: center !important;
+            gap: 4px !important;
+            flex-shrink: 0 !important;
+            flex-wrap: nowrap !important;
+        }
+
+        /* 🔘 底部微型操作按钮 - 严格重置尺寸，杜绝超长绿胶囊和刺眼绿光 */
+        button.rent-btn {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 3px !important;
+            height: 24px !important;
+            min-height: 24px !important;
+            max-height: 24px !important;
+            padding: 0 8px !important;
+            border-radius: 4px !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            line-height: 22px !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            white-space: nowrap !important;
+            flex-shrink: 0 !important;
+            width: auto !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            outline: none !important;
+            transition: all 0.15s ease !important;
+        }
+
+        button.rent-btn:hover {
+            transform: translateY(-1px) !important;
+        }
+
+        /* ⏸ 下架 (在售状态) - 暖琥珀色，清晰警示，杜绝绿底 */
+        button.rent-btn-toggle.is-on-sale {
+            color: #92400e !important;
+            border: 1px solid #f59e0b !important;
+            background: #fffbeb !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-toggle.is-on-sale {
+            color: #fde68a !important;
+            border: 1px solid rgba(245, 158, 11, 0.55) !important;
+            background: rgba(245, 158, 11, 0.18) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        button.rent-btn-toggle.is-on-sale:hover {
+            background: #fef3c7 !important;
+            border-color: #d97706 !important;
+            color: #78350f !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-toggle.is-on-sale:hover {
+            background: rgba(245, 158, 11, 0.3) !important;
+            border-color: #f59e0b !important;
+            color: #ffffff !important;
+        }
+
+        /* ▶ 上架 (下架状态) - 翡翠绿，清晰可辨 */
+        button.rent-btn-toggle.is-off-sale {
+            color: #065f46 !important;
+            border: 1px solid #10b981 !important;
+            background: #ecfdf5 !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-toggle.is-off-sale {
+            color: #6ee7b7 !important;
+            border: 1px solid rgba(16, 185, 129, 0.55) !important;
+            background: rgba(16, 185, 129, 0.18) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        button.rent-btn-toggle.is-off-sale:hover {
+            background: #d1fae5 !important;
+            border-color: #059669 !important;
+            color: #047857 !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-toggle.is-off-sale:hover {
+            background: rgba(16, 185, 129, 0.3) !important;
+            border-color: #10b981 !important;
+            color: #ffffff !important;
+        }
+
+        /* ✏️ 编辑按钮 - 典雅晶蓝，文字背景高对比 */
+        button.rent-btn-edit {
+            color: #1e40af !important;
+            border: 1px solid #3b82f6 !important;
+            background: #eff6ff !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-edit {
+            color: #93c5fd !important;
+            border: 1px solid rgba(59, 130, 246, 0.55) !important;
+            background: rgba(59, 130, 246, 0.18) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        button.rent-btn-edit:hover {
+            background: #dbeafe !important;
+            border-color: #2563eb !important;
+            color: #1d4ed8 !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-edit:hover {
+            background: rgba(59, 130, 246, 0.3) !important;
+            border-color: #60a5fa !important;
+            color: #ffffff !important;
+        }
+
+        /* 🗑️ 删除按钮 - 警示红，危险操作清晰醒目 */
+        button.rent-btn-del {
+            color: #9f1239 !important;
+            border: 1px solid #f43f5e !important;
+            background: #fff1f2 !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-del {
+            color: #fda4af !important;
+            border: 1px solid rgba(244, 63, 94, 0.55) !important;
+            background: rgba(244, 63, 94, 0.18) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        button.rent-btn-del:hover {
+            background: #ffe4e6 !important;
+            border-color: #e11d48 !important;
+            color: #881337 !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-del:hover {
+            background: rgba(244, 63, 94, 0.3) !important;
+            border-color: #fb7185 !important;
+            color: #ffffff !important;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="app" v-cloak :class="{ 'is-logged-in': !!sessionToken, 'is-login': !sessionToken }">
+        <!-- 🌸 背景壁纸与动态景深毛玻璃遮罩（内联直接相对寻址，彻底杜绝路径与缓存异常） -->
+        <div class="app-wallpaper" :class="{ 'is-blurred': sessionToken }" style="background-image: url('bg.png') !important;"></div>
+        <div class="app-wallpaper-overlay" :class="{ 'is-dashboard': sessionToken }"></div>
+
+        <!-- 🌓 主题切换与通行密钥管理浮动组件 (竖向对齐，仅保留按钮与图标) -->
+        <div class="theme-nav-group">
+            <button class="theme-toggle-btn" @click="toggleTheme" title="切换主题">{{ isDarkTheme ? '☀️' : '🌙' }}</button>
+            <button class="passkey-nav-btn" v-if="sessionToken" @click="openPasskeyModal" title="通行密钥管理" aria-label="通行密钥管理">
+                <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+            </button>
+        </div>
+
+        <div class="init-loader" v-if="isInitializing">
+            ⏳ 正在安全恢复会话状态...
+        </div>
+
+        <!-- 🔐 浏览器全局水平垂直居中的登录卡片 -->
+        <div class="login-wrapper" v-if="!sessionToken && !isInitializing">
+            <div class="container" id="loginArea">
+                <div class="login-brand">
+                    <span class="login-brand-icon">☁️</span>
+                    <span class="login-brand-title">OCI PERSONAL</span>
+                    <span class="login-brand-badge">PERSONAL</span>
+                </div>
+                <h2>后台安全登录</h2>
+                <div class="login-subtext" v-if="tgBotRunning">
+                    请输入管理员密码，或点击获取 Telegram 动态验证码
+                </div>
+                <div class="login-subtext" v-else>
+                    请输入一键部署时配置的管理员专属密码
+                </div>
+                <button v-if="tgBotRunning" class="btn-secondary login-tg-btn" @click="sendAdminCode"
+                    :disabled="cooldown > 0 || isSendingCode">
+                    <svg style="width:16px;height:16px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                    </svg>
+                    <span>{{ cooldown > 0 ? `${cooldown} 秒后重试` : (isSendingCode ? '发送中...' : '获取 TG 动态码') }}</span>
+                </button>
+                <div data-lpignore="true" data-1p-ignore="true" data-bwignore="true" style="margin: 0; width: 100%;">
+                    <div class="group login-code-group">
+                        <label class="login-label" for="adminDynamicToken">
+                            <span>管理员密码 / 动态码</span>
+                        </label>
+                        <div class="login-input-wrap">
+                            <span class="login-input-icon">🔑</span>
+                            <input type="password"
+                                id="adminDynamicToken"
+                                name="admin_dynamic_token"
+                                autocomplete="current-password"
+                                spellcheck="false"
+                                v-model="loginCode"
+                                class="login-code-input"
+                                placeholder="输入管理员密码 或 6位TG验证码"
+                                @keypress.enter="login">
+                        </div>
+                    </div>
+                    <button type="button" class="btn-login-submit" @click="login" :disabled="isLoggingIn">
+                        <span>{{ isLoggingIn ? '验证中...' : '进入控制台' }}</span>
+                    </button>
+                </div>
+
+                <!-- 🔐 通行密钥免密登录 -->
+                <div class="login-divider">
+                    <span>或使用通行密钥免密登录</span>
+                </div>
+                <button type="button" class="btn-passkey-login" @click="loginWithPasskey" :disabled="isPasskeyLoggingIn">
+                    <span class="passkey-circle-icon-sm">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        </svg>
+                    </span>
+                    <span>{{ isPasskeyLoggingIn ? '正在调起通行密钥...' : '通行密钥登录 (Touch ID / Face ID)' }}</span>
+                </button>
+
+                <div class="sys-msg" :class="{ success: loginMsg.isSuccess, error: !loginMsg.isSuccess }">{{
+                    loginMsg.text }}</div>
+            </div>
+        </div>
+
+        <div class="container" id="dashboardArea" v-if="sessionToken && !isInitializing">
+
+            <!-- 🌌 品牌栏 -->
+            <div class="brandbar">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span class="brand-logo">☁️</span>
+                    <span class="brand-title">OCI MANAGER</span>
+                </div>
+                <div class="brandbar-right">
+                    <span class="pill" :class="isEditing ? 'pill-amber' : 'pill-cyan'" title="系统刷新状态">{{ isEditing ?
+                        '⏸ 暂停刷新' : '⚡ 极速同步' }}</span>
+                    <span class="pill pill-green" v-if="tgBotRunning" title="Telegram Bot 运行状态">● TG 在线</span>
+                    <span class="pill pill-red" v-else title="Telegram Bot 运行状态">● TG 异常</span>
+                    <span class="pill pill-cyan">{{ kpiStats.accounts }} 账号</span>
+                    <button type="button" class="pill pill-logout" @click="logout">退出</button>
+                </div>
+            </div>
+
+            <!-- 选项卡 (指示灯已合并至品牌栏，消除重复) -->
+            <div class="tabs" style="margin: 0 0 12px;">
+                <button :class="{ active: currentTab === 'auth' }" @click="switchTab('auth')">🛡️ OCI 授权与监控</button>
+                <button :class="{ active: currentTab === 'create' }" @click="switchTab('create')">🚀 批量抢占实例</button>
+                <button :class="{ active: currentTab === 'manage' }" @click="switchTab('manage')">🗄️
+                    账户与高级管理</button>
+                
+            </div>
+
+
+            <!-- 🌌 KPI 总览 -->
+            <div class="kpi-row" v-show="currentTab === 'auth'">
+                <div class="kpi-card kpi-green">
+                    <div class="kpi-label">运行实例</div>
+                    <div class="kpi-value">{{ kpiStats.running }}<span class="kpi-sub">/{{ kpiStats.total }}</span>
+                    </div>
+                    <div class="kpi-dots"><span v-for="n in Math.min(kpiStats.total, 10)" :key="n"
+                            :class="n <= kpiStats.running ? 'dot-on' : 'dot-off'">●</span><span
+                            v-if="kpiStats.total === 0" class="kpi-foot">暂无实例</span></div>
+                </div>
+                <div class="kpi-card kpi-cyan">
+                    <div class="kpi-label">本月流量</div>
+                    <div class="kpi-value">{{ kpiStats.traffic }}<span class="kpi-sub"> GB</span></div>
+                    <div class="kpi-foot">出站合计 · 实时统计</div>
+                </div>
+                <div class="kpi-card kpi-amber">
+                    <div class="kpi-label">本月账单</div>
+                    <div class="kpi-value" v-if="kpiStats.billCalculating && kpiStats.bill === '0.00'"
+                        style="display: flex; align-items: center; gap: 6px; font-size: 20px;">
+                        <span class="spinner"
+                            style="width: 14px; height: 14px; border-width: 2px; display: inline-block;"></span>
+                        计算中...
+                    </div>
+                    <div class="kpi-value" v-else style="display: flex; align-items: center; gap: 4px;">
+                        ¥ {{ kpiStats.bill }}
+                        <span v-if="kpiStats.billCalculating" class="spinner"
+                            style="width: 10px; height: 10px; border-width: 2px; display: inline-block;"
+                            title="部分账号正在自动计算账单..."></span>
+                    </div>
+                    <div class="kpi-foot">PAYG ×{{ kpiStats.payg }} · 免费 ×{{ kpiStats.accounts - kpiStats.payg }}</div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid" v-show="currentTab === 'auth'">
+                <div class="col-left">
+                    <div style="display: flex; gap: 8px; margin-bottom: 12px; flex-shrink: 0;">
+                        <button class="btn-apple btn-apple-cyan" @click="syncServers" :disabled="isSyncing"
+                            style="flex: 1; height: 36px;">
+                            <svg :class="{ 'spin-sync': isSyncing }" style="width:15px;height:15px;margin-right:3px;" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                                </path>
+                            </svg>
+                            {{ isSyncing ? '正在同步...' : '深度同步甲骨文' }}
+                        </button>
+                        <button class="btn-apple btn-apple-indigo" @click="modals.import.show = true"
+                            style="flex: 1; height: 36px;">
+                            <span style="font-size:13px;margin-right:3px;">➕</span> 导入新 OCI 账号
+                        </button>
+                    </div>
+
+                    <div class="panel group traffic-panel" style="margin-bottom: 0;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; flex-wrap: wrap; gap: 10px;">
+                            <label style="margin: 0;">🌐 当月出站流量监控</label>
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <select v-model="trafficSortMode" class="input"
+                                    style="font-size: 12px; padding: 0 24px 0 10px; height: 28px; width: auto; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-main); cursor: pointer; outline: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><polyline points=\'6 9 12 15 18 9\'></polyline></svg>'); background-repeat: no-repeat; background-position: right 8px center; font-weight: 500;">
+                                    <option value="default">默认排序</option>
+                                    <option value="usage_desc">按使用量 (多 -> 少)</option>
+                                    <option value="usage_asc">按使用量 (少 -> 多)</option>
+                                    <option value="percent_desc">按百分比 (高 -> 低)</option>
+                                    <option value="type">按账户类型 (升级优先)</option>
+                                </select>
+                                <button type="button" class="btn-secondary"
+                                    style="width: auto; padding: 0 12px; height: 28px; margin: 0; font-size: 12px; border-radius: 6px; display: flex; align-items: center; font-weight: 500;"
+                                    @click="loadTraffic(true)">强制全局抓取</button>
+                            </div>
+                        </div>
+
+                        <!-- 🌟 快捷分类筛选药丸组 -->
+                        <div style="display: flex; gap: 4px; background: var(--bg-color); padding: 3px; border-radius: 8px; border: 1px solid var(--border); margin-top: 10px; flex-shrink: 0;">
+                            <button type="button" @click="trafficFilterMode = 'all'"
+                                :style="{
+                                    background: trafficFilterMode === 'all' ? '#8b5cf6' : 'transparent',
+                                    color: trafficFilterMode === 'all' ? '#fff' : 'var(--text-muted)',
+                                    fontWeight: trafficFilterMode === 'all' ? '700' : '500',
+                                    boxShadow: trafficFilterMode === 'all' ? 'var(--shadow-sm)' : 'none'
+                                }"
+                                style="flex: 1; font-size: 11px; padding: 4px 6px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease; text-align: center; white-space: nowrap;">
+                                全部 ({{ trafficStats.total }})
+                            </button>
+                            <button type="button" @click="trafficFilterMode = 'payg'"
+                                :style="{
+                                    background: trafficFilterMode === 'payg' ? 'linear-gradient(135deg, #f59e0b, #fbbf24)' : 'transparent',
+                                    color: trafficFilterMode === 'payg' ? '#fff' : 'var(--text-muted)',
+                                    fontWeight: trafficFilterMode === 'payg' ? '700' : '500',
+                                    boxShadow: trafficFilterMode === 'payg' ? '0 2px 4px rgba(245,158,11,0.25)' : 'none'
+                                }"
+                                style="flex: 1.3; font-size: 11px; padding: 4px 6px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease; text-align: center; white-space: nowrap;">
+                                ⭐ 只显示升级号 ({{ trafficStats.payg }})
+                            </button>
+                            <button type="button" @click="trafficFilterMode = 'free'"
+                                :style="{
+                                    background: trafficFilterMode === 'free' ? 'linear-gradient(135deg, #10b981, #34d399)' : 'transparent',
+                                    color: trafficFilterMode === 'free' ? '#fff' : 'var(--text-muted)',
+                                    fontWeight: trafficFilterMode === 'free' ? '700' : '500',
+                                    boxShadow: trafficFilterMode === 'free' ? '0 2px 4px rgba(16,185,129,0.25)' : 'none'
+                                }"
+                                style="flex: 1; font-size: 11px; padding: 4px 6px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease; text-align: center; white-space: nowrap;">
+                                免费号 ({{ trafficStats.free }})
+                            </button>
+                        </div>
+
+                        <div class="scrollable-area"
+                            style="margin-top: 15px; font-size: 13px; color: var(--text-muted);">
+                            <div v-if="isTrafficLoading" style="color:var(--primary); font-weight: 600;">⏳
+                                已触发全局后台更新，数据正在同步中...</div>
+                            <div v-else-if="Object.keys(trafficData).length === 0">暂无账号配置数据。</div>
+                            <div v-else-if="sortedTrafficData.length === 0"
+                                style="text-align: center; padding: 24px 12px; background: var(--bg-color); border-radius: var(--radius-md); border: 1px dashed var(--border);">
+                                <div style="font-size: 20px; margin-bottom: 4px;">🔍</div>
+                                <span style="font-size: 12px; color: var(--text-muted);">
+                                    {{ trafficFilterMode === 'payg' ? '未找到符合条件的升级号 (PAYG)' : (trafficFilterMode === 'free' ? '未找到符合条件的免费号' : '暂无匹配的账号流量数据') }}
+                                </span>
+                            </div>
+                            <div v-else v-for="item in sortedTrafficData" :key="item.acc"
+                                style="margin-bottom: 8px; padding: 12px; border-radius: var(--radius-lg); transition: all 0.3s ease; position: relative; overflow: hidden;"
+                                :style="getTrafficCardStyle(item.info)">
+                                <div
+                                    :style="{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: isTrafficError(item.info) ? 'var(--danger)' : getTrafficColor(item.info) }">
+                                </div>
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; margin-top: 4px;">
+                                    <div
+                                        style="font-weight: 700; color: var(--text-main); font-size: 15px; word-break: break-all; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+                                        {{ getDisplayAccountName(item.acc) }}
+                                        <span v-if="isUpgradedAccount(item.acc, item.info)" class="badge"
+                                            style="background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #fff; font-size: 10px; padding: 2px 7px; border-radius: var(--radius-full); font-weight: 800; font-style: italic; box-shadow: 0 1px 3px rgba(245,158,11,0.25); letter-spacing: 0.5px; white-space: nowrap; user-select: none;"
+                                            title="升级号 (PAYG)">
+                                            Pay As
+                                        </span>
+                                        <span v-else class="badge"
+                                            style="background: linear-gradient(135deg, #10b981, #34d399); color: #fff; font-size: 10px; padding: 2px 7px; border-radius: var(--radius-full); font-weight: 800; font-style: italic; box-shadow: 0 1px 3px rgba(16,185,129,0.25); letter-spacing: 0.5px; white-space: nowrap; user-select: none;"
+                                            title="免费号 (Free Tier)">
+                                            Free
+                                        </span>
+                                    </div>
+                                    <div
+                                        style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end;">
+                                        <span
+                                            style="font-weight:700; font-size:13px; background: var(--surface); padding: 4px 10px; border-radius: var(--radius-full); border: 1px solid var(--border);"
+                                            :style="{ color: getTrafficColor(item.info) }">
+                                            {{ getTrafficUsageText(item.info) }} <span v-if="!isTrafficError(item.info)"
+                                                style="color:var(--text-muted);font-weight:500;">/ {{ item.info.limit_gb
+                                                > 0
+                                                ? item.info.limit_gb + ' GB' : '不限流量' }}</span>
+                                        </span>
+                                        <button class="btn-cyan" @click="syncSingleTraffic(item.acc)"
+                                            style="padding: 0; width: 28px; height: 28px; border-radius: 6px; display: flex; align-items: center; justify-content: center;"
+                                            title="强制同步此账号当月出站流量" :disabled="trafficSyncing[item.acc]">
+                                            🔄
+                                        </button>
+                                        <button class="btn-violet" @click="item.info.showEdit = !item.info.showEdit"
+                                            style="padding: 0 12px; height: 28px; font-size: 12px; width: auto; border-radius: 6px; font-weight: 500; display: flex; align-items: center;">⚙️
+                                            设置限额</button>
+                                        <button v-if="isTrafficError(item.info)" class="btn-danger"
+                                            @click="deleteAccount(item.acc)"
+                                            style="padding: 0 10px; height: 28px; font-size: 12px; width: auto; border-radius: 6px; font-weight: 600;">🗑️
+                                            抹除</button>
+                                    </div>
+                                </div>
+                                <div v-show="item.info.showEdit"
+                                    style="margin-bottom: 16px; display: flex; align-items: center; gap: 8px; background: var(--bg-color); padding: 12px; border-radius: 8px; border: 1px dashed var(--primary); box-shadow: inset 0 2px 4px rgba(0,0,0,0.02); flex-wrap: wrap;">
+                                    <span style="font-size: 13px; font-weight: 600;">出站流量限制:</span>
+                                    <input type="number" v-model.number="item.info.newLimit" placeholder="限额GB(0=不限)"
+                                        style="padding: 6px 10px; font-size: 13px; margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; width: 120px;"
+                                        @focus="setEditing(true)" @blur="setEditing(false)">
+                                    <button @click="saveLimit(item.acc, item.info.newLimit)"
+                                        style="padding: 6px 14px; font-size: 13px; width: auto; margin: 0; background: var(--primary); color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer;">💾
+                                        保存</button>
+                                </div>
+                                <div
+                                    style="background-color: var(--bg-color); border-radius: 8px; height: 8px; overflow: hidden; border: 1px solid var(--border); box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);">
+                                    <div :style="{ backgroundColor: getTrafficColor(item.info), width: getTrafficPercent(item.info) + '%' }"
+                                        style="height: 100%; transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 0 0 8px rgba(255,255,255,0.3) inset;">
+                                    </div>
+                                </div>
+                                <div
+                                    style="font-size: 12px; color: var(--text-muted); margin-top: 10px; display: flex; justify-content: space-between; align-items: center; background: var(--bg-color); padding: 8px 12px; border-radius: 6px;">
+                                    <span v-html="getTrafficPercentText(item.info)" style="font-weight: 500;"></span>
+                                    <span v-html="getTrafficTimeText(item.info)" style="font-family: monospace;"></span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-right">
+                    <div
+                        style="background: var(--panel-alert-bg); padding: 12px 14px; border-radius: var(--radius-md); margin-bottom: 12px; border: 1px solid var(--panel-alert-border); flex-shrink: 0;">
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <span style="font-weight:600; color:var(--panel-alert-title);">🛡️ 防火墙放行:</span>
+                            <select v-model="networkAccount"
+                                style="width: auto; margin: 0; padding: 6px 12px; font-size: 13px; border-color: var(--panel-alert-border); background-color: var(--surface);"
+                                @focus="setEditing(true)" @blur="setEditing(false)">
+                                <option value="">-- 选择账号 --</option>
+                                <option v-for="acc in globalAccounts" :key="acc" :value="acc">{{
+                                    getDisplayAccountName(acc) }}</option>
+                            </select>
+                            <button type="button" class="btn-apple btn-apple-amber" style="width: auto; height: 32px; padding: 0 14px; font-size: 12.5px;"
+                                @click="openAllPorts">🔓 一键放行所有端口</button>
+                        </div>
+                        <div style="font-size: 12px; color: var(--panel-alert-text); margin-top: 8px;">💡
+                            如果您搭建的建站面板(如宝塔)或网站无法访问，请点击此按钮打通 OCI 虚拟网络防火墙。</div>
+                    </div>
+
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0; flex-wrap: wrap; gap: 8px;">
+                        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                            <label style="margin:0; white-space: nowrap;">💻 授权服务器与电源管理</label>
+                            <div style="position: relative; width: 230px; max-width: 100%;">
+                                <input type="text" v-model="serverSearchKeyword" placeholder="🔍 搜索名称/IP/账号/区域..."
+                                    style="width: 100%; height: 28px; font-size: 12px; padding: 0 26px 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-main); outline: none; box-sizing: border-box; transition: border-color 0.2s;"
+                                    @focus="setEditing(true)" @blur="setEditing(false)">
+                                <span v-if="serverSearchKeyword" @click="serverSearchKeyword = ''"
+                                    style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted); font-size: 12px; line-height: 1; user-select: none;"
+                                    title="清空搜索">✕</span>
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 8px; font-size: 13px;">
+                            <button type="button" class="btn-secondary"
+                                style="padding: 4px 10px; width: auto; font-size: 12px;"
+                                @click="addDaysToSelected(30)">批量 +1 个月</button>
+                            <button type="button" class="btn-secondary"
+                                style="padding: 4px 10px; width: auto; font-size: 12px;"
+                                @click="setPermanentSelected">设为永久</button>
+                        </div>
+                    </div>
+
+                    <div class="server-list">
+                        <div v-if="Object.keys(groupedInstances).length === 0"
+                            style="color:#9ca3af; text-align:center; padding: 25px;">
+                            <template v-if="serverSearchKeyword">
+                                <div style="font-size: 13.5px; margin-bottom: 8px; color: var(--text-muted);">🔍 未找到与 "<strong>{{ serverSearchKeyword }}</strong>" 匹配的服务器</div>
+                                <button type="button" class="btn-secondary" style="font-size: 12px; padding: 3px 12px; width: auto;" @click="serverSearchKeyword = ''">清空搜索条件</button>
+                            </template>
+                            <template v-else>暂无服务器，系统正自动拉取...</template>
+                        </div>
+                        <!-- 🌟 双排账户布局：左边一个账户，右边一个账户 -->
+                        <div v-else class="account-cols">
+                            <div class="account-col" v-for="(instances, account) in groupedInstances" :key="account">
+                                <div class="account-group-header">
+                                    <span style="display: flex; align-items: center; gap: 6px;">
+                                        <svg style="width:16px;height:16px;" fill="none" stroke="currentColor"
+                                            viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z">
+                                            </path>
+                                        </svg>
+                                        {{ getDisplayAccountName(account) }}
+                                    </span>
+                                    <span style="font-size: 12px; opacity: 0.85; font-weight: 500;">共 {{
+                                        instances.length }}
+                                        台</span>
+                                </div>
+                                <div v-for="inst in instances" :key="inst.ocid" class="server-item inst-card">
+                                    <div class="inst-head">
+                                        <div class="inst-title">
+                                            <span class="inst-dot"
+                                                :class="inst.state === 'RUNNING' ? 'dot-run' : (inst.state === 'STOPPED' ? 'dot-stop' : 'dot-wait')"></span>
+                                            <span class="server-name">{{ inst.cleanName }}</span>
+                                            <span v-if="inst.ipv6" class="badge badge-ipv6"
+                                                :title="'IPv6 地址: ' + inst.ipv6">IPv6</span>
+                                            <span v-if="inst.region" class="badge badge-region">{{ inst.region }}</span>
+                                            <span v-if="inst.shape" class="badge badge-shape" :title="inst.shape">{{
+                                                shortShape(inst.shape) }}</span>
+                                        </div>
+                                        <span v-if="inst.state === 'RUNNING'"
+                                            class="inst-state state-run">RUNNING</span>
+                                        <span v-else-if="inst.state === 'STOPPED'"
+                                            class="inst-state state-stop">STOPPED</span>
+                                        <span v-else class="inst-state state-wait">{{ inst.state }}</span>
+                                    </div>
+
+                                    <div class="inst-meta">
+                                        <span class="meta-item" :title="inst.shapeFull"><span class="meta-ico"><svg
+                                                    class="meta-svg" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <rect x="4" y="4" width="16" height="16" rx="2"></rect>
+                                                    <rect x="9" y="9" width="6" height="6"></rect>
+                                                    <path d="M9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 15h3M1 9h3M1 15h3">
+                                                    </path>
+                                                </svg></span>{{ inst.shapeInfo }}</span>
+                                        <span v-if="inst.ip" class="meta-ip"
+                                            :style="{ color: inst.ip.includes('未分配') ? 'var(--text-muted)' : 'var(--primary)' }">
+                                            <span class="meta-ico"><svg class="meta-svg" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <circle cx="12" cy="12" r="10"></circle>
+                                                    <path
+                                                        d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z">
+                                                    </path>
+                                                </svg></span>{{ inst.ip }}
+                                        </span>
+                                        <span v-if="inst.location && inst.location !== '未知地区'" class="meta-item"><span
+                                                class="meta-ico"><svg class="meta-svg" viewBox="0 0 24 24" fill="none"
+                                                    stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                    stroke-linejoin="round">
+                                                    <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                                                    <circle cx="12" cy="10" r="3"></circle>
+                                                </svg></span>{{ inst.location }}</span>
+                                        
+                                    </div>
+
+                                    <div class="server-actions inst-actions">
+                                        <button v-if="inst.state === 'STOPPED'"
+                                            @click="confirmInstanceAction(inst.ocid, 'START', inst.cleanName)">🚀
+                                            开机</button>
+                                        <button v-else-if="inst.state === 'RUNNING'" class="btn-warning"
+                                            @click="confirmInstanceAction(inst.ocid, 'SOFTSTOP', inst.cleanName)">🛑
+                                            关机</button>
+                                        <div v-else class="status-changing" :title="'当前状态: ' + inst.state + '，系统正在自动同步检测中'">
+                                            <span class="status-changing-icon">🔄</span> {{ getChangingStateText(inst.state) }}
+                                        </div>
+                                        <button class="btn-cyan"
+                                            @click="syncSingleServerStatus(inst.ocid, inst.account)"
+                                            :disabled="syncingOcids[inst.ocid]">
+                                            {{ syncingOcids[inst.ocid] ? '⏳' : '🔄 同步' }}
+                                        </button>
+                                        <template v-if="['RUNNING', 'STOPPED'].includes(inst.state)">
+                                            <button v-if="!inst.ipv6" class="btn-cyan"
+                                                @click="enableIpv6(inst.ocid, inst.cleanName)"
+                                                :disabled="enablingIpv6Ocids[inst.ocid]">
+                                                {{ enablingIpv6Ocids[inst.ocid] ? '⏳ 开启中...' : '🌐 开启IPv6' }}
+                                            </button>
+                                            <button v-else class="btn-amber"
+                                                @click="disableIpv6(inst.ocid, inst.cleanName)"
+                                                :disabled="disablingIpv6Ocids[inst.ocid]">
+                                                {{ disablingIpv6Ocids[inst.ocid] ? '⏳ 删除中...' : '🗑️ 删除IPv6' }}
+                                            </button>
+                                            <template v-if="is500mEligible(inst)">
+                                                <button v-if="is500mActive(inst)" class="btn-danger"
+                                                    @click="disable500Mbps(inst.ocid, inst.cleanName)">🗑️
+                                                    删除500M</button>
+                                                <button v-else class="btn-teal"
+                                                    @click="enable500Mbps(inst.ocid, inst.cleanName)">🚀 开启500M</button>
+                                            </template>
+                                            <button class="btn-violet"
+                                                @click="openRenameModal(inst.ocid, inst.cleanName)">✏️ 重命名</button>
+                                            <button class="btn-indigo"
+                                                @click="openReinstallModal(inst.ocid, inst.cleanName)">💿 重装</button>
+                                        </template>
+                                        <button class="btn-danger"
+                                            @click="confirmDeleteInstance(inst.ocid, inst.cleanName)">🗑️ 删除</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; margin-top: auto; flex-shrink: 0;">
+                        <button @click="savePermissions" :disabled="isSavingPerms">
+                            💾 {{ isSavingPerms ? '正在保存...' : '保存当前配置' }}
+                        </button>
+                    </div>
+                    <div class="sys-msg" :class="{ success: sysMsg.isSuccess, error: !sysMsg.isSuccess }">{{ sysMsg.text
+                        }}</div>
+                </div>
+            </div>
+
+            <div class="dashboard-grid" v-show="currentTab === 'create'" id="createPanel">
+                <div class="col-left">
+                    <div class="panel group" style="border-top: 4px solid var(--primary); margin-bottom: 0;">
+                        <label>🎯 运行抢占的云账号</label>
+                        <select v-model="createForm.account" @change="fetchImagesForCreate" @focus="setEditing(true)"
+                            @blur="setEditing(false)">
+                            <option value="">-- 选择账号 --</option>
+                            <option v-for="acc in createAccountList" :key="acc" :value="acc">{{ getDisplayAccountName(acc)
+                                }}</option>
+                        </select>
+
+                        <div v-if="createForm.account" style="margin-top:15px;">
+                            <label>🌍 区域 (Region)</label>
+
+                            <div class="region-select-container">
+                                <!-- 自定义精致下拉触发器 -->
+                                <div class="region-select-trigger" @click="toggleRegionDropdown" :class="{ 'is-open': isRegionDropdownOpen }">
+                                    <div class="region-trigger-content">
+                                        <span v-if="!createForm.region" class="region-trigger-label">
+                                            <span style="font-size: 14px;">🌐</span> -- 跟随账号主区域 (默认) --
+                                        </span>
+                                        <span v-else class="region-trigger-label">
+                                            <span style="font-size: 14px;">🌍</span> {{ createForm.region }}
+                                        </span>
+                                    </div>
+                                    <span class="region-trigger-arrow" :class="{ 'rotated': isRegionDropdownOpen }">▼</span>
+                                </div>
+
+                                <!-- 点击下拉菜单后展开的区域菜单 -->
+                                <div v-show="isRegionDropdownOpen" class="region-dropdown-menu">
+                                    <div class="region-dropdown-item" :class="{ selected: !createForm.region }" @click="selectRegion('')">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <span>🌐</span>
+                                            <span>-- 跟随账号主区域 (默认) --</span>
+                                        </div>
+                                        <span v-if="!createForm.region" class="region-check-mark">✓</span>
+                                    </div>
+
+                                    <div v-for="reg in availableRegionsForSelectedAccount" :key="reg"
+                                         class="region-dropdown-item" :class="{ selected: createForm.region === reg }"
+                                         @click="selectRegion(reg)">
+                                        <div style="display: flex; align-items: center; gap: 8px;">
+                                            <span>🌍</span>
+                                            <span>{{ reg }}</span>
+                                        </div>
+                                        <span v-if="createForm.region === reg" class="region-check-mark">✓</span>
+                                    </div>
+
+                                    <div class="region-dropdown-divider"></div>
+
+                                    <!-- 🎯 点击下拉菜单后区域下方新增一栏加号 点击订阅新的区域 -->
+                                    <div class="region-dropdown-add-row" @click="openSubscribeRegionModal(createForm.account)">
+                                        <div class="action-plus-badge">➕</div>
+                                        <div class="action-text-wrapper">
+                                            <div class="action-title">订阅新的区域</div>
+                                            <div class="action-sub">向甲骨文官方开通扩充此账号的新区域</div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- 隐藏原生 select 保持对老逻辑或自动化测试的 100% 兼容 -->
+                                <select v-model="createForm.region" @change="onRegionSelectChange" style="display:none;">
+                                    <option value="">-- 跟随账号主区域 (默认) --</option>
+                                    <option v-for="reg in availableRegionsForSelectedAccount" :key="reg" :value="reg">{{ reg }}</option>
+                                    <option value="__SUBSCRIBE_NEW_REGION__">➕ 订阅新的区域...</option>
+                                </select>
+                            </div>
+
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 5px; font-size: 11.5px; color: var(--text-muted); padding: 0 2px;">
+                                <span>已开通区域: <b style="color: var(--primary);">{{ availableRegionsForSelectedAccount.length }}</b> 个</span>
+                                <span style="cursor: pointer; color: var(--primary); font-weight: 500;" @click="openSubscribeRegionModal(createForm.account)">
+                                    ➕ 点击订阅更多区域
+                                </span>
+                            </div>
+                        </div>
+
+                        <label style="margin-top:15px;">🧩 CPU 架构类型</label>
+                        <select v-model="createForm.shape" @change="onShapeChange" @focus="setEditing(true)"
+                            @blur="setEditing(false)">
+                            <option value="VM.Standard.A1.Flex">ARM 免费版 (A1.Flex)</option>
+                            <option value="VM.Standard.E2.1.Micro">AMD 免费版 (E2.1.Micro)</option>
+                        </select>
+
+                        <label style="margin-top:15px;">🐧 官方操作系统镜像</label>
+                        <select v-model="createForm.os" :disabled="isFetchingImages" @focus="setEditing(true)"
+                            @blur="setEditing(false)">
+                            <option value="">{{ isFetchingImages ? '⏳ 查询中...' : '-- 请选择操作系统 --' }}</option>
+                            <option v-for="img in createImages" :key="img.value" :value="img.value">{{ img.display }}
+                            </option>
+                        </select>
+
+                        <div style="margin-top:15px;">
+                            <label>🏷️ 自定义实例名称 (可选)</label>
+                            <input type="text" v-model="createForm.instanceName"
+                                placeholder="留空则系统自动生成 (例如: OCI-Manager-1234)" @focus="setEditing(true)"
+                                @blur="setEditing(false)">
+                        </div>
+
+                        <div style="display: flex; gap: 12px; margin-top:15px;">
+                            <div style="flex:1;">
+                                <label>核心数 (OCPU)</label>
+                                <input type="number" v-model.number="createForm.cpu" @focus="setEditing(true)"
+                                    @blur="setEditing(false)">
+                            </div>
+                            <div style="flex:1;">
+                                <label>内存 (GB)</label>
+                                <input type="number" v-model.number="createForm.ram" @focus="setEditing(true)"
+                                    @blur="setEditing(false)">
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 12px; margin-top:15px;">
+                            <div style="flex:1;">
+                                <label>引导卷硬盘 (GB)</label>
+                                <input type="number" v-model.number="createForm.disk" @focus="setEditing(true)"
+                                    @blur="setEditing(false)">
+                            </div>
+                            <div style="flex:1;">
+                                <label>目标创建数量</label>
+                                <input type="number" v-model.number="createForm.count" @focus="setEditing(true)"
+                                    @blur="setEditing(false)">
+                            </div>
+                        </div>
+
+                        <div style="margin-top:15px;">
+                            <label>⏱️ 资源不足抢机间隔 (建议>10秒)</label>
+                            <input type="number" v-model.number="createForm.interval" @focus="setEditing(true)"
+                                @blur="setEditing(false)">
+                        </div>
+
+                        <div style="margin-top:20px; display: flex; gap: 24px;">
+                            <label style="display: flex; align-items: center; font-weight:500; cursor:pointer;">
+                                <input type="checkbox" v-model="createForm.ipv4"
+                                    @change="setEditing(true); setTimeout(()=>setEditing(false), 500)"> 分配 IPv4
+                            </label>
+                            <label style="display: flex; align-items: center; font-weight:500; cursor:pointer;">
+                                <input type="checkbox" v-model="createForm.ipv6"
+                                    @change="setEditing(true); setTimeout(()=>setEditing(false), 500)"> 分配 IPv6
+                            </label>
+                        </div>
+
+                        <hr style="border:0; border-top: 1px solid var(--border); margin: 24px 0;">
+
+                        <!-- 🔐 认证凭证方式手动选择 -->
+                        <div style="margin-bottom: 16px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <label style="font-weight: 600; color: var(--text-main); margin: 0;">🔐 登录认证方式</label>
+                                <span style="font-size: 12px; color: var(--text-muted);">手动选择密码或SSH公钥</span>
+                            </div>
+                            <div class="auth-type-selector">
+                                <button type="button" class="auth-type-btn"
+                                    :class="{ active: createForm.authType === 'password' }"
+                                    @click="createForm.authType = 'password'; setEditing(true); setTimeout(()=>setEditing(false), 300)">
+                                    🔑 密码登录
+                                </button>
+                                <button type="button" class="auth-type-btn"
+                                    :class="{ active: createForm.authType === 'key' }"
+                                    @click="createForm.authType = 'key'; setEditing(true); setTimeout(()=>setEditing(false), 300)">
+                                    🛡️ SSH 公钥
+                                </button>
+                                <button type="button" class="auth-type-btn"
+                                    :class="{ active: createForm.authType === 'both' }"
+                                    @click="createForm.authType = 'both'; setEditing(true); setTimeout(()=>setEditing(false), 300)">
+                                    🔐 密码 + 密钥
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 密码输入区域 (当为 password 或 both 时显示) -->
+                        <div v-show="createForm.authType === 'password' || createForm.authType === 'both'" style="margin-bottom: 16px;">
+                            <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                                <span>🔑 Root 密码直登</span>
+                                <span style="font-size: 12px; color: var(--text-muted);">自动配置密码直登</span>
+                            </label>
+                            <div style="display: flex; gap: 8px;">
+                                <input type="text"
+                                    id="instanceDeploySecret"
+                                    name="instance_deploy_secret"
+                                    autocomplete="off"
+                                    data-lpignore="true"
+                                    data-1p-ignore="true"
+                                    data-bwignore="true"
+                                    data-form-type="other"
+                                    spellcheck="false"
+                                    v-model="createForm.rootPwd"
+                                    placeholder="请输入将要植入的Root密码" style="flex: 1;" @focus="setEditing(true)"
+                                    @blur="setEditing(false)">
+                                <button type="button" class="btn-secondary" style="width: auto; white-space: nowrap;"
+                                    @click="createForm.rootPwd = genRandomPwd()">🎲 随机密码</button>
+                            </div>
+                        </div>
+
+                        <!-- SSH 公钥输入区域 (当为 key 或 both 时显示) -->
+                        <div v-show="createForm.authType === 'key' || createForm.authType === 'both'"
+                            style="background: var(--panel-dashed-bg); padding: 16px; border-radius: var(--radius-md); border: 1px dashed var(--panel-dashed-border);">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                                <label style="margin: 0; color: var(--text-main);">🛡️ SSH 公钥 (更高安全性)</label>
+                                <button type="button" class="btn-secondary"
+                                    style="width: auto; padding: 4px 10px; font-size: 12px; border-color: var(--primary); color: var(--primary);"
+                                    @click="generateSshKey('create')">✨ 生成密钥 (Ed25519)</button>
+                            </div>
+                            <textarea v-model="createForm.sshKey" rows="2"
+                                style="font-family: monospace; resize: vertical;"
+                                placeholder="ssh-ed25519 AAAAC3Nza... (输入或一键生成)" @focus="setEditing(true)"
+                                @blur="setEditing(false)"></textarea>
+                        </div>
+
+                        <button style="margin-top: 24px; font-size: 16px; padding: 12px;" @click="submitCreationTask"
+                            :disabled="isCreating">🚀 发起自动抢占任务</button>
+                        <div class="sys-msg" :class="{ success: createMsg.isSuccess, error: !createMsg.isSuccess }">{{
+                            createMsg.text }}</div>
+                    </div>
+                </div>
+                <div class="col-right">
+                    <h3
+                        style="margin-top:0; font-size: 16px; color: var(--text-main); margin-bottom: 16px; flex-shrink: 0;">
+                        📊 抢占任务监控大盘</h3>
+                    <div class="scrollable-area">
+                        <div v-if="Object.keys(tasksData).length === 0"
+                            style="color: var(--text-muted); text-align: center; padding: 40px 0;">暂无运行中的抢占任务...</div>
+                        <div v-else v-for="(t, id) in tasksData" :key="id" class="task-card"
+                            :style="{ borderLeft: `4px solid ${t.successCount >= t.targetCount ? 'var(--primary)' : (t.running ? 'var(--border)' : 'var(--danger)')}` }">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 12px;">
+                                <strong style="color:var(--text-main); font-size: 14px;">☁️ {{
+                                    getDisplayAccountName(t.account) }}</strong>
+                                <button v-if="t.running" class="btn-danger"
+                                    style="width: auto; padding: 4px 12px; font-size: 12px; border-radius: 4px;"
+                                    @click="confirmStopTask(id)">⏹️ 停止任务</button>
+                                <button v-else class="btn-secondary"
+                                    style="width: auto; padding: 4px 12px; font-size: 12px; border-radius: 4px; border-color: var(--primary); color: var(--primary);"
+                                    @click="confirmClearTask(id)">✖️ 删除任务</button>
+                            </div>
+                            <div style="font-size: 13px; color: var(--text-muted); line-height: 1.6;">
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span>配置:</span>
+                                    <span>{{ t.shape }}</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span>进度:</span>
+                                    <strong style="color:var(--primary);">{{ t.successCount }} / {{ t.targetCount
+                                        }}</strong>
+                                </div>
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span>尝试:</span>
+                                    <span style="color:var(--info); font-weight:600;">{{ t.attemptCount || 0 }} 次</span>
+                                </div>
+                                <div style="display:flex; justify-content:space-between;">
+                                    <span>状态:</span>
+                                    <span style="color:var(--warning); font-weight:500;">{{ t.status }}</span>
+                                </div>
+                            </div>
+                            <div class="task-log" :id="'log_' + id">{{ t.log }}</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-show="currentTab === 'manage'" style="display: flex; flex-direction: column; height: 100%;">
+                <!-- 所有账户的统一直观概览与注册时间展示区 -->
+                <div class="panel group"
+                    style="border-top: 4px solid var(--primary); margin-bottom: 20px; flex-shrink: 0;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                        <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                            <label style="margin: 0;">📋 所有账户总览</label>
+
+                            <!-- 🌟 快捷标签筛选按钮组 -->
+                            <div
+                                style="display: flex; gap: 4px; background: var(--bg-color); padding: 3px; border-radius: 8px; border: 1px solid var(--border);">
+                                <button @click="accountTagFilter = 'all'"
+                                    :style="{ background: accountTagFilter === 'all' ? '#8b5cf6' : 'transparent', color: accountTagFilter === 'all' ? '#fff' : 'var(--text-muted)', fontWeight: accountTagFilter === 'all' ? '700' : '500', boxShadow: accountTagFilter === 'all' ? 'var(--shadow-sm)' : 'none' }"
+                                    style="font-size: 11px; padding: 3px 10px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease;">
+                                    全部 ({{ accountDetails.length }})
+                                </button>
+                                <button @click="accountTagFilter = '自用'"
+                                    :style="{ background: accountTagFilter === '自用' ? '#10b981' : 'transparent', color: accountTagFilter === '自用' ? '#fff' : 'var(--text-muted)', fontWeight: accountTagFilter === '自用' ? '700' : '500', boxShadow: accountTagFilter === '自用' ? 'var(--shadow-sm)' : 'none' }"
+                                    style="font-size: 11px; padding: 3px 10px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease;">
+                                    🏠 自用
+                                </button>
+                                <button @click="accountTagFilter = '待售'"
+                                    :style="{ background: accountTagFilter === '待售' ? '#f59e0b' : 'transparent', color: accountTagFilter === '待售' ? '#fff' : 'var(--text-muted)', fontWeight: accountTagFilter === '待售' ? '700' : '500', boxShadow: accountTagFilter === '待售' ? 'var(--shadow-sm)' : 'none' }"
+                                    style="font-size: 11px; padding: 3px 10px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease;">
+                                    💰 待售
+                                </button>
+                                <button @click="accountTagFilter = '备用'"
+                                    :style="{ background: accountTagFilter === '备用' ? '#3b82f6' : 'transparent', color: accountTagFilter === '备用' ? '#fff' : 'var(--text-muted)', fontWeight: accountTagFilter === '备用' ? '700' : '500', boxShadow: accountTagFilter === '备用' ? 'var(--shadow-sm)' : 'none' }"
+                                    style="font-size: 11px; padding: 3px 10px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease;">
+                                    📦 备用
+                                </button>
+                                <button @click="accountTagFilter = 'untagged'"
+                                    :style="{ background: accountTagFilter === 'untagged' ? '#64748b' : 'transparent', color: accountTagFilter === 'untagged' ? '#fff' : 'var(--text-muted)', fontWeight: accountTagFilter === 'untagged' ? '700' : '500', boxShadow: accountTagFilter === 'untagged' ? 'var(--shadow-sm)' : 'none' }"
+                                    style="font-size: 11px; padding: 3px 10px; border-radius: 6px; border: none; cursor: pointer; transition: all 0.2s ease;">
+                                    未标记
+                                </button>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 10px; align-items: center;">
+                            <select v-model="accountSortMode" class="input"
+                                style="font-size: 12px; padding: 0 24px 0 10px; height: 28px; width: auto; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-main); cursor: pointer; outline: none; appearance: none; background-image: url('data:image/svg+xml;utf8,<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'12\' height=\'12\' viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%236b7280\' stroke-width=\'2\' stroke-linecap=\'round\' stroke-linejoin=\'round\'><polyline points=\'6 9 12 15 18 9\'></polyline></svg>'); background-repeat: no-repeat; background-position: right 8px center; font-weight: 500;">
+                                <option value="add_time_asc">按添加时间 (早到晚)</option>
+                                <option value="add_time_desc">按添加时间 (晚到早)</option>
+                                <option value="reg_time_desc">按注册时间 (新到旧)</option>
+                                <option value="reg_time_asc">按注册时间 (旧到新)</option>
+                                <option value="type">按账户类型 (升级优先)</option>
+                                <option value="tag">按自定义标签排序</option>
+                            </select>
+                            <button class="btn btn-primary" @click="syncAccountsDetails" :disabled="isSyncingAccounts"
+                                style="font-size: 12px; padding: 0 12px; border-radius: 6px; height: 28px; width: auto; display: flex; align-items: center; justify-content: center; font-weight: 500;">
+                                <span v-if="isSyncingAccounts" class="spinner"
+                                    style="width: 10px; height: 10px; border-width: 2px;"></span>
+                                <span v-else>🔄 同步数据</span>
+                            </button>
+                        </div>
+                    </div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 10px;">
+                        💡 显示系统中已导入的所有 OCI 账号。可自由为账号设置自定义标签（如自用、待售、备用等）并按标签快速筛选。
+                    </div>
+                    <div
+                        style="max-height: 770px; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-color); padding: 12px;">
+                        <div v-if="sortedAccountDetails.length === 0"
+                            style="padding: 20px; text-align: center; color: var(--text-muted);">暂无符合条件的账户数据</div>
+                        <div v-else
+                            style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px;">
+                            <div v-for="acc in sortedAccountDetails" :key="acc.name" class="account-card"
+                                style="background: var(--surface); padding: 16px; border-radius: var(--radius-lg); border: 1px solid var(--border); box-shadow: var(--shadow-sm); display: flex; flex-direction: column; transition: all 0.3s ease; position: relative; overflow: hidden;">
+                                <div
+                                    :style="{ position: 'absolute', top: 0, left: 0, width: '100%', height: '4px', background: acc.isBanned === 'true' ? 'var(--danger)' : ((acc.isPayg === 'true' || acc.isPayg === true) ? 'var(--warning)' : (acc.isPayg === 'checking' ? 'var(--info)' : 'var(--primary)')) }">
+                                </div>
+                                <div
+                                    style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; margin-top: 4px;">
+                                    <div class="account-name-wrapper"
+                                        style="display: flex; flex-direction: column; gap: 4px;">
+                                        <div style="display: flex; align-items: center; gap: 6px;">
+                                            <button class="hover-edit-btn" @click="renameAccountPrompt(acc.name)"
+                                                title="修改账户名">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14"
+                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                    stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                                    <path
+                                                        d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7">
+                                                    </path>
+                                                    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z">
+                                                    </path>
+                                                </svg>
+                                            </button>
+                                            <span style="font-weight: 700; font-size: 14px;">{{
+                                                getDisplayAccountName(acc.name) }}</span>
+                                        </div>
+
+                                        <!-- 🏷️ 自定义标签控制区 -->
+                                        <div
+                                            style="display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+                                            <template v-if="getAccountTags(acc.tag).length > 0">
+                                                <div v-for="(t, idx) in getAccountTags(acc.tag)" :key="idx"
+                                                    @click="tagAccountPrompt(acc.name)" class="tag-badge-item"
+                                                    title="点击管理/修改账户标签">
+                                                    {{ formatTagDisplay(t) }}
+                                                </div>
+                                            </template>
+                                            <button v-else @click="tagAccountPrompt(acc.name)" class="tag-add-btn"
+                                                title="添加自定义标签 (如: 自用 / 待售 / 备用)">
+                                                <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"
+                                                    viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                                    stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                                </svg>
+                                                添加标签
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    <div
+                                        style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+                                        <div class="badge badge-success"
+                                            style="font-size: 11px; padding: 4px 10px; border-radius: var(--radius-full); white-space: nowrap; font-weight: 600; display: flex; align-items: center; gap: 4px;">
+                                            🌍 {{ acc.region }}
+                                        </div>
+                                        <div v-if="acc.isPayg === 'true' || acc.isPayg === true" class="badge"
+                                            style="background: linear-gradient(135deg, #f59e0b, #fbbf24); color: #fff; font-size: 11px; padding: 4px 10px; border-radius: var(--radius-full); font-weight: 800; font-style: italic; box-shadow: 0 2px 4px rgba(245,158,11,0.2); letter-spacing: 0.5px; white-space: nowrap; user-select: none;"
+                                            title="升级号 (PAYG)">
+                                            Pay As
+                                        </div>
+                                        <div v-else-if="acc.isPayg === 'false' || acc.isPayg === false" class="badge"
+                                            style="background: linear-gradient(135deg, #10b981, #34d399); color: #fff; font-size: 11px; padding: 4px 10px; border-radius: var(--radius-full); font-weight: 800; font-style: italic; box-shadow: 0 2px 4px rgba(16,185,129,0.2); letter-spacing: 0.5px; white-space: nowrap; user-select: none;"
+                                            title="免费号 (Free Tier)">
+                                            Free
+                                        </div>
+                                        <div v-else class="badge"
+                                            style="background: linear-gradient(135deg, #64748b, #94a3b8); color: #fff; font-size: 11px; padding: 4px 10px; border-radius: var(--radius-full); font-weight: 700; box-shadow: 0 2px 4px rgba(100,116,139,0.2); letter-spacing: 0.5px; white-space: nowrap; user-select: none;"
+                                            title="账号升级状态全自动多维检测中...">
+                                            检测中... ⏳
+                                        </div>
+                                        <div v-if="acc.isBanned === 'true'" class="badge"
+                                            style="background: linear-gradient(135deg, #ef4444, #f87171); color: #fff; font-size: 11px; padding: 4px 10px; border-radius: var(--radius-full); font-weight: 800; font-style: italic; box-shadow: 0 2px 4px rgba(239,68,68,0.2); letter-spacing: 0.5px; white-space: nowrap;"
+                                            title="API认证失败：可能是配置错误、服务器时间未同步，或账号已被封禁。">
+                                            Error
+                                        </div>
+                                        <div v-else class="badge"
+                                            style="background: linear-gradient(135deg, #3b82f6, #60a5fa); color: #fff; font-size: 11px; padding: 4px 10px; border-radius: var(--radius-full); font-weight: 800; font-style: italic; box-shadow: 0 2px 4px rgba(59,130,246,0.2); letter-spacing: 0.5px; white-space: nowrap;">
+                                            Active
+                                        </div>
+                                    </div>
+                                </div>
+                                <div
+                                    style="background: var(--bg-color); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 8px; flex: 1;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                                        <span
+                                            style="font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                stroke-linejoin="round">
+                                                <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
+                                                <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
+                                                <line x1="6" y1="6" x2="6.01" y2="6"></line>
+                                                <line x1="6" y1="18" x2="6.01" y2="18"></line>
+                                            </svg>
+                                            配额使用
+                                        </span>
+                                        <span style="font-size: 13px; color: var(--primary); font-weight: 700;">{{
+                                            acc.quotaUsage || '0核 / 0GB / 0GB' }}</span>
+                                    </div>
+                                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                                        <span
+                                            style="font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                stroke-linejoin="round">
+                                                <line x1="12" y1="1" x2="12" y2="23"></line>
+                                                <path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path>
+                                            </svg>
+                                            本月账单
+                                        </span>
+                                        <span v-if="acc.billAmount === '自动计算中...'"
+                                            style="font-size: 12px; color: var(--warning); font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                            <span class="spinner"
+                                                style="width: 10px; height: 10px; border-width: 2px; display: inline-block;"></span>
+                                            自动计算中...
+                                        </span>
+                                        <span v-else
+                                            style="font-size: 13px; color: var(--warning); font-weight: 700;">{{
+                                            acc.billAmount || '¥ 0.00' }}</span>
+                                    </div>
+                                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                                        <span
+                                            style="font-size: 13px; color: var(--text-muted); display: flex; align-items: center; gap: 6px;">
+                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                                                stroke="currentColor" stroke-width="2" stroke-linecap="round"
+                                                stroke-linejoin="round">
+                                                <circle cx="12" cy="12" r="10"></circle>
+                                                <polyline points="12 6 12 12 16 14"></polyline>
+                                            </svg>
+                                            注册时间
+                                        </span>
+                                        <span v-if="acc.registerTime === '自动抓取中...'"
+                                            style="font-size: 12px; color: var(--primary); font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                                            <span class="spinner"
+                                                style="width: 10px; height: 10px; border-width: 2px; display: inline-block;"></span>
+                                            自动抓取中...
+                                        </span>
+                                        <span v-else-if="!acc.registerTime || acc.registerTime === '未记录'"
+                                            style="font-size: 12px; color: var(--text-muted); font-weight: 600; display: inline-flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px; background: var(--surface);"
+                                            title="租户注册时间 (系统全自动探测抓取)">
+                                            未记录
+                                        </span>
+                                        <span v-else
+                                            style="font-size: 12px; color: var(--text-main); font-weight: 600; font-family: monospace; display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; border-radius: 4px;"
+                                            title="租户注册时间 (系统全自动探测抓取)">
+                                            {{ acc.registerTime }}
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="dashboard-grid">
+                    <div class="col-left">
+
+                        <div class="panel group" style="border-top: 4px solid var(--info);">
+                            <label>🗄️ 选择要管理的云账号</label>
+                            <select v-model="manageAccountSelect" @change="loadBootVolumes" @focus="setEditing(true)"
+                                @blur="setEditing(false)">
+                                <option value="">-- 请选择要操作的账号 --</option>
+                                <option v-for="acc in manageAccountList" :key="acc" :value="acc">{{
+                                    getDisplayAccountName(acc) }}</option>
+                            </select>
+                            <div style="display: flex; gap: 10px; margin-top: 15px; flex-wrap: wrap;">
+                                <button class="btn-apple btn-apple-cyan" @click="loadBootVolumes" :disabled="isFetchingBV"
+                                    style="flex: 1; min-width: 140px;">
+                                    <span :class="{ 'spin-sync': isFetchingBV }">🔄</span> {{ isFetchingBV ? '加载中...' : '刷新引导卷列表' }}
+                                </button>
+                                <button class="btn-apple btn-apple-teal" @click="injectQuota"
+                                    style="flex: 1; min-width: 140px;">
+                                    🛡️ 注入防扣费配额
+                                </button>
+                                <button class="btn-apple btn-apple-amber" @click="deleteQuota"
+                                    style="flex: 1; min-width: 140px;">
+                                    🔓 解除配额锁定
+                                </button>
+                                <button class="btn-apple btn-apple-mint" @click="fixRouteTable" :disabled="isFixingRoute"
+                                    style="flex: 1; min-width: 140px;">
+                                    🚀 {{ isFixingRoute ? '修复中...' : '一键修复路由表' }}
+                                </button>
+                                <button class="btn-apple btn-apple-danger" @click="deleteAccount(manageAccountSelect)" :disabled="!manageAccountSelect"
+                                    style="flex: 1; min-width: 140px;">
+                                    🗑️ 彻底删除此账号
+                                </button>
+                            </div>
+                            <div class="sys-msg" :class="{ success: manageMsg.isSuccess, error: !manageMsg.isSuccess }">{{
+                                manageMsg.text }}</div>
+                            <div style="font-size: 12px; color: var(--text-muted); margin-top: 8px;">
+                                💡 **防扣费配额** 将自动识别账号的区域，强制封死其它高收费服务，仅允许开通免费版及设定容量内的免费存储资源。**一键修复路由表** 将自动修补该账号下的 VCN
+                                路由和安全列表，解决网络不通。
+                            </div>
+                        </div>
+
+                        </div><div class="col-right" style="display: flex; flex-direction: column; min-height: 0;">
+                        <!-- 💿 引导卷 (Boot Volumes) 空间清理（紧凑收缩面板，支持折叠展开） -->
+                        <div class="panel group"
+                            style="border-top: 4px solid var(--info); margin-bottom: 12px; flex-shrink: 0; transition: all 0.2s ease;">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; cursor: pointer; user-select: none;"
+                                @click="isBootVolumeCollapsed = !isBootVolumeCollapsed">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <label style="margin:0; cursor: pointer;">💿 引导卷 (Boot Volumes) 空间清理</label>
+                                    <span v-if="bootVolumes && bootVolumes.length > 0" class="badge badge-info"
+                                        style="font-size: 11px; padding: 2px 8px; border-radius: var(--radius-full); font-weight: 600;">
+                                        共 {{ bootVolumes.length }} 个
+                                    </span>
+                                </div>
+                                <button type="button" class="btn-secondary"
+                                    style="padding: 2px 10px; font-size: 11.5px; width: auto; height: 26px; border-radius: 6px;"
+                                    @click.stop="isBootVolumeCollapsed = !isBootVolumeCollapsed">
+                                    {{ isBootVolumeCollapsed ? '展开 ▼' : '收起 ▲' }}
+                                </button>
+                            </div>
+
+                            <div v-show="!isBootVolumeCollapsed" style="margin-top: 8px;">
+                                <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px;">
+                                    💡 提示：在甲骨文云中，免费存储额度只有 200GB。请手动清理处于「闲置」状态的废弃引导卷以释放免费空间。
+                                </div>
+                                <div class="server-list" style="max-height: 120px; overflow-y: auto; margin-bottom: 0; padding: 6px 8px;">
+                                    <div v-if="bootVolumes.length === 0"
+                                        style="color:var(--text-muted); text-align:center; padding: 14px 10px; font-size: 12px;">
+                                        {{ manageAccountSelect ? '🎉 该账号下干净如新，没有任何引导卷。' : '请在左侧选择账号以加载引导卷信息。' }}
+                                    </div>
+                                    <div v-else v-for="bv in bootVolumes" :key="bv.id" class="server-item inst-card"
+                                        style="padding: 6px 10px; margin-bottom: 6px;">
+                                        <div class="inst-head" style="margin-bottom: 4px;">
+                                            <span class="inst-dot"
+                                                :class="bv.state === 'AVAILABLE' ? (bv.attachmentId ? 'dot-wait' : 'dot-run') : 'dot-stop'"></span>
+                                            <span class="server-name" style="font-size: 12.5px;">{{ bv.name }}</span>
+                                            <span class="badge badge-region" style="font-size: 10.5px; padding: 1px 6px;">{{ bv.size }} GB</span>
+                                            <span class="badge badge-shape" style="font-size: 10.5px; padding: 1px 6px;">{{ bv.ad }}</span>
+                                            <span v-if="bv.state === 'AVAILABLE'" class="inst-state state-run" style="font-size: 10.5px; padding: 1px 6px;">AVAILABLE</span>
+                                            <span v-else class="inst-state state-wait" style="font-size: 10.5px; padding: 1px 6px;">{{ bv.state }}</span>
+                                        </div>
+
+                                        <div class="inst-meta" style="margin-bottom: 4px; font-size: 11.5px;">
+                                            <span v-if="bv.attachmentId" class="meta-item"
+                                                style="color: var(--warning); font-weight: 700;"><span
+                                                    class="meta-ico">🔗</span>已附加至 {{ bv.attachedTo }}</span>
+                                            <span v-else class="meta-item"
+                                                style="color: var(--primary); font-weight: 700;"><span
+                                                    class="meta-ico">✅</span>未附加 (可随时删除)</span>
+                                        </div>
+
+                                        <div class="server-actions inst-actions" style="gap: 6px;">
+                                            <button v-if="bv.state === 'AVAILABLE'" class="btn-apple btn-apple-teal"
+                                                style="height: 26px; padding: 0 10px; font-size: 11.5px;"
+                                                @click="openExpandVolumeModal(bv)">📈 扩容</button>
+                                            <button v-if="bv.attachmentId" class="btn-apple btn-apple-amber"
+                                                style="height: 26px; padding: 0 10px; font-size: 11.5px;"
+                                                @click="detachBootVolume(bv)">🔌 强制分离</button>
+                                            <button v-else-if="bv.state === 'AVAILABLE'" class="btn-apple btn-apple-danger"
+                                                style="height: 26px; padding: 0 10px; font-size: 11.5px;"
+                                                @click="deleteBootVolume(bv)">🗑️ 彻底删除</button>
+                                            <div v-if="bv.state !== 'AVAILABLE'" class="status-changing"
+                                                style="font-size: 11.5px; padding: 2px 6px;"
+                                                :title="'当前状态: ' + bv.state + '，系统正在自动同步检测中'">
+                                                <span class="status-changing-icon">🔄</span> {{ getBootVolumeChangingStateText(bv.state) }}
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- 📝 自定义防扣费配额策略模板（自动填满高度并与左侧危险操作底部对齐） -->
+                        <div class="panel group"
+                            style="border-top: 4px solid var(--warning); flex: 1; display: flex; flex-direction: column; min-height: 0; margin-bottom: 20px;">
+                            <div
+                                style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0;">
+                                <label style="margin: 0; color: var(--warning); font-weight: 600;">📝
+                                    自定义防扣费配额策略模板</label>
+                                <button class="btn-apple btn-apple-secondary" style="width: auto; height: 26px; padding: 0 10px; font-size: 11.5px; border-radius: 6px;"
+                                    @click="loadQuotaTemplate" :disabled="isLoadingTemplate">
+                                    <span :class="{ 'spin-sync': isLoadingTemplate }">🔄</span> {{ isLoadingTemplate ? '读取中...' : '读取/刷新模板' }}
+                                </button>
+                            </div>
+                            <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 8px; flex-shrink: 0;">
+                                💡 支持使用 <code>{region}</code> 占位符。由于新版甲骨文取消了某些历史架构，系统已更新默认兼容模板。请点击刷新以获取兼容最新云策略的安全模板。
+                            </div>
+                            <textarea v-model="quotaTemplate"
+                                style="font-family: monospace; font-size: 12px; resize: vertical; white-space: pre; flex: 1; min-height: 110px; width: 100%; box-sizing: border-box;"
+                                placeholder="正在读取模板..." @focus="setEditing(true)" @blur="setEditing(false)"></textarea>
+                            <div style="display: flex; gap: 10px; margin-top: 10px; flex-shrink: 0;">
+                                <button class="btn-apple btn-apple-amber" style="width: 100%; height: 38px;" @click="saveQuotaTemplate"
+                                    :disabled="isSavingTemplate">
+                                    💾 {{ isSavingTemplate ? '保存中...' : '保存配额模板' }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+
+            <!-- Modals -->
+
+        <!-- 🌍 订阅与扩充新区域弹窗 -->
+        <div class="modal-overlay" v-if="modals.subscribeRegion.show" :class="{ active: modals.subscribeRegion.show }">
+            <div class="modal-content" style="max-width: 620px; max-height: 90vh; display: flex; flex-direction: column;">
+                <h3 style="margin-top: 0; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                        <span style="font-size: 20px;">🌍</span> 订阅与扩充新区域
+                    </div>
+                    <span style="font-size: 18px; cursor: pointer; color: var(--text-muted);" @click="modals.subscribeRegion.show = false">✕</span>
+                </h3>
+
+                <!-- 账号与主区域概要卡片 -->
+                <div style="background: var(--panel-dashed-bg); padding: 12px 16px; border-radius: var(--radius-sm); border: 1px dashed var(--panel-dashed-border); margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-size: 12px; color: var(--text-muted);">目标云账号:</span>
+                        <span style="font-weight: 700; color: var(--text-main);">{{ modals.subscribeRegion.account }}</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;" v-if="modals.subscribeRegion.homeRegion">
+                        <span style="font-size: 12px; color: var(--text-muted);">主区域 (Home Region):</span>
+                        <span style="font-weight: 600; color: var(--primary);">🏠 {{ modals.subscribeRegion.homeRegion }}</span>
+                    </div>
+                    <div>
+                        <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 5px;">已开通订阅区域:</div>
+                        <div style="display: flex; flex-wrap: wrap; gap: 6px;">
+                            <span v-for="sub in (modals.subscribeRegion.subscribedRegions || [])" :key="sub.name"
+                                  class="tag-apple" style="font-size: 11.5px; padding: 2px 8px; border-radius: 4px;">
+                                🌍 {{ sub.name }} <span v-if="sub.isHome" style="color:#10b981;font-weight:700;">(主)</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 模式切换：官方列表 / 自定义输入 -->
+                <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                    <button type="button" class="btn-apple-tab" :class="{ active: !modals.subscribeRegion.isCustom }"
+                            @click="modals.subscribeRegion.isCustom = false" style="flex: 1; padding: 7px 12px; font-size: 13px;">
+                        📋 官方区域推荐列表
+                    </button>
+                    <button type="button" class="btn-apple-tab" :class="{ active: modals.subscribeRegion.isCustom }"
+                            @click="modals.subscribeRegion.isCustom = true" style="flex: 1; padding: 7px 12px; font-size: 13px;">
+                        ⌨️ 手动指定 Region Key
+                    </button>
+                </div>
+
+                <!-- 模式1: 官方区域推荐列表 -->
+                <div v-show="!modals.subscribeRegion.isCustom" style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+                    <div style="margin-bottom: 10px;">
+                        <input type="text" v-model="modals.subscribeRegion.filterText"
+                               placeholder="🔍 搜索区域名称、简码 (如: tokyo, sin, ashburn)..."
+                               style="font-size: 13px; padding: 8px 12px; margin-bottom: 0;">
+                    </div>
+
+                    <div v-if="modals.subscribeRegion.isLoading" style="text-align: center; padding: 30px; color: var(--text-muted);">
+                        ⏳ 正在查询该账号官方区域与订阅状态...
+                    </div>
+
+                    <div v-else class="subscribe-region-list" style="max-height: 220px; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; padding-right: 4px;">
+                        <div v-for="r in (modals.subscribeRegion.allRegions || []).filter(item => {
+                            if (!modals.subscribeRegion.filterText) return true;
+                            const kw = modals.subscribeRegion.filterText.toLowerCase().trim();
+                            return (item.name && item.name.toLowerCase().includes(kw)) ||
+                                   (item.key && item.key.toLowerCase().includes(kw));
+                        })" :key="r.name"
+                             class="subscribe-region-card"
+                             :class="{ 'is-subscribed': r.isSubscribed, 'selected': modals.subscribeRegion.selectedRegion === r.name }"
+                             @click="!r.isSubscribed && (modals.subscribeRegion.selectedRegion = r.name)">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 16px;">🌍</span>
+                                <div>
+                                    <div style="font-weight: 600; font-size: 13px; color: var(--text-main);">
+                                        {{ r.name }}
+                                        <span v-if="r.key" style="color: var(--text-muted); font-size: 11px; margin-left: 4px;">({{ r.key }})</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <span v-if="r.isHome" class="region-pill-home">🏠 主区域</span>
+                                <span v-else-if="r.isSubscribed" class="region-pill-subscribed">✅ 已开通</span>
+                                <span v-else-if="modals.subscribeRegion.selectedRegion === r.name" class="region-pill-selected">✓ 选中订阅</span>
+                                <span v-else class="region-pill-action">点击选择</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 模式2: 自定义区域代码 -->
+                <div v-show="modals.subscribeRegion.isCustom" class="group" style="margin-top: 4px;">
+                    <label>🏷️ 目标区域名称或 3 位 Region Key</label>
+                    <input type="text" v-model="modals.subscribeRegion.customRegion"
+                           placeholder="例如: ap-singapore-1 或 SIN">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">
+                        支持输入全称（如 ap-singapore-1）或甲骨文 3 位大写简码（如 SIN）。系统将自动向 Home Region 发送订阅申请。
+                    </div>
+                </div>
+
+                <!-- 官方重要提示 -->
+                <div style="margin-top: 14px; background: rgba(245, 158, 11, 0.08); border-left: 3px solid #f59e0b; padding: 10px 12px; border-radius: 4px; font-size: 11.5px; line-height: 1.5; color: var(--text-muted);">
+                    <div style="font-weight: 600; color: #f59e0b; margin-bottom: 2px;">⚠️ 甲骨文官方规则须知</div>
+                    <div>1. 区域订阅在甲骨文平台是<b>永久且不可逆</b>的操作，一旦开通无法取消订阅。</div>
+                    <div>2. 仅升级后的<b>付费账户 (PAYG)</b> 支持多区域；免费试用 (Free Tier) 账户仅能使用初始主区域。</div>
+                    <div>3. 提交后通常需 1~5 分钟后台就绪，开通后即可在控制台直接切换并部署新区域资源。</div>
+                </div>
+
+                <!-- 提示消息 -->
+                <div class="sys-msg" :class="{ success: modals.subscribeRegion.msg.isSuccess, error: !modals.subscribeRegion.msg.isSuccess }"
+                     style="margin-top: 10px;">
+                    {{ modals.subscribeRegion.msg.text }}
+                </div>
+
+                <!-- 按钮组 -->
+                <div style="display: flex; gap: 12px; margin-top: 16px;">
+                    <button class="btn-secondary" style="flex: 1; padding: 11px;"
+                            @click="modals.subscribeRegion.show = false" :disabled="modals.subscribeRegion.isSubmitting">
+                        取消
+                    </button>
+                    <button style="flex: 1.5; padding: 11px;"
+                            @click="confirmSubscribeRegion"
+                            :disabled="modals.subscribeRegion.isSubmitting || (!modals.subscribeRegion.isCustom && !modals.subscribeRegion.selectedRegion) || (modals.subscribeRegion.isCustom && !modals.subscribeRegion.customRegion)">
+                        {{ modals.subscribeRegion.isSubmitting ? '⏳ 正在向甲骨文提交...' : '🚀 确认提交订阅' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" v-if="modals.rename.show" :class="{ active: modals.rename.show }">
+            <div class="modal-content">
+                <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">✏️</span> 重命名实例
+                </h3>
+                <div
+                    style="background: var(--panel-dashed-bg); padding: 12px; border-radius: var(--radius-sm); border: 1px dashed var(--panel-dashed-border); margin-bottom: 20px;">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">当前实例名称:</div>
+                    <div style="font-weight: 600; color: var(--text-main); word-break: break-all;">{{
+                        modals.rename.oldName }}</div>
+                </div>
+                <div class="group">
+                    <label>🏷️ 新实例名称</label>
+                    <input type="text" v-model="modals.rename.newName" placeholder="请输入新的实例名称"
+                        @keypress.enter="confirmRenameInstance">
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 28px;">
+                    <button class="btn-secondary" style="flex: 1; padding: 12px;"
+                        @click="modals.rename.show = false">取消</button>
+                    <button style="flex: 1; padding: 12px;" @click="confirmRenameInstance">确定修改</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" v-if="modals.renameAccount.show" :class="{ active: modals.renameAccount.show }">
+            <div class="modal-content">
+                <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">✏️</span> 修改账户名称
+                </h3>
+                <div
+                    style="background: var(--panel-dashed-bg); padding: 12px; border-radius: var(--radius-sm); border: 1px dashed var(--panel-dashed-border); margin-bottom: 20px;">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">当前账户名称:</div>
+                    <div style="font-weight: 600; color: var(--text-main); word-break: break-all;">{{
+                        modals.renameAccount.currentName }}</div>
+                </div>
+                <div class="group">
+                    <label>🏷️ 新账户名称</label>
+                    <input type="text" v-model="modals.renameAccount.newName" placeholder="请输入新名称 (不能与已有重复)"
+                        @keypress.enter="executeRenameAccount">
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 28px;">
+                    <button class="btn-secondary" style="flex: 1; padding: 12px;"
+                        @click="closeRenameAccountModal">取消</button>
+                    <button style="flex: 1; padding: 12px;" @click="executeRenameAccount">确定修改</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" v-if="modals.expandVolume.show" :class="{ active: modals.expandVolume.show }">
+            <div class="modal-content">
+                <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">📈</span> 引导卷扩容
+                </h3>
+                <div
+                    style="background: var(--panel-dashed-bg); padding: 12px; border-radius: var(--radius-sm); border: 1px dashed var(--panel-dashed-border); margin-bottom: 20px;">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">当前引导卷:</div>
+                    <div style="font-weight: 600; color: var(--text-main); word-break: break-all;">{{
+                        modals.expandVolume.bv?.name }}</div>
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">当前容量: {{
+                        modals.expandVolume.bv?.size }} GB</div>
+                </div>
+                <div class="group">
+                    <label>📈 新容量 (GB)</label>
+                    <input type="number" v-model="modals.expandVolume.newSize" placeholder="必须大于当前容量，最大支持200"
+                        @keypress.enter="confirmExpandVolume">
+                    <div style="font-size: 12px; color: var(--warning); margin-top: 6px;">提示: 甲骨文云免费额度最多为 200GB
+                        (跨所有引导卷)。只能扩容无法缩容！扩容后可能需要在操作系统内执行命令调整分区。</div>
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 28px;">
+                    <button class="btn-secondary" style="flex: 1; padding: 12px;"
+                        @click="modals.expandVolume.show = false">取消</button>
+                    <button style="flex: 1; padding: 12px;" @click="confirmExpandVolume">确定扩容</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" v-if="modals.reinstall.show" :class="{ active: modals.reinstall.show }">
+            <div class="modal-content">
+                <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">💿</span> 一键重装与注入
+                </h3>
+                <div
+                    style="background: var(--panel-dashed-bg); padding: 12px; border-radius: var(--radius-sm); border: 1px dashed var(--panel-dashed-border); margin-bottom: 20px;">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 4px;">当前操作目标:</div>
+                    <div style="font-weight: 600; color: var(--primary); word-break: break-all;">{{
+                        modals.reinstall.targetName }}</div>
+                </div>
+                <div class="group">
+                    <label>重装镜像模式</label>
+                    <select v-model="modals.reinstall.type">
+                        <option value="auto">🌟 让系统自动匹配该架构的官方镜像 (推荐)</option>
+                        <option value="custom">⚙️ 我有特定的镜像 OCID，手动输入</option>
+                    </select>
+                </div>
+                <div class="group" v-show="modals.reinstall.type === 'auto'">
+                    <label>🐧 选择重装的操作系统</label>
+                    <select v-model="modals.reinstall.os">
+                        <option value="">{{ reinstallImages.length ? '-- 请选择 --' : '正在分析原机器架构...' }}</option>
+                        <option v-for="img in reinstallImages" :key="img.value" :value="img.value">{{ img.display }}
+                        </option>
+                    </select>
+                </div>
+                <div class="group" v-show="modals.reinstall.type === 'custom'">
+                    <label>🔗 目标镜像 OCID</label>
+                    <input type="text" v-model="modals.reinstall.customOcid" placeholder="ocid1.image.oc1...">
+                    <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">请确保您输入的 OCID 所在区域和 CPU
+                        架构匹配当前实例。</div>
+                </div>
+                <div class="group">
+                    <label>🏷️ 实例新名称 (可选)</label>
+                    <input type="text" v-model="modals.reinstall.newInstanceName" placeholder="留空则保持原名不变">
+                </div>
+                <hr style="border:0; border-top: 1px solid var(--border); margin: 20px 0;">
+
+                <!-- 🔐 重装登录认证方式手动选择 -->
+                <div style="margin-bottom: 16px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <label style="font-weight: 600; color: var(--text-main); margin: 0;">🔐 登录认证方式</label>
+                        <span style="font-size: 12px; color: var(--text-muted);">手动选择密码或SSH公钥</span>
+                    </div>
+                    <div class="auth-type-selector">
+                        <button type="button" class="auth-type-btn"
+                            :class="{ active: modals.reinstall.authType === 'password' }"
+                            @click="modals.reinstall.authType = 'password'">
+                            🔑 密码登录
+                        </button>
+                        <button type="button" class="auth-type-btn"
+                            :class="{ active: modals.reinstall.authType === 'key' }"
+                            @click="modals.reinstall.authType = 'key'">
+                            🛡️ SSH 公钥
+                        </button>
+                        <button type="button" class="auth-type-btn"
+                            :class="{ active: modals.reinstall.authType === 'both' }"
+                            @click="modals.reinstall.authType = 'both'">
+                            🔐 密码 + 密钥
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 密码输入区域 (当为 password 或 both 时显示) -->
+                <div v-show="modals.reinstall.authType === 'password' || modals.reinstall.authType === 'both'" style="margin-bottom: 16px;">
+                    <label style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <span>🔑 Root 密码直登</span>
+                        <span style="font-size: 12px; color: var(--text-muted);">自动配置密码直登</span>
+                    </label>
+                    <div style="display: flex; gap: 8px;">
+                        <input type="text"
+                            id="osDeploySecret"
+                            name="os_deploy_secret"
+                            autocomplete="off"
+                            data-lpignore="true"
+                            data-1p-ignore="true"
+                            data-bwignore="true"
+                            data-form-type="other"
+                            spellcheck="false"
+                            v-model="modals.reinstall.rootPwd"
+                            placeholder="请输入将要植入的Root密码" style="flex: 1;">
+                        <button type="button" class="btn-secondary" style="width: auto; white-space: nowrap;"
+                            @click="modals.reinstall.rootPwd = genRandomPwd()">🎲 随机密码</button>
+                    </div>
+                </div>
+
+                <!-- SSH 公钥输入区域 (当为 key 或 both 时显示) -->
+                <div v-show="modals.reinstall.authType === 'key' || modals.reinstall.authType === 'both'"
+                    style="background: var(--panel-dashed-bg); padding: 16px; border-radius: var(--radius-md); border: 1px dashed var(--panel-dashed-border);">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <label style="margin: 0; color: var(--text-main);">🛡️ SSH 公钥 (更高安全性)</label>
+                        <button type="button" class="btn-secondary"
+                            style="width: auto; padding: 4px 10px; font-size: 12px; border-color: var(--primary); color: var(--primary);"
+                            @click="generateSshKey('reinstall')">✨ 生成密钥 (Ed25519)</button>
+                    </div>
+                    <textarea v-model="modals.reinstall.sshKey" rows="2"
+                        style="font-family: monospace; resize: vertical;"
+                        placeholder="ssh-ed25519 AAAAC3Nza... (输入或一键生成)"></textarea>
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 28px;">
+                    <button class="btn-secondary" style="flex: 1; padding: 12px;"
+                        @click="modals.reinstall.show = false">取消返回</button>
+                    <button class="btn-danger" style="flex: 1; padding: 12px;" @click="confirmReinstall">{{
+                        modals.reinstall.confirmStage ? '⚠️ 危险: 再次点击确认' : '确定重装' }}</button>
+                </div>
+                <div class="sys-msg" :class="{ success: reinstallMsg.isSuccess, error: !reinstallMsg.isSuccess }">{{
+                    reinstallMsg.text }}</div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" v-if="modals.import.show" :class="{ active: modals.import.show }">
+            <div class="modal-content">
+                <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 20px;">➕</span> 导入新 OCI 账号
+                </h3>
+                <div class="group">
+                    <label>🏷️ 账号别名</label>
+                    <input type="text"
+                        id="ociAccountCustomAlias"
+                        name="oci_account_custom_alias"
+                        autocomplete="off"
+                        data-lpignore="true"
+                        data-1p-ignore="true"
+                        data-bwignore="true"
+                        spellcheck="false"
+                        v-model="modals.import.accountName"
+                        placeholder="例如: 新加坡2026">
+                </div>
+                <div class="group">
+                    <label>📄 OCI CLI 标准配置</label>
+                    <textarea v-model="modals.import.configText" rows="6"
+                        style="font-family: monospace; font-size: 12px; resize: vertical;"
+                        placeholder="[DEFAULT]..."></textarea>
+                </div>
+                <div class="group">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <label style="margin-bottom: 0;">🔑 OCI 私钥 (.pem)</label>
+                        <div style="display: flex; gap: 4px;">
+                            <button type="button"
+                                :style="{ padding: '3px 10px', fontSize: '12px', borderRadius: '4px', border: '1px solid var(--border)', background: (modals.import.keyMode !== 'text') ? 'var(--primary)' : 'var(--bg-card)', color: (modals.import.keyMode !== 'text') ? '#fff' : 'var(--text-muted)', cursor: 'pointer' }"
+                                @click="modals.import.keyMode = 'file'">📁 文件上传</button>
+                            <button type="button"
+                                :style="{ padding: '3px 10px', fontSize: '12px', borderRadius: '4px', border: '1px solid var(--border)', background: (modals.import.keyMode === 'text') ? 'var(--primary)' : 'var(--bg-card)', color: (modals.import.keyMode === 'text') ? '#fff' : 'var(--text-muted)', cursor: 'pointer' }"
+                                @click="modals.import.keyMode = 'text'">✏️ 文本粘贴</button>
+                        </div>
+                    </div>
+
+                    <div v-show="modals.import.keyMode !== 'text'">
+                        <input type="file" id="importKeyFile" accept=".pem,.key,.txt" style="display: none;"
+                            @change="handleFileChange">
+                        <div id="dropZone" class="drop-zone" :class="{ dragover: isDragging }"
+                            @dragover.prevent="isDragging = true" @dragleave.prevent="isDragging = false"
+                            @drop.prevent="handleFileDrop" @click="triggerFileInput">
+                            <div style="font-size: 28px; margin-bottom: 6px; pointer-events: none;">📁</div>
+                            <div style="font-weight: 500; font-size: 13px; pointer-events: none;"
+                                v-html="modals.import.fileName ? `<span style='color:var(--text-main);'><b>✅ 已就绪:</b> ${esc(modals.import.fileName)}</span>` : '点击选择文件，或将私钥文件拖拽到此处'">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div v-show="modals.import.keyMode === 'text'">
+                        <textarea v-model="modals.import.fileText" rows="6"
+                            style="font-family: monospace; font-size: 11px; resize: vertical;"
+                            placeholder="-----BEGIN RSA PRIVATE KEY-----&#10;MIIEowIBAAKCAQEA...&#10;-----END RSA PRIVATE KEY-----"></textarea>
+                    </div>
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 28px;">
+                    <button class="btn-secondary" style="flex: 1; padding: 12px;"
+                        @click="modals.import.show = false">取消</button>
+                    <button style="flex: 1; padding: 12px;" @click="submitImport"
+                        :disabled="modals.import.isSubmitting">确定导入并预热</button>
+                </div>
+                <div class="sys-msg" :class="{ success: importMsg.isSuccess, error: !importMsg.isSuccess }">{{
+                    importMsg.text }}</div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" v-if="modals.confirm.show" :class="{ active: modals.confirm.show }">
+            <div class="modal-content"
+                :style="{ borderTop: modals.confirm.isDanger ? '4px solid var(--danger)' : '4px solid var(--warning)' }">
+                <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;"
+                    :style="{ color: modals.confirm.isDanger ? 'var(--danger)' : 'var(--warning)' }">
+                    <svg style="width:24px;height:24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    {{ modals.confirm.title }}
+                </h3>
+                <div
+                    :style="{ background: modals.confirm.isDanger ? 'rgba(239,68,68,0.06)' : 'rgba(245,158,11,0.06)', padding: '12px', borderRadius: 'var(--radius-sm)', border: modals.confirm.isDanger ? '1px solid rgba(239,68,68,0.18)' : '1px solid rgba(245,158,11,0.18)', marginBottom: '20px', fontSize: '13px', lineHeight: '1.6', color: 'var(--text-muted)' }">
+                    <span v-html="modals.confirm.message"></span>
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 28px;">
+                    <button class="btn-secondary" style="flex: 1; padding: 12px;" @click="closeConfirmModal">取消</button>
+                    <button :class="modals.confirm.isDanger ? 'btn-danger' : 'btn-warning'"
+                        style="flex: 1; padding: 12px;" @click="executeConfirmAction">{{ modals.confirm.confirmText
+                        }}</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" v-if="modals.danger.show" :class="{ active: modals.danger.show }">
+            <div class="modal-content" style="border-top: 4px solid var(--danger);">
+                <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px; color: var(--danger);">
+                    <svg style="width:24px;height:24px;" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                    </svg>
+                    {{ modals.danger.title }}
+                </h3>
+                <div
+                    style="background: rgba(239,68,68,0.06); padding: 12px; border-radius: var(--radius-sm); border: 1px solid rgba(239,68,68,0.18); margin-bottom: 20px; font-size: 13px; line-height: 1.6; color: var(--text-muted);">
+                    <span v-html="modals.danger.message"></span>
+                </div>
+                <div class="group">
+                    <label style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-bottom: 6px;">
+                        <span style="display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap;">
+                            <span>请输入</span>
+                            <span class="danger-keyword-badge" @click="copyDangerKeyword" title="点击复制确认文本">
+                                <code>{{ modals.danger.expectedKeyword }}</code>
+                                <span class="copy-btn-component" 
+                                      :class="{ 'is-success': copyState === 'success', 'is-error': copyState === 'error' }" 
+                                      @click.stop="copyDangerKeyword"
+                                      aria-label="复制">
+                                    <svg v-if="copyState !== 'success'" class="copy-svg" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M8.5 4h8a2.5 2.5 0 0 1 2.5 2.5v8a2.5 2.5 0 0 1-2.5 2.5"></path>
+                                        <rect x="5" y="7.5" width="11.5" height="11.5" rx="2.5"></rect>
+                                    </svg>
+                                    <svg v-else class="copy-svg is-success" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M8.5 4h8a2.5 2.5 0 0 1 2.5 2.5v8a2.5 2.5 0 0 1-2.5 2.5"></path>
+                                        <rect x="5" y="7.5" width="11.5" height="11.5" rx="2.5"></rect>
+                                        <path d="m8 13.5 2.2 2.2 3.8-4.7" stroke-width="2"></path>
+                                    </svg>
+                                    <span class="copy-tooltip">{{ copyState === 'success' ? '已复制' : (copyState === 'error' ? '复制失败' : '复制') }}</span>
+                                </span>
+                            </span>
+                            <span>以确认执行:</span>
+                        </span>
+                    </label>
+                    <input type="text" v-model="modals.danger.inputKeyword" placeholder="在此输入确认文本..."
+                        @focus="setEditing(true)" @blur="setEditing(false)" @keypress.enter="executeDangerAction">
+                </div>
+                <div style="display: flex; gap: 12px; margin-top: 28px;">
+                    <button class="btn-secondary" style="flex: 1; padding: 12px;" @click="closeDangerModal">取消</button>
+                    <button class="btn-danger" style="flex: 1; padding: 12px;"
+                        :disabled="modals.danger.inputKeyword !== modals.danger.expectedKeyword"
+                        @click="executeDangerAction">确认执行</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 🔐 通行密钥管理弹窗 (仅登录后台后可访问) -->
+        <div class="modal-overlay" v-if="sessionToken && modals.passkey.show" :class="{ active: modals.passkey.show }" @click.self="closePasskeyModal">
+            <div class="modal-content passkey-modal-content" style="border-top: 4px solid var(--primary); max-width: 580px; width: 95%;">
+                
+                <div class="passkey-modal-header">
+                    <h3 class="passkey-modal-title">
+                        <span class="passkey-circle-icon-sm">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                            </svg>
+                        </span>
+                        <span>通行密钥管理 (Passkey)</span>
+                    </h3>
+                    <button type="button" class="passkey-modal-close" @click="closePasskeyModal" title="关闭" aria-label="关闭">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                            <line x1="18" y1="6" x2="6" y2="18"></line>
+                            <line x1="6" y1="6" x2="18" y2="18"></line>
+                        </svg>
+                    </button>
+                </div>
+
+                <!-- 🔑 通行密钥管理与添加区域 -->
+                <div>
+                    <div class="passkey-intro-box">
+                        <div class="passkey-intro-icon">
+                            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="16" x2="12" y2="12"></line>
+                                <line x1="12" y1="8" x2="12.01" y2="8"></line>
+                            </svg>
+                        </div>
+                        <div class="passkey-intro-text">
+                            <strong>WebAuthn / FIDO2 生物识别与硬件认证</strong><br>
+                            支持 <strong>Touch ID / Face ID / Windows Hello</strong> 或硬件密钥（YubiKey）。绑定后可在登录界面一键免密进入控制台。
+                        </div>
+                    </div>
+
+                    <!-- 密钥列表 -->
+                    <div style="margin: 18px 0 14px;">
+                        <div class="passkey-section-header">
+                            <div class="passkey-section-label">
+                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                                <span>已绑定的通行密钥</span>
+                                <span class="passkey-count-pill">{{ modals.passkey.list.length }}</span>
+                            </div>
+                            <button type="button" class="passkey-refresh-btn" @click="fetchPasskeys" :disabled="modals.passkey.isLoading" title="刷新列表">
+                                <svg :class="{ 'spin': modals.passkey.isLoading }" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="23 4 23 10 17 10"></polyline>
+                                    <polyline points="1 20 1 14 7 14"></polyline>
+                                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                </svg>
+                                <span>{{ modals.passkey.isLoading ? '刷新中...' : '刷新列表' }}</span>
+                            </button>
+                        </div>
+
+                        <div v-if="modals.passkey.isLoading && modals.passkey.list.length === 0" style="text-align: center; padding: 28px; color: var(--text-muted); font-size: 13px;">
+                            正在载入通行密钥...
+                        </div>
+
+                        <div v-else-if="modals.passkey.list.length === 0" class="passkey-empty-state">
+                            <div class="passkey-empty-icon">
+                                <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                                </svg>
+                            </div>
+                            <div style="font-size: 14px; font-weight: 600; color: var(--text-main); margin-bottom: 4px;">暂未绑定任何通行密钥</div>
+                            <div style="font-size: 12.5px; color: var(--text-muted); line-height: 1.5;">您已通过 TG 验证登录后台，现在可在下方输入设备名称调起生物识别绑定此设备</div>
+                        </div>
+
+                        <div v-else class="passkey-list-container">
+                            <div v-for="item in modals.passkey.list" :key="item.id" class="passkey-item-card">
+                                <div class="passkey-item-left">
+                                    <div class="passkey-item-icon">
+                                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                            <line x1="8" y1="21" x2="16" y2="21"></line>
+                                            <line x1="12" y1="17" x2="12" y2="21"></line>
+                                        </svg>
+                                    </div>
+                                    <div class="passkey-item-info">
+                                        <div class="passkey-item-name">{{ item.name }}</div>
+                                        <div class="passkey-item-meta">
+                                            <span>绑定于 {{ item.createdAt || '未知' }}</span>
+                                            <span v-if="item.lastUsedAt"> · 最近登录 {{ item.lastUsedAt }}</span>
+                                            <span v-else> · 尚未登录过</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn-del-passkey" @click="deletePasskey(item)" title="解绑此通行密钥">
+                                    <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                        <polyline points="3 6 5 6 21 6"></polyline>
+                                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                    </svg>
+                                    <span>解绑</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 绑定新通行密钥输入组 -->
+                    <div class="passkey-add-section">
+                        <div class="passkey-section-header">
+                            <div class="passkey-section-label">
+                                <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="10"></circle>
+                                    <line x1="12" y1="8" x2="12" y2="16"></line>
+                                    <line x1="8" y1="12" x2="16" y2="12"></line>
+                                </svg>
+                                <span>绑定新通行密钥</span>
+                            </div>
+                        </div>
+                        <div class="passkey-input-group">
+                            <div class="passkey-input-wrapper">
+                                <span class="passkey-input-icon">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+                                        <line x1="8" y1="21" x2="16" y2="21"></line>
+                                        <line x1="12" y1="17" x2="12" y2="21"></line>
+                                    </svg>
+                                </span>
+                                <input type="text"
+                                       id="passkeyNewName"
+                                       name="passkey_device_remark"
+                                       autocomplete="off"
+                                       data-lpignore="true"
+                                       data-1p-ignore="true"
+                                       data-bwignore="true"
+                                       spellcheck="false"
+                                       v-model="modals.passkey.newName"
+                                       placeholder="设备备注 (如: MacBook Touch ID、iPhone 16)"
+                                       class="passkey-name-input"
+                                       @keypress.enter="registerPasskey"
+                                       :disabled="modals.passkey.isRegistering">
+                            </div>
+                            <button type="button"
+                                    class="btn-add-passkey"
+                                    @click="registerPasskey"
+                                    :disabled="modals.passkey.isRegistering || !modals.passkey.newName.trim()">
+                                <svg v-if="!modals.passkey.isRegistering" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+                                </svg>
+                                <span>{{ modals.passkey.isRegistering ? '正在调起...' : '调起绑定' }}</span>
+                            </button>
+                        </div>
+                        <div class="sys-msg" v-if="modals.passkey.msg.text" :class="{ success: modals.passkey.msg.isSuccess, error: !modals.passkey.msg.isSuccess }" style="margin-top: 10px; font-size: 12.5px;">
+                            {{ modals.passkey.msg.text }}
+                        </div>
+                    </div>
+
+                    <div class="passkey-modal-footer">
+                        <button type="button" class="passkey-modal-footer-close" @click="closePasskeyModal">关闭</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" v-if="modals.tagAccount.show" :class="{ active: modals.tagAccount.show }">
+            <div class="modal-content" style="border-top: 4px solid var(--primary); max-width: 500px;">
+                <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px; color: var(--primary);">
+                    🏷️ 自定义账户标签与图标
+                </h3>
+                <div style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">
+                    正在为账户 <b>{{ modals.tagAccount.currentName }}</b> 管理自定义标签：
+                </div>
+
+                <!-- 🌟 当前已拥有的标签展示列表区 -->
+                <div class="group" style="margin-bottom: 16px;">
+                    <div
+                        style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                        <label style="font-size: 12px; color: var(--text-muted); margin: 0;">📌 当前账户已含标签 ({{
+                            modals.tagAccount.tags.length }})：</label>
+                        <button v-if="modals.tagAccount.tags.length > 0" type="button" @click="clearAllTagsFromModal"
+                            style="font-size: 11px; background: none; border: none; color: var(--danger); cursor: pointer; opacity: 0.85; display: flex; align-items: center; gap: 3px;"
+                            title="清空所有当前标签">
+                            🗑️ 清空所有标签
+                        </button>
+                    </div>
+                    <div
+                        style="background: var(--bg-color); border: 1px solid var(--border); padding: 10px 12px; border-radius: var(--radius-md); min-height: 46px; display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+                        <div v-for="(tg, idx) in modals.tagAccount.tags" :key="idx" class="tag-badge-item"
+                            style="cursor: default; padding: 4px 10px;">
+                            <span>{{ formatTagDisplay(tg) }}</span>
+                            <span @click="removeTagFromModal(idx)"
+                                style="cursor: pointer; opacity: 0.8; font-weight: bold; margin-left: 4px; padding: 0 2px; transition: opacity 0.2s;"
+                                title="删除此标签" onmouseover="this.style.opacity=1"
+                                onmouseout="this.style.opacity=0.8">✕</span>
+                        </div>
+                        <span v-if="modals.tagAccount.tags.length === 0"
+                            style="font-size: 12px; color: var(--text-muted); font-style: italic; display: flex; align-items: center; gap: 4px;">
+                            <span style="opacity: 0.6;">💡 暂未添加任何标签，请在下方点击预设或手动输入添加</span>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 🌟 快捷一键添加预设 -->
+                <div class="group" style="margin-bottom: 16px;">
+                    <label style="font-size: 12px; color: var(--text-muted);">⚡ 快捷点击添加预设标签：</label>
+                    <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <button type="button" class="btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; border-radius: 14px; cursor: pointer; transition: all 0.2s;"
+                            @click="setPresetTag('🏠', '自用')">+ 🏠 自用</button>
+                        <button type="button" class="btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; border-radius: 14px; cursor: pointer; transition: all 0.2s;"
+                            @click="setPresetTag('💰', '待售')">+ 💰 待售</button>
+                        <button type="button" class="btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; border-radius: 14px; cursor: pointer; transition: all 0.2s;"
+                            @click="setPresetTag('📦', '备用')">+ 📦 备用</button>
+                        <button type="button" class="btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; border-radius: 14px; cursor: pointer; transition: all 0.2s;"
+                            @click="setPresetTag('✅', '已售')">+ ✅ 已售</button>
+                        <button type="button" class="btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; border-radius: 14px; cursor: pointer; transition: all 0.2s;"
+                            @click="setPresetTag('🚀', '主力')">+ 🚀 主力</button>
+                        <button type="button" class="btn-secondary"
+                            style="padding: 4px 12px; font-size: 12px; border-radius: 14px; cursor: pointer; transition: all 0.2s;"
+                            @click="setPresetTag('🔒', '独享')">+ 🔒 独享</button>
+                    </div>
+                </div>
+
+                <!-- 🌟 自定义新增标签输入 -->
+                <div class="group" style="margin-bottom: 14px;">
+                    <label style="font-size: 12px; color: var(--text-muted);">🎨 添加自定义新标签：</label>
+                    <div style="display: flex; gap: 8px; align-items: center; margin-bottom: 8px;">
+                        <input type="text" v-model="modals.tagAccount.icon" placeholder="Emoji (如 🚀)"
+                            style="width: 85px; font-size: 12px; text-align: center;" @focus="setEditing(true)"
+                            @blur="setEditing(false)">
+                        <input type="text" v-model="modals.tagAccount.text" placeholder="输入标签文字，如：香港核心 / 客户A预订"
+                            style="flex: 1; font-size: 12px;" @focus="setEditing(true)" @blur="setEditing(false)"
+                            @keypress.enter="addCustomTagFromModal">
+                        <button type="button" class="btn-secondary"
+                            style="padding: 6px 14px; font-size: 12px; white-space: nowrap; font-weight: 600;"
+                            @click="addCustomTagFromModal">
+                            + 添加
+                        </button>
+                    </div>
+
+                    <div
+                        style="display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; background: var(--bg-color); padding: 8px; border-radius: 8px; border: 1px solid var(--border);">
+                        <button v-for="ico in availableTagIcons" :key="ico" type="button"
+                            @click="modals.tagAccount.icon = ico"
+                            :style="{ background: modals.tagAccount.icon === ico ? 'var(--primary)' : 'var(--surface)', color: modals.tagAccount.icon === ico ? '#fff' : 'var(--text-main)', border: modals.tagAccount.icon === ico ? '1px solid var(--primary)' : '1px solid var(--border)', transform: modals.tagAccount.icon === ico ? 'scale(1.1)' : 'scale(1)' }"
+                            style="font-size: 16px; padding: 4px 0; border-radius: 6px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all 0.15s ease;">
+                            {{ ico }}
+                        </button>
+                    </div>
+                </div>
+
+                <div style="display: flex; gap: 12px; margin-top: 24px;">
+                    <button class="btn-secondary" style="flex: 1; padding: 12px;"
+                        @click="closeTagAccountModal">取消</button>
+                    <button class="btn-primary" style="flex: 1; padding: 12px;" @click="executeTagAccount">保存标签</button>
+                </div>
+            </div>
+        </div>
+
+
+
+        <!-- 🛒 租户弹窗：上架/编辑可出租机器 -->
+        
+
+
+    <!-- 🚀 首屏无缝加载指示层：Vue 挂载前优雅占位，杜绝任何模板插值花括号/未渲染 DOM 闪烁 -->
+    <div id="app-loader">
+        <div class="app-loader-icon">☁️</div>
+        <div class="app-loader-title">OCI PERSONAL</div>
+        <div class="app-loader-bar">
+            <div class="app-loader-bar-inner"></div>
+        </div>
+        <div class="app-loader-sub">正在加载控制台...</div>
+    </div>
+
+    <!-- 🛡️ 首屏自愈与异常哨兵：外置脚本，便于收紧 CSP -->
+    <script src="js/loader-guard.js?v=20261017_01"></script>
+
+    <!-- 现代原生 ESM 入口，0 构建依赖，模块化加载 -->
+    <script type="module" src="js/app.js?v=20261017_01"></script>
+</body>
+
+</html>

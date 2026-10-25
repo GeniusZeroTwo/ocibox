@@ -1,0 +1,70 @@
+name: Java Build & Release
+
+# 触发条件：当有代码推送到 main 或 master 分支时自动执行
+on:
+  push:
+    branches: [ "main", "master" ]
+
+# 🌟 核心修复：强制 GitHub Actions 插件使用 Node.js 24 环境，消除弃用警告
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+# 🔒 防止两次快速推送并发抢占同一个 latest 标签/资产（避免竞态导致资产半更新）
+concurrency:
+  group: build-and-release
+  cancel-in-progress: true
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+
+    # ⚠️ 最小权限：仅授予创建 Release 所需的仓库写权限
+    permissions:
+      contents: write
+
+    steps:
+    # 1. 拉取最新代码
+    - name: Checkout Code
+      uses: actions/checkout@v5
+
+    # 🌟 1.5 前端静态代码与 ESM 模块完整性门禁校验（任何导入错误/缺失导出直接阻断 CI）
+    - name: Verify Frontend Integrity
+      run: python3 scripts/verify-frontend.py
+
+    # 🌟 2. 配置 Java 25 环境 (开启 Maven 缓存加速编译)
+    - name: Set up JDK 25
+      uses: actions/setup-java@v5
+      with:
+        java-version: '25'
+        distribution: 'temurin'
+        cache: maven
+
+    # 3. 使用 Maven 编译打包
+    - name: Build with Maven
+      run: mvn clean package -DskipTests
+
+    # 4. 获取编译时间 (可选：用于在 Release 说明里展示构建时间)
+    - name: Get Current Time
+      id: date
+      run: echo "date=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
+
+    # 🔒 4.5 生成 SHA256 校验和，供 update.sh 在部署时核验 jar 完整性/来源
+    - name: Generate checksums
+      run: |
+        cd target
+        sha256sum oci-manager-*.jar > checksums.txt
+        cat checksums.txt
+
+    # 5. 自动发布到 GitHub Releases
+    - name: Create Release & Upload JAR
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: latest          # 标签名：固定为 latest，每次编译都会覆盖更新这个标签
+        name: '🚀 最新自动编译版 (Latest)'  # Release 的标题
+        body: |                   # Release 的描述内容
+          这是由 GitHub Actions 全自动构建的最新版本。
+          **构建时间**: ${{ env.date }} UTC
+        files: |                  # jar 包 + 校验和一并上传
+          target/oci-manager-*.jar
+          target/checksums.txt
+        make_latest: true         # 标记为最新版本

@@ -1,0 +1,5408 @@
+@charset "UTF-8";
+
+        /* 🛡️ 解决首屏模板花括号闪烁与乱码 */
+        [v-cloak] {
+            display: none !important;
+        }
+
+        #app:not([v-cloak]) ~ #app-loader {
+            display: none !important;
+        }
+
+        :root {
+            --primary: #10b981;
+            --primary-hover: #059669;
+            --primary-light: #d1fae5;
+            --bg-color: #f9fafb;
+            --surface: rgba(255, 255, 255, 0.88);
+            --surface-glass: rgba(255, 255, 255, 0.75);
+            --text-main: #111827;
+            --text-muted: #6b7280;
+            --border: #e5e7eb;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --warning: #f59e0b;
+            --info: #3b82f6;
+            --input-bg: #fcfcfd;
+            --panel-alert-bg: #fffbeb;
+            --panel-alert-border: #fde68a;
+            --panel-alert-text: #b45309;
+            --panel-alert-title: #d97706;
+            --panel-dashed-bg: #f8fafc;
+            --panel-dashed-border: #cbd5e1;
+            --item-hover: #f9fafb;
+            --tabs-bg: #f3f4f6;
+            --tabs-hover: #e5e7eb;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 16px;
+            --radius-full: 9999px;
+            --scrollbar-thumb: #d1d5db;
+            --scrollbar-thumb-hover: #9ca3af;
+            --scrollbar-bg: transparent;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.02);
+            /* 🎨 多彩强调色板（浅色） */
+            --purple: #8b5cf6;
+            --purple-light: #ede9fe;
+            --cyan: #06b6d4;
+            --cyan-light: #cffafe;
+            --rose: #f43f5e;
+            --rose-light: #ffe4e6;
+            --info-light: #dbeafe;
+            --warning-light: #fef3c7;
+            --primary-grad-to: #22c55e;
+            --primary-glow: rgba(16, 185, 129, 0.35);
+            --accent-gradient: linear-gradient(135deg, #10b981, #3b82f6, #8b5cf6);
+            --card-hover-shadow: 0 14px 30px -10px rgba(16, 185, 129, 0.28);
+            --bg-card: #ffffff;
+        }
+
+        [data-theme="dark"] {
+            --primary: #10b981;
+            --primary-hover: #34d399;
+            --primary-light: #064e3b;
+            --bg-color: #0c1824;
+            --surface: rgba(18, 34, 47, 0.85);
+            --surface-glass: rgba(15, 23, 42, 0.78);
+            --text-main: #f2fbf7;
+            --text-muted: #8fb3a9;
+            --border: #1f3d43;
+            --input-bg: #0f172a;
+            --panel-alert-bg: #451a03;
+            --panel-alert-border: #78350f;
+            --panel-alert-text: #fcd34d;
+            --panel-alert-title: #fbbf24;
+            --panel-dashed-bg: #0f172a;
+            --panel-dashed-border: #475569;
+            --item-hover: #334155;
+            --tabs-bg: #0f172a;
+            --tabs-hover: #334155;
+            --scrollbar-thumb: #475569;
+            --scrollbar-thumb-hover: #64748b;
+            --scrollbar-bg: #1e293b;
+            --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.5);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.5), 0 2px 4px -1px rgba(0, 0, 0, 0.3);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.2);
+            /* 🎨 多彩强调色板（深色） */
+            --purple: #a78bfa;
+            --purple-light: #2e1065;
+            --cyan: #22d3ee;
+            --cyan-light: #083344;
+            --rose: #fb7185;
+            --rose-light: #4c0519;
+            --info-light: #172554;
+            --warning-light: #422006;
+            --primary-grad-to: #34d399;
+            --primary-glow: rgba(16, 185, 129, 0.5);
+            --accent-gradient: linear-gradient(135deg, #10b981, #3b82f6, #8b5cf6);
+            --card-hover-shadow: 0 14px 32px -10px rgba(0, 0, 0, 0.65);
+            --bg-card: #0d1b27;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        * {
+            scrollbar-width: thin;
+            scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-bg);
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--scrollbar-bg);
+            border-radius: var(--radius-sm);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--scrollbar-thumb);
+            border-radius: var(--radius-sm);
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--scrollbar-thumb-hover);
+        }
+
+        button::-moz-focus-inner,
+        input::-moz-focus-inner {
+            border: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Helvetica, Arial, sans-serif;
+            -webkit-font-smoothing: antialiased;
+            background-color: #080f1a;
+            color: var(--text-main);
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            line-height: 1.5;
+            overflow-x: hidden;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+
+        .container {
+            max-width: 1800px;
+            width: calc(100% - 32px);
+            margin: 0 auto;
+            background: var(--surface);
+            padding: 30px 40px;
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-lg);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            box-sizing: border-box;
+            transition: background-color 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease;
+            position: relative;
+        }
+
+        #loginArea {
+            max-width: 430px;
+            width: 100%;
+            margin: 0 auto;
+            padding: 36px 32px 30px;
+        }
+
+        h2 {
+            margin-top: 0;
+            color: var(--text-main);
+            text-align: center;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+            margin-bottom: 25px;
+        }
+
+        .group {
+            margin-bottom: 20px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 6px;
+            font-weight: 600;
+            color: var(--text-main);
+            font-size: 14px;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        input[type="date"],
+        input[type="email"],
+        select,
+        textarea {
+            width: 100%;
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-sizing: border-box;
+            font-size: 14px;
+            color: var(--text-main);
+            background-color: var(--input-bg);
+            transition: all 0.2s ease;
+            font-family: inherit;
+        }
+
+        input::placeholder,
+        textarea::placeholder {
+            color: var(--text-muted);
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+            background-color: var(--input-bg);
+            box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.15);
+        }
+
+        select {
+            cursor: pointer;
+            margin-bottom: 10px;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b7280'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            background-size: 16px;
+            padding-right: 30px;
+        }
+
+        [data-theme="dark"] select {
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+        }
+
+        select option {
+            background-color: #ffffff;
+            color: var(--text-main);
+        }
+
+        [data-theme="dark"] select option {
+            background-color: #0d1b27;
+            color: #f2fbf7;
+        }
+
+        button {
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            font-size: 14px;
+            border-radius: var(--radius-md);
+            cursor: pointer;
+            font-weight: 600;
+            width: 100%;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        button:hover {
+            background-color: var(--primary-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            background-color: var(--primary-light) !important;
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+            color: #a7f3d0 !important;
+            border-color: transparent !important;
+        }
+
+        [data-theme="dark"] button:disabled {
+            color: #064e3b !important;
+        }
+
+        button.btn-secondary {
+            background: linear-gradient(135deg, #0ea5e9, #2563eb);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+        }
+
+        button.btn-secondary:hover {
+            background: linear-gradient(135deg, #38bdf8, #3b82f6);
+            box-shadow: 0 5px 16px rgba(37, 99, 235, 0.45);
+        }
+
+        button.btn-cyan {
+            background: linear-gradient(135deg, #06b6d4, #0891b2);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 8px rgba(8, 145, 178, 0.35);
+        }
+
+        button.btn-cyan:hover {
+            background: linear-gradient(135deg, #22d3ee, #06b6d4);
+            box-shadow: 0 5px 16px rgba(8, 145, 178, 0.45);
+        }
+
+        button.btn-violet {
+            background: linear-gradient(135deg, #a855f7, #7c3aed);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 8px rgba(124, 58, 237, 0.35);
+        }
+
+        button.btn-violet:hover {
+            background: linear-gradient(135deg, #c084fc, #8b5cf6);
+            box-shadow: 0 5px 16px rgba(124, 58, 237, 0.45);
+        }
+
+        button.btn-indigo {
+            background: linear-gradient(135deg, #6366f1, #4f46e5);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+        }
+
+        button.btn-indigo:hover {
+            background: linear-gradient(135deg, #818cf8, #6366f1);
+            box-shadow: 0 5px 16px rgba(79, 70, 229, 0.45);
+        }
+
+        button.btn-teal {
+            background: linear-gradient(135deg, #14b8a6, #0d9488);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 8px rgba(13, 148, 136, 0.35);
+        }
+
+        button.btn-teal:hover {
+            background: linear-gradient(135deg, #2dd4bf, #14b8a6);
+            box-shadow: 0 5px 16px rgba(13, 148, 136, 0.45);
+        }
+
+        button.btn-warning {
+            background: linear-gradient(135deg, #f59e0b, #ea580c);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35);
+        }
+
+        button.btn-warning:hover {
+            background: linear-gradient(135deg, #fbbf24, #f97316);
+            box-shadow: 0 5px 16px rgba(234, 88, 12, 0.45);
+        }
+
+        button.btn-amber {
+            background: linear-gradient(135deg, #f59e0b, #d97706);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 8px rgba(217, 119, 6, 0.35);
+        }
+
+        button.btn-amber:hover {
+            background: linear-gradient(135deg, #fbbf24, #f59e0b);
+            box-shadow: 0 5px 16px rgba(217, 119, 6, 0.45);
+        }
+
+        button.btn-danger {
+            background: linear-gradient(135deg, #f43f5e, #dc2626);
+            color: #fff;
+            border: none;
+            box-shadow: 0 2px 8px rgba(220, 38, 38, 0.35);
+        }
+
+        button.btn-danger:hover {
+            background: linear-gradient(135deg, #fb7185, #ef4444);
+            box-shadow: 0 5px 16px rgba(220, 38, 38, 0.45);
+        }
+
+        .tabs {
+            display: inline-flex;
+            background: var(--tabs-bg);
+            padding: 6px;
+            border-radius: var(--radius-md);
+            margin-bottom: 24px;
+            gap: 6px;
+            border: 1px solid var(--border);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
+        }
+
+        .tabs button {
+            background: transparent;
+            color: var(--text-muted);
+            font-size: 14px;
+            font-weight: 600;
+            padding: 10px 24px;
+            width: auto;
+            border-radius: var(--radius-sm);
+            box-shadow: none;
+            transition: all 0.2s ease;
+            border: 1px solid transparent;
+        }
+
+        .tabs button:hover:not(.active) {
+            background: var(--tabs-hover);
+            color: var(--text-main);
+        }
+
+        .tabs button.active {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35);
+            border: 1px solid transparent;
+        }
+
+        [data-theme="dark"] .tabs {
+            border-color: var(--border);
+            box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        [data-theme="dark"] .tabs button.active {
+            background: linear-gradient(135deg, #10b981, #059669);
+            color: #fff;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.45);
+            border-color: transparent;
+        }
+
+        .panel {
+            background-color: var(--surface);
+            padding: 20px;
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border);
+            box-shadow: var(--shadow-sm);
+            margin-bottom: 20px;
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .panel-light-blue {
+            background: var(--primary-light);
+            border-color: var(--primary);
+        }
+
+        .dashboard-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 24px;
+        }
+
+        .account-group-header {
+            background: var(--primary-light);
+            color: var(--primary);
+            padding: 10px 16px;
+            font-size: 14px;
+            font-weight: 700;
+            border-bottom: 1px solid var(--border);
+            border-top: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            backdrop-filter: blur(8px);
+        }
+
+        .account-group-header:first-child {
+            border-top: none;
+            border-top-left-radius: var(--radius-md);
+            border-top-right-radius: var(--radius-md);
+        }
+
+        [data-theme="dark"] .account-group-header {
+            background: rgba(6, 78, 59, 0.9);
+            color: #34d399;
+        }
+
+        .server-item {
+            display: grid;
+            grid-template-columns: 28px minmax(180px, 1fr) auto 140px;
+            align-items: center;
+            gap: 12px;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border);
+            transition: background-color 0.2s ease;
+        }
+
+        .server-item:hover {
+            background: var(--item-hover);
+        }
+
+        .server-item:last-child {
+            border-bottom: none;
+        }
+
+        .server-main {
+            min-width: 0;
+            align-self: center;
+            margin: 0;
+            cursor: pointer;
+            word-break: break-all;
+        }
+
+        .server-top {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .server-name {
+            font-weight: 600;
+            font-size: 13px;
+            color: var(--text-main);
+            word-break: break-all;
+        }
+
+        .server-actions {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 8px;
+            align-self: center;
+            flex-wrap: wrap;
+        }
+
+        .server-actions button {
+            width: auto;
+            height: 30px;
+            padding: 4px 10px;
+            margin: 0 !important;
+            font-size: 12px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        .server-expire-date {
+            width: 140px !important;
+            min-width: 140px !important;
+            height: 30px !important;
+            padding: 4px 8px !important;
+            margin: 0 !important;
+            font-size: 12px !important;
+            font-weight: 600;
+            color: var(--text-main);
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: var(--radius-md) !important;
+            box-shadow: var(--shadow-sm);
+            align-self: center;
+            cursor: pointer;
+        }
+
+        .server-expire-date:hover {
+            background: var(--bg-color) !important;
+            box-shadow: var(--shadow-md);
+        }
+
+        .server-expire-date:focus {
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.15);
+        }
+
+        input[type="checkbox"] {
+            width: 18px;
+            height: 18px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+            accent-color: var(--primary);
+            cursor: pointer;
+            margin-right: 12px;
+            margin-top: 0;
+            margin-bottom: 0;
+        }
+
+        .badge {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+            white-space: nowrap;
+        }
+
+        .badge-success {
+            background: var(--primary-light);
+            color: #065f46;
+        }
+
+        [data-theme="dark"] .badge-success {
+            color: #34d399;
+        }
+
+        .badge-danger {
+            background: rgba(239, 68, 68, 0.2);
+            color: #991b1b;
+        }
+
+        [data-theme="dark"] .badge-danger {
+            color: #fca5a5;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .sys-msg {
+            text-align: center;
+            font-weight: 500;
+            font-size: 14px;
+            margin-top: 15px;
+            min-height: 20px;
+        }
+
+        .success {
+            color: var(--primary);
+        }
+
+        .error {
+            color: var(--danger);
+        }
+
+        .used-info {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--primary);
+            display: inline-block;
+            margin-left: 6px;
+        }
+
+        .task-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 16px;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow-sm);
+            transition: background-color 0.3s ease, border-color 0.3s ease;
+        }
+
+        .task-log {
+            background: #1e293b;
+            color: #34d399;
+            font-family: 'JetBrains Mono', Consolas, 'Courier New', monospace;
+            font-size: 12px;
+            padding: 12px;
+            border-radius: var(--radius-sm);
+            height: 180px;
+            overflow-y: auto;
+            margin-top: 12px;
+            line-height: 1.6;
+            word-wrap: break-word;
+            white-space: pre-wrap;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.6);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.3s ease;
+            backdrop-filter: blur(4px);
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        .modal-content {
+            background: var(--surface);
+            padding: 28px;
+            border-radius: var(--radius-lg);
+            width: 440px;
+            max-width: 90%;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border);
+            transform: translateY(20px) scale(0.95);
+            transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-overlay.active .modal-content {
+            transform: translateY(0) scale(1);
+        }
+
+        .danger-keyword-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            background: rgba(0, 0, 0, 0.08);
+            border: none;
+            border-radius: 6px;
+            padding: 2px 7px 2px 8px;
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            vertical-align: middle;
+        }
+
+        [data-theme="dark"] .danger-keyword-badge {
+            background: rgba(0, 0, 0, 0.42);
+        }
+
+        .danger-keyword-badge:hover {
+            background: rgba(0, 0, 0, 0.14);
+        }
+
+        [data-theme="dark"] .danger-keyword-badge:hover {
+            background: rgba(0, 0, 0, 0.58);
+        }
+
+        .danger-keyword-badge:active {
+            transform: scale(0.98);
+        }
+
+        .danger-keyword-badge code {
+            color: var(--danger);
+            font-weight: 700;
+            background: transparent;
+            padding: 0;
+            border-radius: 0;
+            border: none;
+            font-size: 13px;
+            line-height: 1;
+        }
+
+        .copy-btn-component {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 16px;
+            height: 16px;
+            border-radius: 0 !important;
+            border: none !important;
+            background: transparent !important;
+            box-shadow: none !important;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 0 !important;
+            margin: 0;
+            line-height: 1;
+            transition: color 0.15s ease, opacity 0.15s ease, transform 0.15s ease;
+            opacity: 0.7;
+        }
+
+        .copy-btn-component:hover,
+        .danger-keyword-badge:hover .copy-btn-component {
+            color: var(--text-main);
+            opacity: 1;
+        }
+
+        .copy-btn-component.is-success {
+            color: #10b981 !important;
+            opacity: 1 !important;
+        }
+
+        .copy-btn-component.is-error {
+            color: var(--danger) !important;
+            opacity: 1 !important;
+        }
+
+        .copy-btn-component .copy-svg {
+            display: block;
+            width: 14px;
+            height: 14px;
+            transition: transform 0.15s ease;
+        }
+
+        .danger-keyword-badge:hover .copy-btn-component .copy-svg {
+            transform: scale(1.08);
+        }
+
+        .copy-btn-component .copy-tooltip {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 50%;
+            transform: translate(-50%, -4px);
+            background: #1e293b;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 500;
+            line-height: 1;
+            padding: 4px 8px;
+            border-radius: 6px;
+            white-space: nowrap;
+            pointer-events: none;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.45);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.15s ease, transform 0.15s ease;
+            z-index: 100;
+        }
+
+        .copy-btn-component:hover .copy-tooltip,
+        .danger-keyword-badge:hover .copy-btn-component .copy-tooltip {
+            opacity: 1;
+            visibility: visible;
+            transform: translate(-50%, 0);
+        }
+
+        .copy-btn-component.is-success .copy-tooltip,
+        .copy-btn-component.is-error .copy-tooltip {
+            opacity: 1 !important;
+            visibility: visible !important;
+            transform: translate(-50%, 0) !important;
+        }
+
+
+        /* 🌓 主题导航组合容器与通行密钥浮动组件 (竖向严丝合缝居中对齐，纯按钮与图标无文字) */
+        .theme-nav-group {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 999;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 10px;
+            padding-bottom: 14px;
+            user-select: none;
+        }
+
+        .theme-toggle-btn {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            width: 44px;
+            height: 44px;
+            border-radius: 50% !important;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: var(--shadow-md);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            font-size: 20px;
+            padding: 0;
+            -webkit-backdrop-filter: saturate(180%) blur(14px);
+            backdrop-filter: saturate(180%) blur(14px);
+            flex-shrink: 0;
+        }
+
+        .theme-toggle-btn:hover {
+            transform: scale(1.08);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .theme-toggle-btn:active {
+            transform: scale(0.96);
+        }
+
+        /* 🔐 通行密钥导航按钮：与主题切换按钮严格竖向对齐，尺寸完全一致，无文字提示，鼠标放上去平滑下滑 */
+        .passkey-nav-btn {
+            width: 44px;
+            height: 44px;
+            border-radius: 50% !important;
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--primary) !important;
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            cursor: pointer;
+            box-shadow: var(--shadow-md) !important;
+            -webkit-backdrop-filter: saturate(180%) blur(14px);
+            backdrop-filter: saturate(180%) blur(14px);
+            opacity: 0;
+            pointer-events: none;
+            transform: translateY(-8px) scale(0.92);
+            transition: opacity 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.2s ease, border-color 0.2s ease !important;
+            padding: 0 !important;
+            flex-shrink: 0;
+        }
+
+        .theme-nav-group:hover .passkey-nav-btn,
+        .theme-nav-group:focus-within .passkey-nav-btn {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateY(0) scale(1);
+        }
+
+        .passkey-nav-btn:hover {
+            background: var(--surface-hover) !important;
+            border-color: var(--primary) !important;
+            transform: translateY(1px) scale(1.08) !important;
+            box-shadow: 0 8px 20px rgba(14, 165, 233, 0.28) !important;
+            color: var(--primary) !important;
+        }
+
+        .passkey-nav-btn:active {
+            transform: scale(0.95) !important;
+        }
+
+        /* 🔐 登录界面通行密钥免密登录按钮与分割线 */
+        .login-divider {
+            display: flex;
+            align-items: center;
+            margin: 18px 0 14px;
+            color: var(--text-muted);
+            font-size: 12px;
+        }
+
+        .login-divider::before,
+        .login-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: var(--border);
+        }
+
+        .login-divider span {
+            padding: 0 12px;
+            font-weight: 500;
+            opacity: 0.85;
+        }
+
+        .btn-passkey-login {
+            width: 100%;
+            padding: 11px 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            border-radius: var(--radius-md);
+            font-size: 13.5px;
+            font-weight: 600;
+            cursor: pointer;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            color: var(--text-main);
+            transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: var(--shadow-sm);
+        }
+
+        .btn-passkey-login:hover:not(:disabled) {
+            background: var(--surface-hover);
+            border-color: var(--primary);
+            transform: translateY(-1.5px);
+            box-shadow: 0 8px 20px -4px rgba(14, 165, 233, 0.25);
+        }
+
+        .btn-passkey-login:active:not(:disabled) {
+            transform: scale(0.98);
+        }
+
+        .btn-passkey-login:disabled {
+            opacity: 0.65;
+            cursor: not-allowed;
+        }
+
+        /* 🔐 通行密钥管理弹窗内部样式与按钮防穿透重置 */
+        .passkey-modal-content button {
+            width: auto !important;
+            max-width: max-content !important;
+            flex: 0 0 auto !important;
+        }
+
+        .passkey-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .passkey-section-label {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            margin: 0;
+        }
+
+        .passkey-modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 14px;
+            margin-bottom: 18px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        .passkey-modal-title {
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: var(--text-main);
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: -0.2px;
+        }
+
+        .passkey-modal-close {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px !important;
+            background: transparent !important;
+            border: none !important;
+            color: var(--text-muted) !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            cursor: pointer;
+            padding: 0 !important;
+            transition: all 0.2s ease;
+            box-shadow: none !important;
+        }
+
+        .passkey-modal-close:hover {
+            background: rgba(125, 125, 125, 0.12) !important;
+            color: var(--text-main) !important;
+        }
+
+        .passkey-circle-icon-sm {
+            width: 28px;
+            height: 28px;
+            border-radius: 8px;
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(99, 102, 241, 0.2));
+            color: var(--primary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        [data-theme="dark"] .passkey-circle-icon-sm {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(129, 140, 248, 0.25));
+            color: #38bdf8;
+        }
+
+        .passkey-intro-box {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            background: rgba(14, 165, 233, 0.06);
+            border: 1px solid rgba(14, 165, 233, 0.18);
+            border-radius: 10px;
+            padding: 12px 14px;
+            margin-bottom: 18px;
+        }
+
+        [data-theme="dark"] .passkey-intro-box {
+            background: rgba(56, 189, 248, 0.06);
+            border-color: rgba(56, 189, 248, 0.22);
+        }
+
+        .passkey-intro-icon {
+            color: var(--primary);
+            margin-top: 2px;
+            flex-shrink: 0;
+        }
+
+        .passkey-intro-text {
+            font-size: 12.5px;
+            line-height: 1.6;
+            color: var(--text-muted);
+        }
+
+        .passkey-count-pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 20px;
+            height: 20px;
+            padding: 0 6px;
+            border-radius: 999px;
+            background: rgba(14, 165, 233, 0.12);
+            color: var(--primary);
+            font-size: 11px;
+            font-weight: 700;
+        }
+
+        .passkey-refresh-btn {
+            height: 28px !important;
+            padding: 0 10px !important;
+            border-radius: 6px !important;
+            font-size: 12px !important;
+            font-weight: 500 !important;
+            border: 1px solid var(--border) !important;
+            background: var(--surface) !important;
+            color: var(--text-muted) !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 5px !important;
+            cursor: pointer !important;
+            transition: all 0.18s ease !important;
+            white-space: nowrap !important;
+            flex: 0 0 auto !important;
+            width: auto !important;
+            max-width: max-content !important;
+            margin: 0 !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+        }
+
+        .passkey-refresh-btn:hover:not(:disabled) {
+            border-color: var(--primary) !important;
+            color: var(--primary) !important;
+            background: var(--bg-hover) !important;
+            transform: translateY(-0.5px);
+        }
+
+        .passkey-refresh-btn:disabled {
+            opacity: 0.55 !important;
+            cursor: not-allowed !important;
+            transform: none !important;
+        }
+
+        .passkey-refresh-btn .spin {
+            animation: spin 1s linear infinite;
+        }
+
+        .passkey-empty-state {
+            text-align: center;
+            padding: 32px 16px;
+            background: var(--bg-color);
+            border: 1.5px dashed var(--border);
+            border-radius: 12px;
+        }
+
+        .passkey-empty-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            background: rgba(14, 165, 233, 0.1);
+            color: var(--primary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+
+        .passkey-list-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .passkey-item-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding: 11px 14px;
+            background: var(--bg-color);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            transition: all 0.2s ease;
+        }
+
+        .passkey-item-card:hover {
+            border-color: rgba(14, 165, 233, 0.4);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.06);
+            transform: translateY(-1px);
+        }
+
+        .passkey-item-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex: 1 1 auto;
+            min-width: 0;
+        }
+
+        .passkey-item-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.12), rgba(99, 102, 241, 0.18));
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+
+        [data-theme="dark"] .passkey-item-icon {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.18), rgba(129, 140, 248, 0.22));
+            color: #38bdf8;
+        }
+
+        .passkey-item-name {
+            font-size: 13.5px;
+            font-weight: 600;
+            color: var(--text-main);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .passkey-item-meta {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            margin-top: 3px;
+        }
+
+        .btn-del-passkey {
+            height: 30px !important;
+            padding: 0 12px !important;
+            border-radius: 6px !important;
+            font-size: 12px !important;
+            font-weight: 500 !important;
+            border: 1px solid rgba(239, 68, 68, 0.28) !important;
+            background: rgba(239, 68, 68, 0.06) !important;
+            color: #ef4444 !important;
+            cursor: pointer !important;
+            transition: all 0.18s ease !important;
+            flex: 0 0 auto !important;
+            width: auto !important;
+            max-width: max-content !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 5px !important;
+            white-space: nowrap !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+        }
+
+        .btn-del-passkey:hover {
+            background: rgba(239, 68, 68, 0.14) !important;
+            border-color: #ef4444 !important;
+            color: #ef4444 !important;
+            transform: translateY(-0.5px);
+        }
+
+        /* ➕ 绑定新通行密钥输入组：高度42px、圆角10px、宽度严格受控、防畸形拉伸 */
+        .passkey-add-section {
+            margin-top: 20px;
+            padding-top: 18px;
+            border-top: 1px solid var(--border);
+        }
+
+        .passkey-input-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+        }
+
+        .passkey-input-wrapper {
+            position: relative;
+            flex: 1 1 auto;
+            min-width: 0;
+            display: flex;
+            align-items: center;
+            background: var(--bg-color);
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            height: 42px;
+            box-sizing: border-box;
+            transition: all 0.2s ease;
+        }
+
+        .passkey-input-wrapper:focus-within {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15);
+        }
+
+        .passkey-input-icon {
+            position: absolute;
+            left: 12px;
+            color: var(--text-muted);
+            pointer-events: none;
+            display: flex;
+            align-items: center;
+        }
+
+        .passkey-name-input {
+            width: 100%;
+            height: 100%;
+            border: none !important;
+            background: transparent !important;
+            padding: 0 14px 0 36px !important;
+            font-size: 13px;
+            color: var(--text-main);
+            outline: none !important;
+            box-shadow: none !important;
+            box-sizing: border-box;
+        }
+
+        .passkey-name-input::placeholder {
+            color: var(--text-muted);
+            opacity: 0.75;
+        }
+
+        .btn-add-passkey {
+            height: 42px !important;
+            padding: 0 18px !important;
+            border-radius: 10px !important;
+            font-size: 13.5px !important;
+            font-weight: 600 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 6px !important;
+            white-space: nowrap !important;
+            cursor: pointer !important;
+            border: none !important;
+            background: linear-gradient(135deg, #0ea5e9, #2563eb) !important;
+            color: #ffffff !important;
+            box-shadow: 0 4px 14px rgba(14, 165, 233, 0.35) !important;
+            transition: all 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+            box-sizing: border-box !important;
+            flex: 0 0 auto !important;
+            width: auto !important;
+            max-width: max-content !important;
+            margin: 0 !important;
+        }
+
+        .btn-add-passkey:hover:not(:disabled) {
+            transform: translateY(-1px) scale(1.02);
+            filter: brightness(1.08);
+            box-shadow: 0 6px 18px rgba(14, 165, 233, 0.48) !important;
+        }
+
+        .btn-add-passkey:active:not(:disabled) {
+            transform: translateY(0) scale(0.97);
+        }
+
+        .btn-add-passkey:disabled {
+            opacity: 0.55 !important;
+            cursor: not-allowed !important;
+            transform: none !important;
+            box-shadow: none !important;
+            filter: grayscale(0.5);
+        }
+
+        .passkey-modal-footer {
+            display: flex;
+            justify-content: flex-end;
+            align-items: center;
+            margin-top: 22px;
+            padding-top: 14px;
+            border-top: 1px solid var(--border);
+        }
+
+        .passkey-modal-footer-close {
+            height: 36px !important;
+            padding: 0 22px !important;
+            border-radius: 8px !important;
+            font-size: 13px !important;
+            font-weight: 500 !important;
+            border: 1px solid var(--border) !important;
+            background: var(--surface) !important;
+            color: var(--text-main) !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            cursor: pointer !important;
+            transition: all 0.18s ease !important;
+            white-space: nowrap !important;
+            flex: 0 0 auto !important;
+            width: auto !important;
+            max-width: max-content !important;
+            margin: 0 !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+        }
+
+        .passkey-modal-footer-close:hover {
+            border-color: var(--border-hover) !important;
+            background: var(--bg-hover) !important;
+            color: var(--text-main) !important;
+        }
+
+        /* 🔒 首次添加通行密钥需 TG 登录态指引 (绝对极简双图标设计) */
+        .passkey-unauth-guide {
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            padding: 8px 12px 6px;
+        }
+
+        .passkey-lock-shield-icon {
+            width: 72px;
+            height: 72px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.15), rgba(99, 102, 241, 0.22));
+            border: 1.5px solid rgba(14, 165, 233, 0.35);
+            color: #0ea5e9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 24px rgba(14, 165, 233, 0.22);
+            transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+        }
+
+        .passkey-lock-shield-icon:hover {
+            transform: scale(1.06);
+            box-shadow: 0 12px 28px rgba(14, 165, 233, 0.32);
+        }
+
+        [data-theme="dark"] .passkey-lock-shield-icon {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.2), rgba(129, 140, 248, 0.25));
+            border-color: rgba(56, 189, 248, 0.45);
+            color: #38bdf8;
+            box-shadow: 0 8px 24px rgba(56, 189, 248, 0.25);
+        }
+
+        .passkey-unauth-title {
+            margin: 0 0 26px;
+            font-size: 15.5px;
+            font-weight: 600;
+            line-height: 1.5;
+            color: var(--text-main);
+            letter-spacing: 0.2px;
+            max-width: 340px;
+        }
+
+        .passkey-actions-icons {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 22px;
+            margin-top: 4px;
+            margin-bottom: 6px;
+        }
+
+        .passkey-icon-btn {
+            width: 52px;
+            height: 52px;
+            border-radius: 50% !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            cursor: pointer;
+            border: 1px solid transparent;
+            outline: none;
+            transition: all 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+            padding: 0 !important;
+            box-sizing: border-box;
+            position: relative;
+        }
+
+        /* 纸飞机图标按钮：Telegram 经典蓝渐变与柔光微浮 */
+        .passkey-icon-btn-tg {
+            background: linear-gradient(135deg, #0ea5e9, #2563eb) !important;
+            color: #ffffff !important;
+            box-shadow: 0 6px 18px rgba(14, 165, 233, 0.38) !important;
+        }
+
+        .passkey-icon-btn-tg:hover {
+            transform: translateY(-2px) scale(1.1) !important;
+            box-shadow: 0 10px 24px rgba(14, 165, 233, 0.52) !important;
+        }
+
+        .passkey-icon-btn-tg:active {
+            transform: translateY(0) scale(0.94) !important;
+        }
+
+        /* 钥匙图标按钮：优雅紫金/通行密钥渐变与柔光微浮 */
+        .passkey-icon-btn-key {
+            background: linear-gradient(135deg, #8b5cf6, #6366f1) !important;
+            color: #ffffff !important;
+            box-shadow: 0 6px 18px rgba(99, 102, 241, 0.38) !important;
+        }
+
+        .passkey-icon-btn-key:hover {
+            transform: translateY(-2px) scale(1.1) !important;
+            box-shadow: 0 10px 24px rgba(99, 102, 241, 0.52) !important;
+        }
+
+        .passkey-icon-btn-key:active {
+            transform: translateY(0) scale(0.94) !important;
+        }
+
+        /* 弹窗右上角极简关闭按钮 */
+        .passkey-card-close-btn {
+            position: absolute;
+            top: -18px;
+            right: -10px;
+            width: 30px;
+            height: 30px;
+            border-radius: 50% !important;
+            background: transparent !important;
+            border: none !important;
+            color: var(--text-muted) !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            cursor: pointer;
+            padding: 0 !important;
+            transition: all 0.2s ease;
+            box-shadow: none !important;
+        }
+
+        .passkey-card-close-btn:hover {
+            background: rgba(125, 125, 125, 0.12) !important;
+            color: var(--text-main) !important;
+            transform: rotate(90deg) !important;
+        }
+
+
+        @keyframes pulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+
+            50% {
+                opacity: 0.75;
+                transform: translate(-50%, -50%) scale(0.98);
+            }
+        }
+
+        @keyframes initLoaderPulse {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: translate(-50%, -50%) scale(1);
+            }
+
+            50% {
+                opacity: 0.75;
+                transform: translate(-50%, -50%) scale(0.98);
+            }
+        }
+
+        .init-loader {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            color: var(--primary);
+            font-size: 15px;
+            font-weight: 600;
+            z-index: 99999;
+            background: var(--surface);
+            padding: 16px 32px;
+            border-radius: 30px;
+            box-shadow: var(--shadow-lg);
+            border: 1px solid var(--border);
+            animation: initLoaderPulse 2s infinite ease-in-out;
+            pointer-events: none;
+            user-select: none;
+            white-space: nowrap;
+            max-width: calc(100vw - 32px);
+            box-sizing: border-box;
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+        }
+
+        .drop-zone {
+            border: 2px dashed var(--primary);
+            border-radius: var(--radius-md);
+            padding: 24px 16px;
+            text-align: center;
+            background: var(--primary-light);
+            color: var(--primary);
+            transition: all 0.2s ease;
+            cursor: pointer;
+        }
+
+        .drop-zone.dragover {
+            background: var(--primary);
+            color: white;
+            border-style: solid;
+            transform: scale(1.02);
+        }
+
+        [data-theme="dark"] .drop-zone {
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        [data-theme="dark"] .drop-zone.dragover {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+
+        .refresh-status-indicator {
+            position: absolute;
+            top: 24px;
+            right: 120px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 14px;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-full);
+            box-shadow: var(--shadow-sm);
+            z-index: 100;
+            color: var(--text-main);
+            transition: all 0.3s ease;
+        }
+
+        .status-dot-green {
+            width: 8px;
+            height: 8px;
+            background-color: #10b981;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #10b981;
+            animation: pulse-green 2s infinite;
+        }
+
+        .status-dot-yellow {
+            width: 8px;
+            height: 8px;
+            background-color: #f59e0b;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #f59e0b;
+            animation: pulse-yellow 2s infinite;
+        }
+
+        @keyframes pulse-green {
+            0% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+            }
+        }
+
+        @keyframes pulse-yellow {
+            0% {
+                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 6px rgba(245, 158, 11, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+            }
+        }
+
+        @media (min-width: 900px) {
+            body {
+                overflow: hidden;
+            }
+
+            #dashboardArea {
+                height: calc(100vh - 40px);
+                display: flex;
+                flex-direction: column;
+            }
+
+            .dashboard-grid {
+                flex-direction: row;
+                align-items: stretch;
+                flex: 1;
+                min-height: 0;
+            }
+
+            .col-left {
+                width: 380px;
+                flex-shrink: 0;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+            }
+
+            #createPanel .col-left {
+                overflow-y: auto;
+                padding-right: 4px;
+            }
+
+            .col-right {
+                flex: 1;
+                min-width: 0;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+            }
+
+            .traffic-panel {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                min-height: 0;
+            }
+
+            .scrollable-area {
+                flex: 1;
+                overflow-x: hidden;
+                overflow-y: auto;
+                min-height: 0;
+                padding-right: 4px;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior-y: contain;
+                will-change: scroll-position;
+                transform: translateZ(0);
+            }
+
+            .server-list {
+                background: var(--surface);
+                border-radius: var(--radius-md);
+                border: 1px solid var(--border);
+                flex: 1;
+                min-height: 0;
+                margin-bottom: 15px;
+                overflow-x: hidden;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior-y: contain;
+                will-change: scroll-position;
+                transform: translateZ(0);
+            }
+        }
+
+        @media (max-width: 900px) {
+            .refresh-status-indicator {
+                top: 70px;
+                right: 20px;
+            }
+
+            .server-list {
+                background: var(--surface);
+                border-radius: var(--radius-md);
+                border: 1px solid var(--border);
+                max-height: 500px;
+                overflow-x: hidden;
+                overflow-y: auto;
+                margin-bottom: 20px;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior-y: contain;
+                will-change: scroll-position;
+                transform: translateZ(0);
+            }
+
+            .server-item {
+                grid-template-columns: 28px minmax(0, 1fr);
+                grid-template-areas: "check main" "check actions" "check date";
+                align-items: center;
+            }
+
+            .server-item>input[type="checkbox"] {
+                grid-area: check;
+                align-self: start;
+                margin-top: 4px;
+            }
+
+            .server-main {
+                grid-area: main;
+                min-width: 0;
+            }
+
+            .server-actions {
+                grid-area: actions;
+                justify-content: flex-start;
+                flex-wrap: wrap;
+                margin-top: 8px;
+            }
+
+            .server-expire-date {
+                grid-area: date;
+                margin-top: 8px !important;
+            }
+        }
+
+        .account-name-wrapper {
+            display: flex;
+            align-items: flex-start;
+            font-weight: 700;
+            color: var(--text-main);
+            font-size: 16px;
+            word-break: break-all;
+            line-height: 1.4;
+        }
+
+        .hover-edit-btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: transparent;
+            border: none;
+            cursor: pointer;
+            color: var(--text-muted);
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            opacity: 0;
+            max-width: 0;
+            margin-right: 0;
+            overflow: hidden;
+            padding: 0;
+            flex-shrink: 0;
+            margin-top: -2px;
+        }
+
+        .account-name-wrapper:hover .hover-edit-btn {
+            opacity: 1;
+            max-width: 26px;
+            margin-right: 6px;
+        }
+
+        .hover-edit-btn:hover {
+            background: var(--primary-light);
+            color: var(--primary);
+        }
+
+        /* 🏷️ 自定义标签样式 */
+        .tag-badge-item {
+            background: linear-gradient(135deg, #6366f1, #8b5cf6);
+            color: #ffffff;
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: var(--radius-full);
+            font-weight: 600;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            box-shadow: 0 2px 5px rgba(99, 102, 241, 0.25);
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+            line-height: 1.2;
+        }
+
+        .tag-badge-item:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 10px rgba(99, 102, 241, 0.35);
+            filter: brightness(1.08);
+        }
+
+        .tag-add-btn {
+            background: rgba(99, 102, 241, 0.06);
+            border: 1px dashed rgba(99, 102, 241, 0.4);
+            color: #6366f1;
+            font-size: 11px;
+            padding: 3px 10px;
+            border-radius: var(--radius-full);
+            font-weight: 500;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            user-select: none;
+            outline: none;
+            line-height: 1.2;
+        }
+
+        [data-theme="dark"] .tag-add-btn {
+            background: rgba(99, 102, 241, 0.12);
+            border-color: rgba(129, 140, 248, 0.4);
+            color: #818cf8;
+        }
+
+        .tag-add-btn:hover {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.16), rgba(139, 92, 246, 0.16));
+            border-color: #6366f1;
+            color: #4f46e5;
+            transform: translateY(-1px);
+            box-shadow: 0 3px 8px rgba(99, 102, 241, 0.2);
+        }
+
+        [data-theme="dark"] .tag-add-btn:hover {
+            border-color: #818cf8;
+            color: #a5b4fc;
+            box-shadow: 0 3px 8px rgba(129, 140, 248, 0.25);
+        }
+
+        /* ============================================================= */
+        /* 🍎 UI 高级化：macOS 风格材质 + 克制动效（浅/深色双主题自适应）  */
+        /* ============================================================= */
+
+        /* 缓动基准（近似 Apple 柔顺 spring-out）：cubic-bezier(0.32, 0.72, 0, 1) */
+
+        /* 1) 背景：极淡、静止的环境色，仅作氛围（不流动、不喧宾夺主） */
+        body::before {
+            content: '';
+            position: fixed;
+            inset: -25vmax;
+            z-index: -1;
+            pointer-events: none;
+            background:
+                radial-gradient(46vmax 46vmax at 15% 6%, rgba(16, 185, 129, 0.06), transparent 62%),
+                radial-gradient(44vmax 44vmax at 86% 10%, rgba(59, 130, 246, 0.06), transparent 62%),
+                radial-gradient(48vmax 48vmax at 80% 94%, rgba(139, 92, 246, 0.05), transparent 62%);
+            filter: blur(20px);
+        }
+
+        [data-theme="dark"] body::before {
+            background:
+                radial-gradient(46vmax 46vmax at 15% 6%, rgba(16, 185, 129, 0.10), transparent 62%),
+                radial-gradient(44vmax 44vmax at 86% 10%, rgba(59, 130, 246, 0.10), transparent 62%),
+                radial-gradient(48vmax 48vmax at 80% 94%, rgba(139, 92, 246, 0.10), transparent 62%);
+        }
+
+        /* 2) 主容器/登录卡：更大圆角 + 柔和多层中性阴影（不在 .container 上用 backdrop-filter，
+              以免它成为 fixed 弹窗的包含块而错位） */
+        .container {
+            border-radius: 22px;
+            border: 1px solid var(--border);
+            box-shadow: 0 24px 60px -24px rgba(15, 23, 42, 0.22), 0 8px 24px -14px rgba(15, 23, 42, 0.10);
+        }
+
+        [data-theme="dark"] .container {
+            border-color: rgba(255, 255, 255, 0.06);
+            box-shadow: 0 28px 70px -24px rgba(0, 0, 0, 0.70), 0 8px 24px -14px rgba(0, 0, 0, 0.45);
+        }
+
+        /* 3) 内容面板/卡片：实心表面 + 柔和阴影 + 更大圆角 */
+        .panel,
+        .task-card {
+            border-radius: 16px;
+            box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 28px -16px rgba(15, 23, 42, 0.12);
+        }
+
+        [data-theme="dark"] .panel,
+        [data-theme="dark"] .task-card {
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.30), 0 10px 28px -16px rgba(0, 0, 0, 0.50);
+        }
+
+        /* 4) 入场：轻柔淡入上浮（Apple spring-out），列表错落登场 */
+        @keyframes fadeRise {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .panel,
+        .task-card,
+        #loginArea,
+        .tabs {
+            animation: fadeRise 0.55s cubic-bezier(0.32, 0.72, 0, 1) both;
+        }
+
+        .server-item {
+            animation: fadeRise 0.5s cubic-bezier(0.32, 0.72, 0, 1) both;
+            position: relative;
+            transition: background-color 0.2s ease;
+        }
+
+        .server-item:nth-child(1) {
+            animation-delay: 0.03s;
+        }
+
+        .server-item:nth-child(2) {
+            animation-delay: 0.06s;
+        }
+
+        .server-item:nth-child(3) {
+            animation-delay: 0.09s;
+        }
+
+        .server-item:nth-child(4) {
+            animation-delay: 0.12s;
+        }
+
+        .server-item:nth-child(5) {
+            animation-delay: 0.15s;
+        }
+
+        .server-item:nth-child(6) {
+            animation-delay: 0.18s;
+        }
+
+        .server-item:nth-child(7) {
+            animation-delay: 0.21s;
+        }
+
+        .server-item:nth-child(8) {
+            animation-delay: 0.24s;
+        }
+
+        /* 服务器行 hover：细腻单色主强调条（克制，非彩虹、非扫光） */
+        .server-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 6px;
+            bottom: 6px;
+            width: 3px;
+            border-radius: 3px;
+            background: var(--primary);
+            opacity: 0;
+            transition: opacity 0.2s ease;
+        }
+
+        .server-item:hover::before {
+            opacity: 0.55;
+        }
+
+        /* 5) 主按钮：实心强调 + 顶部内高光 + 柔和阴影；hover 微亮微浮、按下回弹缩放，无扫光 */
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled) {
+            background: linear-gradient(135deg, #10b981, #059669);
+            border-radius: 12px;
+            box-shadow: 0 1px 2px rgba(6, 78, 59, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+            transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.2s ease, filter 0.2s ease, background-color 0.2s ease;
+        }
+
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled):hover {
+            background: linear-gradient(135deg, #10b981, #059669);
+            filter: brightness(1.08);
+            transform: translateY(-1px);
+            box-shadow: 0 6px 18px -6px rgba(6, 78, 59, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+        }
+
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled):active {
+            transform: translateY(0) scale(0.975);
+            filter: brightness(0.98);
+            box-shadow: 0 1px 2px rgba(6, 78, 59, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+        }
+
+        /* secondary/warning/danger：柔和 hover 与按下回弹 */
+        button.btn-secondary,
+        button.btn-warning,
+        button.btn-danger,
+        button.btn-cyan,
+        button.btn-violet,
+        button.btn-indigo,
+        button.btn-teal,
+        button.btn-amber {
+            border-radius: 12px;
+            transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.2s ease, background-color 0.2s ease;
+        }
+
+        button.btn-secondary:hover,
+        button.btn-warning:hover,
+        button.btn-danger:hover,
+        button.btn-cyan:hover,
+        button.btn-violet:hover,
+        button.btn-indigo:hover,
+        button.btn-teal:hover,
+        button.btn-amber:hover {
+            transform: translateY(-1px);
+        }
+
+        button.btn-secondary:active,
+        button.btn-warning:active,
+        button.btn-danger:active,
+        button.btn-cyan:active,
+        button.btn-violet:active,
+        button.btn-indigo:active,
+        button.btn-teal:active,
+        button.btn-amber:active {
+            transform: scale(0.975);
+        }
+
+        /* ========================================================
+            Apple 原生界面控件规范 (macOS Sequoia / iOS 18 HIG)
+           极致克制、视网膜级 0.5px 发丝微描边、系统级 Vibrancy 毛玻璃、原生轻压感
+           ======================================================== */
+        button.btn-apple,
+        button.btn-liquid {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "PingFang SC", "Helvetica Neue", system-ui, sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            letter-spacing: -0.01em;
+            cursor: pointer;
+            border-radius: 9px;
+            padding: 0 14px;
+            height: 34px;
+            line-height: 1;
+            user-select: none;
+            outline: none;
+            -webkit-font-smoothing: antialiased;
+            -moz-osx-font-smoothing: grayscale;
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            backdrop-filter: blur(20px) saturate(180%);
+            transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease, box-shadow 0.15s ease, transform 0.12s cubic-bezier(0.25, 1, 0.5, 1);
+            will-change: transform;
+        }
+
+        /* Apple 标准触觉微缩放反馈 */
+        button.btn-apple:active:not(:disabled),
+        button.btn-liquid:active:not(:disabled) {
+            transform: scale(0.97);
+        }
+
+        button.btn-apple:disabled,
+        button.btn-liquid:disabled {
+            opacity: 0.45;
+            cursor: not-allowed;
+            transform: none !important;
+        }
+
+        /* 1) 深度同步甲骨文：Apple System Cyan / Blue (macOS 工具栏操作按钮) */
+        button.btn-apple-cyan,
+        button.btn-liquid-cyan {
+            background: rgba(0, 113, 227, 0.08);
+            border: 0.5px solid rgba(0, 113, 227, 0.22);
+            color: #0071e3;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+        }
+
+        button.btn-apple-cyan:hover:not(:disabled),
+        button.btn-liquid-cyan:hover:not(:disabled) {
+            background: rgba(0, 113, 227, 0.14);
+            border-color: rgba(0, 113, 227, 0.35);
+            color: #0077ed;
+        }
+
+        [data-theme="dark"] button.btn-apple-cyan,
+        [data-theme="dark"] button.btn-liquid-cyan {
+            background: rgba(100, 210, 255, 0.12);
+            border: 0.5px solid rgba(100, 210, 255, 0.28);
+            color: #64d2ff;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.15), 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+
+        [data-theme="dark"] button.btn-apple-cyan:hover:not(:disabled),
+        [data-theme="dark"] button.btn-liquid-cyan:hover:not(:disabled) {
+            background: rgba(100, 210, 255, 0.20);
+            border-color: rgba(100, 210, 255, 0.42);
+            color: #ffffff;
+        }
+
+        /* 2) 导入新 OCI 账号：Apple System Purple / Indigo (macOS 主题强调操作按钮) */
+        button.btn-apple-indigo,
+        button.btn-liquid-indigo {
+            background: rgba(88, 86, 214, 0.08);
+            border: 0.5px solid rgba(88, 86, 214, 0.22);
+            color: #5856d6;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+        }
+
+        button.btn-apple-indigo:hover:not(:disabled),
+        button.btn-liquid-indigo:hover:not(:disabled) {
+            background: rgba(88, 86, 214, 0.14);
+            border-color: rgba(88, 86, 214, 0.35);
+            color: #6360e6;
+        }
+
+        [data-theme="dark"] button.btn-apple-indigo,
+        [data-theme="dark"] button.btn-liquid-indigo {
+            background: rgba(191, 90, 242, 0.12);
+            border: 0.5px solid rgba(191, 90, 242, 0.28);
+            color: #bf5af2;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.15), 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+
+        [data-theme="dark"] button.btn-apple-indigo:hover:not(:disabled),
+        [data-theme="dark"] button.btn-liquid-indigo:hover:not(:disabled) {
+            background: rgba(191, 90, 242, 0.20);
+            border-color: rgba(191, 90, 242, 0.42);
+            color: #ffffff;
+        }
+
+        /* 3) 换IP额度管理：Apple iOS / watchOS Capsule Stepper Pill (+1次, +5次, +10次) */
+        button.btn-apple-pill,
+        button.btn-liquid-pill {
+            background: rgba(52, 199, 89, 0.10);
+            border: 0.5px solid rgba(52, 199, 89, 0.25);
+            color: #248a3d;
+            font-size: 12px;
+            font-weight: 500;
+            padding: 0 10px;
+            height: 28px;
+            border-radius: 9999px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+        }
+
+        button.btn-apple-pill:hover:not(:disabled),
+        button.btn-liquid-pill:hover:not(:disabled) {
+            background: rgba(52, 199, 89, 0.18);
+            border-color: rgba(52, 199, 89, 0.38);
+            color: #1e7834;
+        }
+
+        [data-theme="dark"] button.btn-apple-pill,
+        [data-theme="dark"] button.btn-liquid-pill {
+            background: rgba(48, 209, 88, 0.14);
+            border: 0.5px solid rgba(48, 209, 88, 0.30);
+            color: #30d158;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+        }
+
+        [data-theme="dark"] button.btn-apple-pill:hover:not(:disabled),
+        [data-theme="dark"] button.btn-liquid-pill:hover:not(:disabled) {
+            background: rgba(48, 209, 88, 0.22);
+            border-color: rgba(48, 209, 88, 0.45);
+            color: #ffffff;
+        }
+
+        button.btn-apple-plus,
+        button.btn-liquid-plus {
+            width: 28px;
+            min-width: 28px;
+            height: 28px;
+            padding: 0;
+            border-radius: 9999px;
+            font-size: 11px;
+        }
+
+        /* 4) 一键放行所有端口：Apple System Orange / Amber (macOS 安全性/网络操作按钮) */
+        button.btn-apple-amber,
+        button.btn-liquid-amber {
+            background: rgba(255, 149, 0, 0.10);
+            border: 0.5px solid rgba(255, 149, 0, 0.28);
+            color: #b25000;
+            font-size: 12.5px;
+            height: 32px;
+            border-radius: 8px;
+            padding: 0 12px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+        }
+
+        button.btn-apple-amber:hover:not(:disabled),
+        button.btn-liquid-amber:hover:not(:disabled) {
+            background: rgba(255, 149, 0, 0.18);
+            border-color: rgba(255, 149, 0, 0.40);
+            color: #8c3f00;
+        }
+
+        [data-theme="dark"] button.btn-apple-amber,
+        [data-theme="dark"] button.btn-liquid-amber {
+            background: rgba(255, 159, 10, 0.14);
+            border: 0.5px solid rgba(255, 159, 10, 0.32);
+            color: #ff9f0a;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.14);
+        }
+
+        [data-theme="dark"] button.btn-apple-amber:hover:not(:disabled),
+        [data-theme="dark"] button.btn-liquid-amber:hover:not(:disabled) {
+            background: rgba(255, 159, 10, 0.22);
+            border-color: rgba(255, 159, 10, 0.45);
+            color: #ffffff;
+        }
+
+        /* 5) 注入防扣费配额：Apple System Teal (macOS 系统安全防御色) */
+        button.btn-apple-teal {
+            background: rgba(48, 176, 199, 0.08);
+            border: 0.5px solid rgba(48, 176, 199, 0.26);
+            color: #00778a;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+        }
+        button.btn-apple-teal:hover:not(:disabled) {
+            background: rgba(48, 176, 199, 0.16);
+            border-color: rgba(48, 176, 199, 0.40);
+            color: #005f6e;
+        }
+        [data-theme="dark"] button.btn-apple-teal {
+            background: rgba(90, 200, 250, 0.12);
+            border: 0.5px solid rgba(90, 200, 250, 0.28);
+            color: #5ac8fa;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.15), 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+        [data-theme="dark"] button.btn-apple-teal:hover:not(:disabled) {
+            background: rgba(90, 200, 250, 0.22);
+            border-color: rgba(90, 200, 250, 0.45);
+            color: #ffffff;
+        }
+
+        /* 6) 一键修复路由表：Apple System Mint (macOS 网络通畅薄荷翠绿) */
+        button.btn-apple-mint {
+            background: rgba(0, 199, 190, 0.08);
+            border: 0.5px solid rgba(0, 199, 190, 0.26);
+            color: #007c76;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+        }
+        button.btn-apple-mint:hover:not(:disabled) {
+            background: rgba(0, 199, 190, 0.16);
+            border-color: rgba(0, 199, 190, 0.40);
+            color: #00605b;
+        }
+        [data-theme="dark"] button.btn-apple-mint {
+            background: rgba(102, 212, 207, 0.12);
+            border: 0.5px solid rgba(102, 212, 207, 0.28);
+            color: #66d4cf;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.15), 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+        [data-theme="dark"] button.btn-apple-mint:hover:not(:disabled) {
+            background: rgba(102, 212, 207, 0.22);
+            border-color: rgba(102, 212, 207, 0.45);
+            color: #ffffff;
+        }
+
+        /* 7) 危险删除操作：Apple System Destructive Red (macOS 警示红毛玻璃微拟物) */
+        button.btn-apple-danger {
+            background: rgba(255, 59, 48, 0.08);
+            border: 0.5px solid rgba(255, 59, 48, 0.25);
+            color: #d70015;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+        }
+        button.btn-apple-danger:hover:not(:disabled) {
+            background: rgba(255, 59, 48, 0.16);
+            border-color: rgba(255, 59, 48, 0.40);
+            color: #b30010;
+        }
+        [data-theme="dark"] button.btn-apple-danger {
+            background: rgba(255, 69, 58, 0.14);
+            border: 0.5px solid rgba(255, 69, 58, 0.32);
+            color: #ff453a;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.15), 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+        [data-theme="dark"] button.btn-apple-danger:hover:not(:disabled) {
+            background: rgba(255, 69, 58, 0.24);
+            border-color: rgba(255, 69, 58, 0.50);
+            color: #ffffff;
+        }
+
+        /* 8) 次要/小尺寸操作：Apple System Secondary (macOS 系统工具栏辅助灰) */
+        button.btn-apple-secondary {
+            background: rgba(142, 142, 147, 0.10);
+            border: 0.5px solid rgba(142, 142, 147, 0.24);
+            color: var(--text-main);
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+        }
+        button.btn-apple-secondary:hover:not(:disabled) {
+            background: rgba(142, 142, 147, 0.18);
+            border-color: rgba(142, 142, 147, 0.36);
+            color: var(--text-main);
+        }
+        [data-theme="dark"] button.btn-apple-secondary {
+            background: rgba(142, 142, 147, 0.16);
+            border: 0.5px solid rgba(255, 255, 255, 0.18);
+            color: #ebebf5;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.10);
+        }
+        [data-theme="dark"] button.btn-apple-secondary:hover:not(:disabled) {
+            background: rgba(142, 142, 147, 0.25);
+            border-color: rgba(255, 255, 255, 0.28);
+            color: #ffffff;
+        }
+
+        /* 9) 重点强调保存：Apple System Primary (macOS 强调操作按钮) */
+        button.btn-apple-primary {
+            background: rgba(0, 122, 255, 0.10);
+            border: 0.5px solid rgba(0, 122, 255, 0.28);
+            color: #0071e3;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+        }
+        button.btn-apple-primary:hover:not(:disabled) {
+            background: rgba(0, 122, 255, 0.18);
+            border-color: rgba(0, 122, 255, 0.42);
+            color: #0056b3;
+        }
+        [data-theme="dark"] button.btn-apple-primary {
+            background: rgba(10, 132, 255, 0.15);
+            border: 0.5px solid rgba(10, 132, 255, 0.34);
+            color: #0a84ff;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.15), 0 1px 3px rgba(0, 0, 0, 0.25);
+        }
+        [data-theme="dark"] button.btn-apple-primary:hover:not(:disabled) {
+            background: rgba(10, 132, 255, 0.25);
+            border-color: rgba(10, 132, 255, 0.48);
+            color: #ffffff;
+        }
+
+        /* 旋转动画辅助类 */
+        @keyframes spinSync {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .spin-sync {
+            animation: spinSync 1s linear infinite;
+        }
+
+        /* 6) 卡片 hover：轻抬升 + 柔和中性阴影（不用彩色发光） */
+        .task-card {
+            transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.28s ease, border-color 0.28s ease;
+        }
+
+        .task-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 16px 36px -18px rgba(15, 23, 42, 0.24);
+        }
+
+        [data-theme="dark"] .task-card:hover {
+            box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.62);
+        }
+
+        /* 7) 账号分组标题：半透明毛玻璃条（macOS 分组头质感） */
+        .account-group-header {
+            background: rgba(240, 253, 249, 0.72);
+            -webkit-backdrop-filter: saturate(180%) blur(12px);
+            backdrop-filter: saturate(180%) blur(12px);
+            color: var(--primary);
+        }
+
+        [data-theme="dark"] .account-group-header {
+            background: rgba(6, 78, 59, 0.35);
+        }
+
+        /* 8) 标签页：macOS 分段控件——非激活透明，激活为微浮实心表面 */
+        .tabs button:not(.active) {
+            background: transparent !important;
+            box-shadow: none !important;
+        }
+
+        .tabs button.active {
+            background: var(--surface) !important;
+            color: var(--primary);
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12), 0 1px 1px rgba(15, 23, 42, 0.05) !important;
+        }
+
+        [data-theme="dark"] .tabs button.active {
+            background: #334155 !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.45) !important;
+        }
+
+        /* 9) 徽章：实心柔和语义色 pill */
+        .badge-info {
+            background: var(--info-light);
+            color: #1d4ed8;
+        }
+
+        .badge-purple {
+            background: var(--purple-light);
+            color: #6d28d9;
+        }
+
+        [data-theme="dark"] .badge-info {
+            color: #93c5fd;
+        }
+
+        [data-theme="dark"] .badge-purple {
+            color: #c4b5fd;
+        }
+
+        /* 10) 主题切换按钮：毛玻璃 + 仅轻微缩放（不旋转、不发光） */
+        .theme-toggle-btn {
+            -webkit-backdrop-filter: saturate(180%) blur(14px);
+            backdrop-filter: saturate(180%) blur(14px);
+            transition: transform 0.2s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.2s ease;
+        }
+
+        .theme-toggle-btn:hover {
+            transform: scale(1.06);
+            box-shadow: 0 8px 22px -8px rgba(15, 23, 42, 0.30);
+        }
+
+        .theme-toggle-btn:active {
+            transform: scale(0.96);
+        }
+
+        /* 11) 刷新状态胶囊：干净毛玻璃，仅保留呼吸小圆点（去掉扫光） */
+        .refresh-status-indicator {
+            background: rgba(255, 255, 255, 0.72);
+            -webkit-backdrop-filter: saturate(180%) blur(14px);
+            backdrop-filter: saturate(180%) blur(14px);
+            box-shadow: 0 4px 14px -6px rgba(15, 23, 42, 0.18);
+        }
+
+        [data-theme="dark"] .refresh-status-indicator {
+            background: rgba(22, 30, 47, 0.70);
+            box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.50);
+        }
+
+        /* 12) 输入聚焦：柔和主色细腻描边 */
+        input:focus,
+        select:focus,
+        textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3.5px rgba(16, 185, 129, 0.22);
+        }
+
+        /* 13) 修复：深色模式禁用按钮（原文字色与底色同为深绿几乎不可见；且纯 slate 会与面板同色导致按钮"消失"）
+                 → 采用略深的凹陷底 + 细描边，即使处在同色面板内也能看清按钮形状与文案 */
+        [data-theme="dark"] button:disabled {
+            background-color: #141d30 !important;
+            color: #64748b !important;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.06) !important;
+        }
+
+        /* 14) 可访问性：尊重系统“减少动态效果”偏好 */
+        @media (prefers-reduced-motion: reduce) {
+
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.001ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+        }
+
+        /* ===== 🌌 霓虹夜色规范:加粗字体 + 微光按钮/文字,绿色主导(布局不变) ===== */
+        body {
+            font-weight: 500;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4,
+        th,
+        label,
+        .panel-title,
+        .tabs button {
+            font-weight: 700 !important;
+        }
+
+        button {
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }
+
+        [data-theme="dark"] body {
+            background:
+                radial-gradient(1100px 700px at 15% -10%, rgba(16, 185, 129, 0.09), transparent 60%),
+                radial-gradient(900px 600px at 110% 15%, rgba(6, 182, 212, 0.06), transparent 55%),
+                var(--bg-color);
+        }
+
+        [data-theme="dark"] h1,
+        [data-theme="dark"] h2,
+        [data-theme="dark"] h3,
+        [data-theme="dark"] .panel-title,
+        [data-theme="dark"] th {
+            text-shadow: 0 0 14px rgba(16, 185, 129, 0.30);
+        }
+
+        [data-theme="dark"] .tabs button.active,
+        [data-theme="dark"] .status-changing {
+            text-shadow: 0 0 10px rgba(255, 255, 255, 0.45);
+        }
+
+        /* 卡片:深底 + 绿调描边 + 淡淡外发光(呼应截图卡片) */
+        [data-theme="dark"] .panel,
+        [data-theme="dark"] .server-item,
+        [data-theme="dark"] .task-card {
+            border-color: rgba(16, 185, 129, 0.22);
+            box-shadow: 0 0 18px rgba(16, 185, 129, 0.08), inset 0 0 30px rgba(16, 185, 129, 0.03);
+        }
+
+        [data-theme="dark"] .panel:hover,
+        [data-theme="dark"] .task-card:hover {
+            border-color: rgba(16, 185, 129, 0.38);
+            box-shadow: 0 0 26px rgba(16, 185, 129, 0.14), inset 0 0 30px rgba(16, 185, 129, 0.04);
+        }
+
+        /* 输入框:夜色底,聚焦绿光圈 */
+        [data-theme="dark"] input,
+        [data-theme="dark"] select,
+        [data-theme="dark"] textarea {
+            background-color: #0d1b27;
+            border-color: rgba(16, 185, 129, 0.25);
+        }
+
+        [data-theme="dark"] input:focus,
+        [data-theme="dark"] select:focus,
+        [data-theme="dark"] textarea:focus {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18), 0 0 14px rgba(16, 185, 129, 0.30);
+        }
+
+        /* 按钮微光:各色类同色系 glow,hover 增强(亮/暗通用,暗色更明显) */
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled) {
+            box-shadow: 0 0 12px rgba(16, 185, 129, 0.45), 0 2px 8px rgba(6, 78, 59, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+        }
+
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled):hover {
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.65), 0 6px 18px -6px rgba(6, 78, 59, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+        }
+
+        button.btn-secondary {
+            box-shadow: 0 0 12px rgba(37, 99, 235, 0.40);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+        }
+
+        button.btn-secondary:hover {
+            box-shadow: 0 0 20px rgba(59, 130, 246, 0.60);
+        }
+
+        button.btn-cyan {
+            box-shadow: 0 0 12px rgba(8, 145, 178, 0.45);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+        }
+
+        button.btn-cyan:hover {
+            box-shadow: 0 0 20px rgba(34, 211, 238, 0.60);
+        }
+
+        button.btn-violet {
+            box-shadow: 0 0 12px rgba(124, 58, 237, 0.45);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+        }
+
+        button.btn-violet:hover {
+            box-shadow: 0 0 20px rgba(168, 85, 247, 0.60);
+        }
+
+        button.btn-indigo {
+            box-shadow: 0 0 12px rgba(79, 70, 229, 0.45);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+        }
+
+        button.btn-indigo:hover {
+            box-shadow: 0 0 20px rgba(99, 102, 241, 0.60);
+        }
+
+        button.btn-teal {
+            box-shadow: 0 0 12px rgba(13, 148, 136, 0.45);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+        }
+
+        button.btn-teal:hover {
+            box-shadow: 0 0 20px rgba(45, 212, 191, 0.60);
+        }
+
+        button.btn-amber {
+            box-shadow: 0 0 12px rgba(245, 158, 11, 0.45);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+        }
+
+        button.btn-amber:hover {
+            box-shadow: 0 0 20px rgba(251, 191, 36, 0.60);
+        }
+
+        button.btn-warning {
+            box-shadow: 0 0 12px rgba(234, 88, 12, 0.45);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+        }
+
+        button.btn-warning:hover {
+            box-shadow: 0 0 20px rgba(249, 115, 22, 0.60);
+        }
+
+        button.btn-danger {
+            box-shadow: 0 0 12px rgba(220, 38, 38, 0.45);
+            text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
+        }
+
+        button.btn-danger:hover {
+            box-shadow: 0 0 20px rgba(244, 63, 94, 0.60);
+        }
+
+        /* Tab 选中:绿色霓虹 */
+        .tabs button.active {
+            box-shadow: 0 0 16px rgba(16, 185, 129, 0.55) !important;
+        }
+
+        /* 状态徽章/强调数值微光(仅深色) */
+        [data-theme="dark"] [style*="color:var(--primary)"],
+        [data-theme="dark"] [style*="color: var(--primary)"] {
+            text-shadow: 0 0 10px rgba(16, 185, 129, 0.45);
+        }
+
+        [data-theme="dark"] [style*="color:var(--warning)"],
+        [data-theme="dark"] [style*="color: var(--warning)"] {
+            text-shadow: 0 0 10px rgba(245, 158, 11, 0.40);
+        }
+
+        [data-theme="dark"] [style*="color:var(--danger)"],
+        [data-theme="dark"] [style*="color: var(--danger)"] {
+            text-shadow: 0 0 10px rgba(239, 68, 68, 0.40);
+        }
+
+        [data-theme="dark"] [style*="color:var(--info)"],
+        [data-theme="dark"] [style*="color: var(--info)"] {
+            text-shadow: 0 0 10px rgba(59, 130, 246, 0.40);
+        }
+
+        /* ===== 🌌 重设计增量:品牌栏 + KPI 总览 + 终端日志 ===== */
+        .brandbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+
+        .brand-logo {
+            font-size: 22px;
+            filter: drop-shadow(0 0 8px rgba(16, 185, 129, 0.8));
+        }
+
+        .brand-title {
+            font-size: 18px;
+            font-weight: 800;
+            letter-spacing: 0.06em;
+            color: var(--text-main);
+            text-shadow: 0 0 16px rgba(16, 185, 129, 0.5);
+        }
+
+        .brandbar-right {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .pill {
+            font-size: 11px;
+            font-weight: 700;
+            border-radius: 999px;
+            padding: 4px 12px;
+            border: 1px solid;
+        }
+
+        .pill-green {
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.45);
+            background: rgba(16, 185, 129, 0.10);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.25);
+        }
+
+        .pill-red {
+            color: #fb7185;
+            border-color: rgba(244, 63, 94, 0.45);
+            background: rgba(244, 63, 94, 0.10);
+            box-shadow: 0 0 10px rgba(244, 63, 94, 0.25);
+        }
+
+        .pill-cyan {
+            color: #22d3ee;
+            border-color: rgba(34, 211, 238, 0.40);
+            background: rgba(34, 211, 238, 0.08);
+        }
+
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-bottom: 18px;
+        }
+
+        .kpi-card {
+            background: var(--surface);
+            border-radius: 12px;
+            padding: 14px;
+            border: 1px solid var(--border);
+        }
+
+        .kpi-label {
+            font-size: 11px;
+            font-weight: 700;
+            margin-bottom: 2px;
+        }
+
+        .kpi-value {
+            font-size: 26px;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+
+        .kpi-sub {
+            font-size: 13px;
+            color: var(--text-muted);
+            font-weight: 700;
+        }
+
+        .kpi-foot {
+            font-size: 10px;
+            font-weight: 700;
+            margin-top: 4px;
+            color: var(--text-muted);
+        }
+
+        .kpi-dots {
+            font-size: 10px;
+            letter-spacing: 2px;
+            margin-top: 4px;
+        }
+
+        .kpi-green {
+            border-color: rgba(16, 185, 129, 0.50);
+            box-shadow: 0 0 16px rgba(16, 185, 129, 0.15);
+        }
+
+        .kpi-green .kpi-label {
+            color: #34d399;
+        }
+
+        .kpi-green .kpi-value {
+            text-shadow: 0 0 14px rgba(16, 185, 129, 0.55);
+        }
+
+        .kpi-green .dot-on {
+            color: #10b981;
+            text-shadow: 0 0 6px rgba(16, 185, 129, 0.8);
+        }
+
+        .kpi-green .dot-off {
+            color: var(--border);
+        }
+
+        .kpi-cyan {
+            border-color: rgba(34, 211, 238, 0.50);
+            box-shadow: 0 0 16px rgba(34, 211, 238, 0.12);
+        }
+
+        .kpi-cyan .kpi-label {
+            color: #22d3ee;
+        }
+
+        .kpi-cyan .kpi-value {
+            text-shadow: 0 0 14px rgba(34, 211, 238, 0.50);
+        }
+
+        .kpi-amber {
+            border-color: rgba(245, 158, 11, 0.50);
+            box-shadow: 0 0 16px rgba(245, 158, 11, 0.12);
+        }
+
+        .kpi-amber .kpi-label {
+            color: #fbbf24;
+        }
+
+        .kpi-amber .kpi-value {
+            text-shadow: 0 0 14px rgba(245, 158, 11, 0.45);
+        }
+
+        .kpi-red {
+            border-color: rgba(244, 63, 94, 0.50);
+            box-shadow: 0 0 16px rgba(244, 63, 94, 0.12);
+        }
+
+        .kpi-red .kpi-label {
+            color: #fb7185;
+        }
+
+        .kpi-red .kpi-value {
+            text-shadow: 0 0 14px rgba(244, 63, 94, 0.40);
+        }
+
+        .task-log {
+            background: #0a141d !important;
+            color: #34d399 !important;
+            font-family: 'SF Mono', Consolas, 'Courier New', monospace !important;
+            font-size: 11px !important;
+            line-height: 1.7 !important;
+            border: 1px solid rgba(16, 185, 129, 0.25) !important;
+            border-radius: 8px !important;
+            text-shadow: 0 0 6px rgba(16, 185, 129, 0.35);
+        }
+
+        .task-log::after {
+            content: '▊';
+            animation: cursor-blink 1s steps(1) infinite;
+        }
+
+        @keyframes cursor-blink {
+            50% {
+                opacity: 0;
+            }
+        }
+
+        /* ===== 🌌 效果图对齐层:深底卡片 / 字号 / 徽章 / 胶囊 Tab / 渐变流量条 ===== */
+        .kpi-row {
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 10px;
+        }
+
+        [data-theme="dark"] .kpi-card {
+            background: #101f2c;
+        }
+
+        .kpi-card {
+            padding: 12px 14px;
+        }
+
+        .kpi-label {
+            font-size: 11px;
+        }
+
+        .kpi-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .kpi-sub {
+            font-size: 13px;
+        }
+
+        .kpi-foot {
+            font-size: 10px;
+        }
+
+        .brand-title {
+            font-size: 17px;
+            font-weight: 700;
+        }
+
+        /* 面板与实例条:效果图的深底 + 绿调描边 */
+        [data-theme="dark"] .panel,
+        [data-theme="dark"] .task-card {
+            background: #101f2c;
+        }
+
+        [data-theme="dark"] .server-item {
+            background: transparent;
+            border-bottom-color: rgba(16, 185, 129, 0.14);
+        }
+
+        [data-theme="dark"] .server-item:hover {
+            background: rgba(16, 185, 129, 0.05);
+        }
+
+        /* 分组头:效果图里的低饱和绿条 */
+        [data-theme="dark"] .account-group-header {
+            background: rgba(16, 185, 129, 0.10);
+            color: #34d399;
+            border-color: rgba(16, 185, 129, 0.22);
+            text-shadow: 0 0 10px rgba(16, 185, 129, 0.45);
+        }
+
+        /* 徽章:效果图的描边胶囊(细边 + 同色字) */
+        .badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 999px;
+        }
+
+        [data-theme="dark"] .badge-success {
+            background: rgba(16, 185, 129, 0.12) !important;
+            color: #34d399 !important;
+            border: 1px solid rgba(16, 185, 129, 0.45);
+        }
+
+        [data-theme="dark"] .badge-danger {
+            background: rgba(244, 63, 94, 0.12) !important;
+            color: #fb7185 !important;
+            border: 1px solid rgba(244, 63, 94, 0.45);
+        }
+
+        .server-name {
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        [data-theme="dark"] .server-name {
+            color: #ecfdf5;
+        }
+
+        /* 操作按钮:效果图的小号胶囊 */
+        .server-actions button {
+            height: 28px;
+            font-size: 11px;
+            padding: 4px 12px;
+            border-radius: 8px;
+        }
+
+        /* Tab:效果图的胶囊导航 */
+        .tabs {
+            background: transparent;
+            border: none;
+            box-shadow: none;
+            padding: 0;
+            gap: 8px;
+        }
+
+        .tabs button {
+            font-size: 12px;
+            padding: 7px 16px;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+        }
+
+        [data-theme="dark"] .tabs button:not(.active) {
+            color: #7ea8a0;
+            border-color: rgba(16, 185, 129, 0.20);
+        }
+
+        /* 流量进度条:效果图的双色渐变 + 外发光 */
+        [data-theme="dark"] .scrollable-area [style*="width:"][style*="height: 100%"] {
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.55) inset, 0 0 8px rgba(16, 185, 129, 0.35);
+        }
+
+        /* ===== 🌌 实例卡布局(效果图):头部徽章行 / 信息行 / 操作底栏 ===== */
+        .server-item.inst-card {
+            display: block;
+            padding: 14px;
+            margin: 0 0 10px;
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        [data-theme="dark"] .server-item.inst-card {
+            background: #101f2c;
+            border-color: rgba(16, 185, 129, 0.28);
+            box-shadow: 0 0 16px rgba(16, 185, 129, 0.07);
+        }
+
+        [data-theme="dark"] .server-item.inst-card:hover {
+            border-color: rgba(16, 185, 129, 0.5);
+            box-shadow: 0 0 22px rgba(16, 185, 129, 0.14);
+        }
+
+        .inst-head {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 10px;
+        }
+
+        .inst-head input[type="checkbox"] {
+            margin: 0;
+            flex-shrink: 0;
+        }
+
+        .inst-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 0;
+            cursor: pointer;
+            flex: 1;
+            min-width: 0;
+        }
+
+        .inst-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
+
+        .dot-run {
+            background: #10b981;
+            box-shadow: 0 0 8px #10b981;
+        }
+
+        .dot-stop {
+            background: #fb7185;
+            box-shadow: 0 0 8px rgba(244, 63, 94, 0.8);
+        }
+
+        .dot-wait {
+            background: #fbbf24;
+            box-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
+        }
+
+        .badge-region {
+            background: transparent;
+            color: #34d399;
+            border: 1px solid rgba(16, 185, 129, 0.45);
+            margin-left: 0;
+        }
+
+        .badge-shape {
+            background: transparent;
+            color: #a78bfa;
+            border: 1px solid rgba(167, 139, 250, 0.45);
+            margin-left: 0;
+        }
+
+        .badge-ipv6 {
+            background: transparent;
+            color: #38bdf8;
+            border: 1px solid rgba(56, 189, 248, 0.5);
+            font-weight: 700;
+            margin-left: 0;
+        }
+
+        .inst-state {
+            font-size: 11px;
+            font-weight: 700;
+            margin-left: auto;
+            letter-spacing: 0.04em;
+        }
+
+        .state-run {
+            color: #34d399;
+            text-shadow: 0 0 10px rgba(16, 185, 129, 0.6);
+        }
+
+        .state-stop {
+            color: #fb7185;
+            text-shadow: 0 0 10px rgba(244, 63, 94, 0.5);
+        }
+
+        .state-wait {
+            color: #fbbf24;
+        }
+
+        .inst-meta {
+            display: flex;
+            gap: 14px;
+            flex-wrap: wrap;
+            align-items: center;
+            margin-bottom: 10px;
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .meta-ico {
+            margin-right: 4px;
+        }
+
+        .meta-ip {
+            font-family: 'SF Mono', Consolas, monospace;
+            font-weight: 700;
+            font-size: 12px;
+        }
+
+        .meta-date {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        /* 幽灵到期输入框：平时是一段灰字，悬停/聚焦才浮现边框，功能不变 */
+        .inst-card .server-expire-date {
+            width: auto !important;
+            min-width: 0 !important;
+            max-width: 132px;
+            margin: 0 !important;
+            padding: 0 4px !important;
+            font-size: 11px !important;
+            height: 20px !important;
+            background: transparent !important;
+            border: 1px solid transparent !important;
+            box-shadow: none !important;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        .inst-card .server-expire-date:hover,
+        .inst-card .server-expire-date:focus {
+            background: var(--surface) !important;
+            border-color: var(--border) !important;
+            color: var(--text-main);
+        }
+
+        .inst-card .server-expire-date::-webkit-calendar-picker-indicator {
+            opacity: 0.45;
+            cursor: pointer;
+        }
+
+        .inst-actions {
+            justify-content: flex-start;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+        }
+
+        [data-theme="dark"] .inst-actions {
+            border-top-color: rgba(16, 185, 129, 0.15);
+        }
+
+        .status-changing {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            color: #d97706;
+            background: rgba(245, 158, 11, 0.12);
+            border: 1px solid rgba(245, 158, 11, 0.32);
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.1);
+            animation: statusPulse 2s ease-in-out infinite;
+            user-select: none;
+        }
+
+        [data-theme="dark"] .status-changing {
+            color: #fbbf24;
+            background: rgba(245, 158, 11, 0.16);
+            border-color: rgba(245, 158, 11, 0.4);
+            box-shadow: 0 0 14px rgba(245, 158, 11, 0.22);
+            text-shadow: 0 0 10px rgba(251, 191, 36, 0.5);
+        }
+
+        .status-changing-icon {
+            display: inline-block;
+            animation: statusSpin 1.6s linear infinite;
+        }
+
+        @keyframes statusSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        @keyframes statusPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.82; transform: scale(0.98); }
+        }
+
+        /* ===== 🌌 账户卡 / 流量卡 / 引导卷卡 对齐效果图 ===== */
+        [data-theme="dark"] .account-card {
+            background: #101f2c !important;
+            border-color: rgba(16, 185, 129, 0.28) !important;
+            box-shadow: 0 0 16px rgba(16, 185, 129, 0.07) !important;
+        }
+
+        [data-theme="dark"] .account-card:hover {
+            border-color: rgba(16, 185, 129, 0.5) !important;
+            box-shadow: 0 0 22px rgba(16, 185, 129, 0.14) !important;
+        }
+
+        /* 账户卡内的数据行:深色内嵌槽 + 发光数值 */
+        [data-theme="dark"] .account-card [style*="background: var(--bg-color)"] {
+            background: #0a141d !important;
+            border: 1px solid rgba(16, 185, 129, 0.14);
+        }
+
+        [data-theme="dark"] .account-card [style*="color: var(--primary)"] {
+            text-shadow: 0 0 10px rgba(16, 185, 129, 0.45);
+        }
+
+        [data-theme="dark"] .account-card [style*="color: var(--warning)"] {
+            text-shadow: 0 0 10px rgba(245, 158, 11, 0.40);
+        }
+
+        .account-card .account-name-wrapper span[style*="font-weight: 700"] {
+            font-size: 14px;
+        }
+
+        /* 流量卡:深底 + 绿边;进度槽压暗,进度条双色渐变发光 */
+        [data-theme="dark"] .scrollable-area>div[style*="border-radius: var(--radius-lg)"] {
+            border-color: rgba(16, 185, 129, 0.25) !important;
+        }
+
+        [data-theme="dark"] .scrollable-area div[style*="height: 8px"][style*="overflow: hidden"] {
+            background-color: #0a141d !important;
+            border-color: rgba(16, 185, 129, 0.18) !important;
+        }
+
+        [data-theme="dark"] .scrollable-area div[style*="height: 8px"]>div {
+            filter: saturate(1.25);
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.5) inset, 0 0 10px rgba(16, 185, 129, 0.30);
+        }
+
+        [data-theme="dark"] .scrollable-area div[style*="padding: 8px 12px"] {
+            background: #0a141d !important;
+            border: 1px solid rgba(16, 185, 129, 0.12);
+        }
+
+        /* 引导卷卡沿用实例卡样式,容量/AD 徽章配色微调 */
+        .inst-card .badge-region {
+            letter-spacing: 0.02em;
+        }
+
+        /* ===== 🌌 品牌栏状态胶囊(指示灯合并后唯一入口) ===== */
+        .pill-amber {
+            color: #fbbf24;
+            border-color: rgba(245, 158, 11, 0.45);
+            background: rgba(245, 158, 11, 0.10);
+            box-shadow: 0 0 10px rgba(245, 158, 11, 0.20);
+        }
+
+        button.pill-logout {
+            width: auto;
+            background: transparent;
+            color: #fb7185;
+            border: 1px solid rgba(244, 63, 94, 0.45);
+            padding: 4px 12px;
+            font-size: 11px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        button.pill-logout:hover {
+            background: rgba(244, 63, 94, 0.12);
+            box-shadow: 0 0 10px rgba(244, 63, 94, 0.25);
+            transform: none;
+        }
+
+        /* ===== 🌌 实例卡线性 SVG 图标(替换 ⚙️🌐📍📅 emoji) ===== */
+        .meta-svg {
+            width: 13px;
+            height: 13px;
+            display: block;
+        }
+
+        .meta-ico {
+            margin-right: 4px;
+            display: inline-flex;
+            align-items: center;
+            opacity: 0.85;
+        }
+
+        .inst-meta .meta-item,
+        .inst-meta .meta-ip {
+            display: inline-flex;
+            align-items: center;
+        }
+
+        /* ===== 🌌 授权服务器双排:左边一个账户,右边一个账户 ===== */
+        .account-cols {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0 12px;
+            align-items: start;
+        }
+
+        .account-col {
+            min-width: 0;
+        }
+
+        .account-col:only-child {
+            grid-column: 1 / -1;
+        }
+
+        .account-cols .account-group-header {
+            position: static;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            margin-bottom: 8px;
+            padding: 6px 12px;
+            font-size: 12.5px;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
+
+        [data-theme="dark"] .account-cols .account-group-header {
+            border-color: rgba(16, 185, 129, 0.30);
+        }
+
+        .tenant-name-link:hover {
+            text-decoration: underline !important;
+            filter: brightness(1.25);
+            opacity: 0.95;
+        }
+
+        @media (max-width: 1250px) {
+            .account-cols {
+                grid-template-columns: minmax(0, 1fr);
+            }
+        }
+
+        /* ===== 🌌 全局密度收紧 ===== */
+        body {
+            padding: 12px;
+        }
+
+        .container {
+            padding: 16px 20px;
+        }
+
+        .brandbar {
+            margin-bottom: 10px;
+        }
+
+        .kpi-row {
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+
+        .kpi-card {
+            padding: 9px 12px;
+        }
+
+        .kpi-value {
+            font-size: 21px;
+        }
+
+        .dashboard-grid {
+            gap: 14px;
+        }
+
+        .group {
+            margin-bottom: 12px;
+        }
+
+        label {
+            font-size: 13px;
+            margin-bottom: 4px;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="number"],
+        input[type="date"],
+        input[type="email"],
+        select,
+        textarea {
+            padding: 7px 12px;
+            font-size: 13px;
+        }
+
+        .tabs {
+            gap: 6px;
+        }
+
+        .tabs button {
+            font-size: 12px;
+            padding: 6px 14px;
+        }
+
+        .panel {
+            padding: 12px 14px;
+            margin-bottom: 12px;
+        }
+
+        .server-list {
+            padding: 10px;
+            margin-bottom: 10px !important;
+        }
+
+        .server-item.inst-card {
+            padding: 9px 11px;
+            margin: 0 0 8px;
+            content-visibility: auto;
+            contain-intrinsic-size: auto 130px;
+            contain: layout paint;
+            transform: translateZ(0);
+            transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
+        }
+
+        .inst-head {
+            margin-bottom: 6px;
+            gap: 6px;
+        }
+
+        .inst-title {
+            gap: 6px;
+        }
+
+        .inst-meta {
+            margin-bottom: 6px;
+            gap: 10px;
+            row-gap: 4px;
+            font-size: 11.5px;
+        }
+
+        .inst-actions {
+            padding-top: 7px;
+            gap: 6px;
+        }
+
+        .server-actions button {
+            height: 24px;
+            font-size: 11px;
+            padding: 2px 9px;
+            border-radius: 7px;
+        }
+
+        .badge {
+            padding: 1px 7px;
+        }
+
+        .server-name {
+            font-size: 12.5px;
+        }
+
+        .inst-state {
+            font-size: 10.5px;
+        }
+
+        #dashboardArea {
+            height: calc(100vh - 24px);
+        }
+
+        /* ================================================================
+           🌌 全景背景壁纸与动态景深毛玻璃系统
+           ================================================================ */
+        .app-wallpaper {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background-image: url('../bg.png');
+            background-size: cover;
+            background-position: center center;
+            background-repeat: no-repeat;
+            z-index: 0;
+            pointer-events: none;
+            image-rendering: -webkit-optimize-contrast;
+            transition: filter 0.7s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* 登录后控制台激活背景景深模糊（全屏透亮，清晰映衬原画） */
+        .app-wallpaper.is-blurred {
+            filter: blur(18px) brightness(0.96) saturate(110%);
+            transform: scale(1.08);
+            will-change: filter, transform;
+        }
+
+        [data-theme="dark"] .app-wallpaper.is-blurred {
+            filter: blur(18px) brightness(0.85) saturate(115%);
+            transform: scale(1.08);
+        }
+
+        /* 环境光影过渡与磨砂雾化扩散层：登录界面下完全透亮无遮罩，后台轻盈透光 */
+        .app-wallpaper-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 1;
+            pointer-events: none;
+            background: transparent;
+            transition: background 0.7s ease, backdrop-filter 0.7s ease;
+        }
+
+        .app-wallpaper-overlay.is-dashboard {
+            background: rgba(255, 255, 255, 0.18);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+
+        [data-theme="dark"] .app-wallpaper-overlay.is-dashboard {
+            background: rgba(8, 14, 26, 0.22);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+
+        /* 🔐 登录界面：全局居中容器 */
+        .login-wrapper {
+            min-height: 100vh;
+            width: 100%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 10;
+        }
+
+        /* 登录卡片：高透光细腻毛玻璃（与背景人物画面自然通透结合，不生硬） */
+        #loginArea {
+            width: 100%;
+            max-width: 430px;
+            margin: 0 auto;
+            padding: 36px 32px 30px;
+            border-radius: 24px;
+            box-sizing: border-box;
+            position: relative;
+            z-index: 2;
+            backdrop-filter: blur(24px) saturate(190%);
+            -webkit-backdrop-filter: blur(24px) saturate(190%);
+            background: rgba(255, 255, 255, 0.75);
+            border: 1px solid rgba(255, 255, 255, 0.75);
+            box-shadow: 0 25px 60px -15px rgba(15, 23, 42, 0.28),
+                0 0 0 1px rgba(255, 255, 255, 0.45),
+                inset 0 1px 2px rgba(255, 255, 255, 0.95);
+            transition: all 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        [data-theme="dark"] #loginArea {
+            background: rgba(15, 23, 42, 0.76);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.7),
+                0 0 35px -5px rgba(56, 189, 248, 0.2),
+                inset 0 1px 1px rgba(255, 255, 255, 0.15);
+        }
+
+        .login-brand {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .login-brand-icon {
+            font-size: 24px;
+            filter: drop-shadow(0 2px 8px rgba(37, 99, 235, 0.4));
+        }
+
+        .login-brand-title {
+            font-size: 15px;
+            font-weight: 800;
+            letter-spacing: 0.12em;
+            background: linear-gradient(135deg, #1d4ed8, #0ea5e9);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        [data-theme="dark"] .login-brand-title {
+            background: linear-gradient(135deg, #60a5fa, #38bdf8);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .login-brand-badge {
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 6px;
+            background: rgba(14, 165, 233, 0.15);
+            color: #0284c7;
+            border: 1px solid rgba(14, 165, 233, 0.25);
+            letter-spacing: 0.05em;
+        }
+
+        [data-theme="dark"] .login-brand-badge {
+            background: rgba(56, 189, 248, 0.15);
+            color: #38bdf8;
+            border-color: rgba(56, 189, 248, 0.3);
+        }
+
+        #loginArea h2 {
+            font-size: 22px;
+            font-weight: 700;
+            margin: 0 0 8px;
+            text-align: center;
+            letter-spacing: -0.02em;
+        }
+
+        .login-subtext {
+            text-align: center;
+            margin-bottom: 20px;
+            color: var(--text-muted);
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .login-tg-btn {
+            width: 100%;
+            height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            border-radius: 12px;
+            font-size: 13.5px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            background: rgba(14, 165, 233, 0.12) !important;
+            border: 1px solid rgba(14, 165, 233, 0.35) !important;
+            color: #0284c7 !important;
+            backdrop-filter: blur(8px);
+            transition: all 0.2s ease;
+        }
+
+        .login-tg-btn svg {
+            stroke: currentColor;
+        }
+
+        .login-tg-btn:hover:not(:disabled) {
+            background: rgba(14, 165, 233, 0.2) !important;
+            border-color: #0284c7 !important;
+            color: #0369a1 !important;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px -3px rgba(14, 165, 233, 0.35);
+        }
+
+        [data-theme="dark"] .login-tg-btn {
+            background: rgba(56, 189, 248, 0.12) !important;
+            border-color: rgba(56, 189, 248, 0.3) !important;
+            color: #38bdf8 !important;
+        }
+
+        [data-theme="dark"] .login-tg-btn:hover:not(:disabled) {
+            background: rgba(56, 189, 248, 0.22) !important;
+            border-color: #38bdf8 !important;
+            color: #7dd3fc !important;
+            box-shadow: 0 4px 14px -3px rgba(56, 189, 248, 0.4);
+        }
+
+        .login-label {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .login-label-hint {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            font-weight: normal;
+        }
+
+        .login-input-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+        }
+
+        .login-input-icon {
+            position: absolute;
+            left: 13px;
+            font-size: 15px;
+            pointer-events: none;
+            opacity: 0.7;
+        }
+
+        .login-code-input {
+            width: 100%;
+            height: 44px;
+            padding: 0 14px 0 38px !important;
+            font-size: 15px !important;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            border-radius: 12px !important;
+            background: rgba(255, 255, 255, 0.75) !important;
+            border: 1px solid rgba(203, 213, 225, 0.8) !important;
+            box-sizing: border-box;
+            transition: all 0.25s ease !important;
+        }
+
+        [data-theme="dark"] .login-code-input {
+            background: rgba(15, 23, 42, 0.6) !important;
+            border-color: rgba(255, 255, 255, 0.14) !important;
+            color: #f8fafc !important;
+        }
+
+        .login-code-input:focus {
+            background: rgba(255, 255, 255, 0.95) !important;
+            border-color: #0284c7 !important;
+            box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.2) !important;
+        }
+
+        [data-theme="dark"] .login-code-input:focus {
+            background: rgba(15, 23, 42, 0.85) !important;
+            border-color: #38bdf8 !important;
+            box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25) !important;
+        }
+
+        /* 🛡️ 彻底杜绝浏览器密码管理器 (Chrome/Safari/Edge/1Password/Bitwarden) 自动注入弹窗与钥匙图标 */
+        .login-code-input::-webkit-credentials-auto-fill-button,
+        input[autocomplete="one-time-code"]::-webkit-credentials-auto-fill-button,
+        input[autocomplete="new-password"]::-webkit-credentials-auto-fill-button {
+            visibility: hidden !important;
+            pointer-events: none !important;
+            position: absolute !important;
+            right: 0 !important;
+        }
+
+        .btn-login-submit {
+            width: 100%;
+            height: 44px;
+            border-radius: 12px;
+            font-size: 14.5px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            background: linear-gradient(135deg, #1d4ed8, #0ea5e9) !important;
+            color: #ffffff !important;
+            border: none;
+            cursor: pointer;
+            margin-top: 22px;
+            box-shadow: 0 10px 24px -6px rgba(14, 165, 233, 0.45);
+            transition: all 0.25s ease;
+        }
+
+        .btn-login-submit:hover:not(:disabled) {
+            transform: translateY(-1.5px);
+            box-shadow: 0 14px 28px -6px rgba(14, 165, 233, 0.6);
+            filter: brightness(1.06);
+        }
+
+        .btn-login-submit:active:not(:disabled) {
+            transform: translateY(0.5px);
+        }
+
+        /* 🎛️ 控制台整体毛玻璃与背景壁纸全景贯通系统 */
+        #dashboardArea {
+            margin: 12px auto;
+            backdrop-filter: blur(16px) saturate(135%);
+            -webkit-backdrop-filter: blur(16px) saturate(135%);
+            background: rgba(255, 255, 255, 0.32);
+            border: 1px solid rgba(255, 255, 255, 0.55);
+            box-shadow: 0 20px 50px -15px rgba(0, 0, 0, 0.08),
+                0 0 0 1px rgba(255, 255, 255, 0.40);
+            position: relative;
+            z-index: 5;
+        }
+
+        [data-theme="dark"] #dashboardArea {
+            background: rgba(13, 23, 38, 0.28);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+            box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.40),
+                0 0 0 1px rgba(255, 255, 255, 0.06);
+        }
+
+        .panel,
+        .task-card,
+        .kpi-card {
+            backdrop-filter: blur(14px);
+            -webkit-backdrop-filter: blur(14px);
+            background: rgba(255, 255, 255, 0.40) !important;
+            border-color: rgba(255, 255, 255, 0.55) !important;
+        }
+
+        [data-theme="dark"] .panel,
+        [data-theme="dark"] .task-card,
+        [data-theme="dark"] .kpi-card {
+            background: rgba(16, 28, 46, 0.35) !important;
+            border-color: rgba(255, 255, 255, 0.10) !important;
+        }
+
+        /* 🚀 授权服务器与电源管理列表硬件加速与丝滑滚动支持 (移除容器内 backdrop-filter 避免滚动重绘掉帧) */
+        .server-list {
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+            background: rgba(255, 255, 255, 0.40) !important;
+            border-color: rgba(255, 255, 255, 0.55) !important;
+        }
+
+        [data-theme="dark"] .server-list {
+            background: rgba(16, 28, 46, 0.35) !important;
+            border-color: rgba(255, 255, 255, 0.10) !important;
+            backdrop-filter: none !important;
+            -webkit-backdrop-filter: none !important;
+        }
+
+        .server-list::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .server-list::-webkit-scrollbar-thumb {
+            background: rgba(16, 185, 129, 0.25);
+            border-radius: 6px;
+        }
+
+        .server-list::-webkit-scrollbar-thumb:hover {
+            background: var(--primary);
+        }
+
+        /* 🔐 认证方式分段切换器 (Auth Type Segmented Switcher) */
+        .auth-type-selector {
+            display: flex;
+            gap: 6px;
+            background: rgba(0, 0, 0, 0.04);
+            padding: 4px;
+            border-radius: 12px;
+            border: 1px solid var(--border);
+            margin-bottom: 14px;
+        }
+
+        [data-theme="dark"] .auth-type-selector {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .auth-type-btn {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            padding: 8px 10px;
+            border-radius: 9px;
+            font-size: 13px;
+            font-weight: 500;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+            white-space: nowrap;
+        }
+
+        .auth-type-btn:hover:not(.active) {
+            color: var(--text-main);
+            background: rgba(0, 0, 0, 0.03);
+        }
+
+        [data-theme="dark"] .auth-type-btn:hover:not(.active) {
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-main);
+        }
+
+        .auth-type-btn.active {
+            color: var(--primary) !important;
+            background: #ffffff !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+            font-weight: 600;
+        }
+
+        [data-theme="dark"] .auth-type-btn.active {
+            background: rgba(255, 255, 255, 0.12) !important;
+            color: #34d399 !important;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        /* ===== 💳 易支付系统配置精简面板 (在 380px 左栏内优雅折叠与向下展开) ===== */
+        .epay-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-top: 3px solid #3b82f6;
+            border-radius: var(--radius-md);
+            overflow: hidden;
+            transition: all 0.25s ease;
+        }
+
+        [data-theme="dark"] .epay-panel {
+            background: #0f1c29;
+            border-color: rgba(59, 130, 246, 0.25);
+            border-top-color: #3b82f6;
+        }
+
+        .epay-field-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            margin-bottom: 2px;
+            display: block;
+            line-height: 1.2;
+            font-weight: 500;
+        }
+
+        .epay-field-input {
+            height: 28px !important;
+            font-size: 11.5px !important;
+            padding: 2px 8px !important;
+            border-radius: 6px !important;
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--text-main) !important;
+            box-sizing: border-box !important;
+            width: 100% !important;
+        }
+
+        .epay-field-textarea {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace !important;
+            font-size: 10.5px !important;
+            padding: 4px 8px !important;
+            border-radius: 6px !important;
+            resize: vertical !important;
+            height: 42px !important;
+            min-height: 36px !important;
+            line-height: 1.25 !important;
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--text-main) !important;
+            box-sizing: border-box !important;
+            width: 100% !important;
+        }
+
+        /* ===== 🌟 头部侧栏精细化微质感药丸按钮 (Refined Action Buttons) ===== */
+        .btn-refined-pill {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 5px !important;
+            height: 24px !important;
+            padding: 0 10px !important;
+            border-radius: 9999px !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            transition: all 0.22s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            border: 1px solid transparent !important;
+            line-height: 1 !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03) !important;
+            text-decoration: none !important;
+        }
+
+        /* 易支付配置展开/收起按钮 - 优雅浅蓝透光质感 */
+        .btn-refined-blue {
+            background: rgba(59, 130, 246, 0.08) !important;
+            border-color: rgba(59, 130, 246, 0.25) !important;
+            color: #2563eb !important;
+        }
+
+        .btn-refined-blue:hover {
+            background: rgba(59, 130, 246, 0.16) !important;
+            border-color: rgba(59, 130, 246, 0.40) !important;
+            color: #1d4ed8 !important;
+            transform: translateY(-0.5px) !important;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.18) !important;
+        }
+
+        [data-theme="dark"] .btn-refined-blue {
+            background: rgba(59, 130, 246, 0.14) !important;
+            border-color: rgba(96, 165, 250, 0.30) !important;
+            color: #60a5fa !important;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.10) !important;
+        }
+
+        [data-theme="dark"] .btn-refined-blue:hover {
+            background: rgba(59, 130, 246, 0.26) !important;
+            border-color: rgba(96, 165, 250, 0.50) !important;
+            color: #93c5fd !important;
+            box-shadow: 0 2px 10px rgba(59, 130, 246, 0.30) !important;
+        }
+
+        /* 订单流水详细列表按钮 - 优雅青翠绿宝石质感 */
+        .btn-refined-emerald {
+            background: rgba(16, 185, 129, 0.08) !important;
+            border-color: rgba(16, 185, 129, 0.25) !important;
+            color: #059669 !important;
+        }
+
+        .btn-refined-emerald:hover {
+            background: rgba(16, 185, 129, 0.16) !important;
+            border-color: rgba(16, 185, 129, 0.40) !important;
+            color: #047857 !important;
+            transform: translateY(-0.5px) !important;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.18) !important;
+        }
+
+        [data-theme="dark"] .btn-refined-emerald {
+            background: rgba(16, 185, 129, 0.14) !important;
+            border-color: rgba(52, 211, 153, 0.30) !important;
+            color: #34d399 !important;
+            box-shadow: inset 0 0.5px 0 rgba(255, 255, 255, 0.10) !important;
+        }
+
+        [data-theme="dark"] .btn-refined-emerald:hover {
+            background: rgba(16, 185, 129, 0.26) !important;
+            border-color: rgba(52, 211, 153, 0.50) !important;
+            color: #6ee7b7 !important;
+            box-shadow: 0 2px 10px rgba(16, 185, 129, 0.30) !important;
+        }
+
+        /* 极简圆角刷新图标按钮 */
+        .btn-refined-refresh {
+            width: 24px !important;
+            height: 24px !important;
+            padding: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border-radius: 9999px !important;
+            background: rgba(142, 142, 147, 0.10) !important;
+            border: 1px solid rgba(142, 142, 147, 0.20) !important;
+            color: var(--text-muted) !important;
+            cursor: pointer !important;
+            transition: all 0.22s ease !important;
+        }
+
+        .btn-refined-refresh:hover {
+            background: rgba(142, 142, 147, 0.22) !important;
+            border-color: rgba(142, 142, 147, 0.38) !important;
+            color: var(--text-main) !important;
+            transform: rotate(60deg) !important;
+        }
+
+        /* 极简无文案微型图标操作按钮 (如编辑、设置等) */
+        .btn-refined-icon-btn {
+            width: 22px !important;
+            height: 22px !important;
+            padding: 0 !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            border-radius: 6px !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            border: 1px solid transparent !important;
+            flex-shrink: 0 !important;
+        }
+
+        .btn-refined-icon-btn.btn-refined-blue {
+            background: rgba(59, 130, 246, 0.10) !important;
+            border-color: rgba(59, 130, 246, 0.25) !important;
+            color: #2563eb !important;
+        }
+
+        .btn-refined-icon-btn.btn-refined-blue:hover {
+            background: rgba(59, 130, 246, 0.22) !important;
+            border-color: rgba(59, 130, 246, 0.45) !important;
+            color: #1d4ed8 !important;
+            transform: scale(1.08) !important;
+        }
+
+        [data-theme="dark"] .btn-refined-icon-btn.btn-refined-blue {
+            background: rgba(59, 130, 246, 0.16) !important;
+            border-color: rgba(96, 165, 250, 0.30) !important;
+            color: #60a5fa !important;
+        }
+
+        [data-theme="dark"] .btn-refined-icon-btn.btn-refined-blue:hover {
+            background: rgba(59, 130, 246, 0.30) !important;
+            border-color: rgba(96, 165, 250, 0.55) !important;
+            color: #93c5fd !important;
+            transform: scale(1.08) !important;
+        }
+
+        /* 旋转箭头指示器微动效 */
+        .refined-arrow-icon {
+            width: 11px;
+            height: 11px;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: inline-block;
+            flex-shrink: 0;
+        }
+
+        .refined-arrow-icon.expanded {
+            transform: rotate(180deg);
+        }
+
+        /* ===== 🖥 租户分配弹窗：可搜索实例选择器列表 ===== */
+        .assign-instance-item {
+            padding: 7px 10px;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.18s ease;
+            margin-bottom: 4px;
+            border: 1px solid transparent;
+            background: var(--surface);
+        }
+
+        .assign-instance-item:hover {
+            background: rgba(59, 130, 246, 0.05);
+            border-color: rgba(59, 130, 246, 0.20);
+        }
+
+        .assign-instance-item.selected {
+            background: rgba(59, 130, 246, 0.10) !important;
+            border-color: #3b82f6 !important;
+            box-shadow: 0 0 0 1px #3b82f6 inset;
+        }
+
+        [data-theme="dark"] .assign-instance-item {
+            background: #152232;
+        }
+
+        [data-theme="dark"] .assign-instance-item:hover {
+            background: #1c2c40;
+            border-color: rgba(96, 165, 250, 0.30);
+        }
+
+        [data-theme="dark"] .assign-instance-item.selected {
+            background: rgba(59, 130, 246, 0.22) !important;
+            border-color: #60a5fa !important;
+            box-shadow: 0 0 0 1px #60a5fa inset;
+        }
+
+        /* 弹窗月份快捷按钮激活高亮态 */
+        .btn-apple-pill-active {
+            background: var(--primary) !important;
+            color: #ffffff !important;
+            border-color: var(--primary) !important;
+            font-weight: 700 !important;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+        }
+
+        /* 📊 统计通道模式单选药丸组 */
+        .radio-pill-item {
+            display: inline-flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            padding: 5px 12px !important;
+            border-radius: 9999px !important;
+            font-size: 11.5px !important;
+            font-weight: 500 !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            background: var(--surface) !important;
+            border: 1px solid var(--border) !important;
+            color: var(--text-muted) !important;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        }
+
+        .radio-pill-item:hover {
+            border-color: rgba(59, 130, 246, 0.4) !important;
+            color: var(--text-main) !important;
+        }
+
+        .radio-pill-item.active {
+            background: rgba(59, 130, 246, 0.12) !important;
+            border-color: #3b82f6 !important;
+            color: #2563eb !important;
+            font-weight: 600 !important;
+            box-shadow: 0 1px 3px rgba(59, 130, 246, 0.15) !important;
+        }
+
+        [data-theme="dark"] .radio-pill-item.active {
+            background: rgba(59, 130, 246, 0.22) !important;
+            border-color: #60a5fa !important;
+            color: #93c5fd !important;
+        }
+
+        .radio-pill-item.radio-pill-danger.active {
+            background: rgba(239, 68, 68, 0.12) !important;
+            border-color: #ef4444 !important;
+            color: #dc2626 !important;
+        }
+
+        [data-theme="dark"] .radio-pill-item.radio-pill-danger.active {
+            background: rgba(239, 68, 68, 0.22) !important;
+            border-color: #f87171 !important;
+            color: #fca5a5 !important;
+        }
+
+        /* 🔄 租户机器项与悬停替换按钮 */
+        .tenant-machine-row {
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 11.5px;
+            position: relative;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            border-radius: 6px;
+        }
+
+        .tenant-machine-row:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        [data-theme="dark"] .tenant-machine-row:hover {
+            background: rgba(59, 130, 246, 0.12);
+        }
+
+        .tenant-machine-row .swap-btn {
+            opacity: 0;
+            pointer-events: none;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            transform: translateX(4px);
+            font-size: 11px !important;
+            padding: 2px 8px !important;
+            height: 24px !important;
+            line-height: 1 !important;
+            cursor: pointer;
+        }
+
+        .tenant-machine-row:hover .swap-btn {
+            opacity: 1;
+            pointer-events: auto;
+            transform: translateX(0);
+        }
+
+        .tenant-swap-panel {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            margin: 6px 0 10px 0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+            animation: fadeIn 0.2s ease-in-out;
+        }
+
+        [data-theme="dark"] .tenant-swap-panel {
+            background: #111a26;
+            border-color: rgba(255, 255, 255, 0.12);
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+        }
+
+        /* ===== 🖥 租户上下自由调节分割布局与待租机器卡片 ===== */
+        .tenant-split-container {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 0;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tenant-split-top {
+            display: flex;
+            flex-direction: column;
+            min-height: 120px;
+            flex-shrink: 0;
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 10px 14px;
+            margin-bottom: 2px;
+            overflow: hidden;
+            box-sizing: border-box;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .tenant-top-toolbar {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 8px;
+            flex-shrink: 0;
+            width: 100%;
+        }
+
+        /* 1. 待租机器顶部工具栏 (两行式规整布局) */
+        .rentable-header-row {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            gap: 8px !important;
+            width: 100% !important;
+            flex-wrap: wrap !important;
+        }
+
+        .rentable-header-left {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-wrap: wrap !important;
+            flex: 1 !important;
+            min-width: 0 !important;
+        }
+
+        .rentable-header-right {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-shrink: 0 !important;
+            white-space: nowrap !important;
+        }
+
+        .rentable-count-badge {
+            background: rgba(16, 185, 129, 0.15) !important;
+            color: #10b981 !important;
+            font-size: 11px !important;
+            font-weight: 700 !important;
+            padding: 2px 7px !important;
+            border-radius: 4px !important;
+            white-space: nowrap !important;
+        }
+
+        .rentable-search-wrapper {
+            position: relative !important;
+            width: 220px !important;
+            max-width: 100% !important;
+            flex-shrink: 0 !important;
+        }
+
+        .rentable-search-wrapper input {
+            width: 100% !important;
+            height: 28px !important;
+            font-size: 12px !important;
+            padding: 0 24px 0 8px !important;
+            border-radius: 6px !important;
+            border: 1px solid var(--border) !important;
+            background: var(--surface) !important;
+            color: var(--text-main) !important;
+            outline: none !important;
+            box-sizing: border-box !important;
+            transition: border-color 0.2s ease, box-shadow 0.2s ease !important;
+        }
+
+        .rentable-search-wrapper input:focus {
+            border-color: var(--primary) !important;
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2) !important;
+        }
+
+        .rentable-search-clear-btn {
+            position: absolute !important;
+            right: 8px !important;
+            top: 50% !important;
+            transform: translateY(-50%) !important;
+            cursor: pointer !important;
+            color: var(--text-muted) !important;
+            font-size: 11px !important;
+            line-height: 1 !important;
+            user-select: none !important;
+        }
+
+        /* 2. 第二行：快捷筛选药丸栏 */
+        .rentable-filters-row {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            flex-wrap: wrap !important;
+            width: 100% !important;
+        }
+
+        .rentable-pills-wrap {
+            display: flex !important;
+            align-items: center !important;
+            gap: 6px !important;
+            flex-wrap: wrap !important;
+        }
+
+        .rentable-pills-divider {
+            width: 1px !important;
+            height: 14px !important;
+            background: var(--border) !important;
+            margin: 0 2px !important;
+        }
+
+        button.rentable-filter-pill {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            height: 22px !important;
+            min-height: 22px !important;
+            max-height: 22px !important;
+            padding: 0 9px !important;
+            border-radius: 999px !important;
+            font-size: 11px !important;
+            font-weight: 500 !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            white-space: nowrap !important;
+            transition: all 0.15s ease !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            margin: 0 !important;
+            width: auto !important;
+            line-height: 20px !important;
+            border: 1px solid var(--border) !important;
+            background: var(--surface) !important;
+            color: var(--text-muted) !important;
+        }
+
+        button.rentable-filter-pill:hover {
+            color: var(--text-main) !important;
+            border-color: var(--text-muted) !important;
+        }
+
+        button.rentable-filter-pill.is-all.active {
+            background: rgba(59, 130, 246, 0.18) !important;
+            border-color: #3b82f6 !important;
+            color: #60a5fa !important;
+            font-weight: 700 !important;
+        }
+
+        button.rentable-filter-pill.is-on-sale.active {
+            background: rgba(16, 185, 129, 0.18) !important;
+            border-color: #10b981 !important;
+            color: #34d399 !important;
+            font-weight: 700 !important;
+        }
+
+        button.rentable-filter-pill.is-off-sale.active {
+            background: rgba(245, 158, 11, 0.18) !important;
+            border-color: #f59e0b !important;
+            color: #fbbf24 !important;
+            font-weight: 700 !important;
+        }
+
+        button.rentable-filter-pill.is-region.active {
+            background: rgba(139, 92, 246, 0.18) !important;
+            border-color: #8b5cf6 !important;
+            color: #c084fc !important;
+            font-weight: 700 !important;
+        }
+
+        /* ↕️ 自由调节分隔线 */
+        .tenant-split-resizer {
+            height: 12px;
+            margin: 2px 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: row-resize;
+            user-select: none;
+            flex-shrink: 0;
+            position: relative;
+            z-index: 20;
+            transition: all 0.2s ease;
+        }
+
+        .tenant-split-resizer::before {
+            content: '';
+            position: absolute;
+            left: 12px;
+            right: 12px;
+            height: 1px;
+            background: var(--border);
+            transition: all 0.2s ease;
+        }
+
+        .tenant-split-resizer:hover::before,
+        .tenant-split-resizer.is-resizing::before {
+            background: var(--primary);
+            height: 2px;
+            box-shadow: 0 0 8px rgba(59, 130, 246, 0.5);
+        }
+
+        .resizer-handle-pill {
+            width: 54px;
+            height: 6px;
+            border-radius: 99px;
+            background: var(--border);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+        }
+
+        .tenant-split-resizer:hover .resizer-handle-pill,
+        .tenant-split-resizer.is-resizing .resizer-handle-pill {
+            background: var(--primary);
+            width: 72px;
+            height: 7px;
+            box-shadow: 0 0 12px rgba(59, 130, 246, 0.6);
+        }
+
+        .tenant-split-bottom {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            min-height: 140px;
+            overflow: hidden;
+        }
+
+        /* 🛒 可出租机器卡片网格 */
+        .rentable-machines-list {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            min-height: 0;
+            padding-right: 4px;
+        }
+
+        .rentable-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 10px;
+        }
+
+        .rentable-card {
+            background: var(--bg-color) !important;
+            border: 1px solid var(--border) !important;
+            border-radius: var(--radius-md) !important;
+            padding: 10px 12px !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: space-between !important;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            position: relative !important;
+            overflow: hidden !important; /* 关键：坚决杜绝卡片内子元素向外溢出穿透 */
+            box-sizing: border-box !important;
+        }
+
+        .rentable-card:hover {
+            border-color: rgba(59, 130, 246, 0.4) !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+        }
+
+        .rentable-card.card-on-sale {
+            border-left: 3px solid #10b981 !important;
+        }
+
+        .rentable-card.card-rented {
+            border-left: 3px solid #60a5fa !important;
+        }
+
+        .rentable-card.card-off-sale {
+            border-left: 3px solid #94a3b8 !important;
+            opacity: 0.8 !important;
+        }
+
+        .rentable-card-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+
+        .rentable-card-body {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            margin-bottom: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .rentable-card-foot {
+            display: flex !important;
+            justify-content: space-between !important;
+            align-items: center !important;
+            border-top: 1px dashed var(--border) !important;
+            padding-top: 6px !important;
+            margin-top: 4px !important;
+            gap: 6px !important;
+            flex-wrap: nowrap !important;
+            width: 100% !important;
+            box-sizing: border-box !important;
+        }
+
+        .rentable-sort-tag {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: monospace;
+            font-weight: 500;
+            flex-shrink: 0;
+        }
+
+        .rentable-card-actions {
+            display: flex !important;
+            align-items: center !important;
+            gap: 4px !important;
+            flex-wrap: nowrap !important;
+            flex-shrink: 0 !important;
+        }
+
+        /* 🔘 现代化操作微按钮 (卡片底部操作区) - 严格紧凑尺寸与高对比文字 */
+        button.rent-btn {
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 3px !important;
+            height: 24px !important;
+            min-height: 24px !important;
+            max-height: 24px !important;
+            padding: 0 8px !important;
+            border-radius: 4px !important;
+            font-size: 11px !important;
+            font-weight: 600 !important;
+            border: 1px solid var(--border) !important;
+            background: var(--surface) !important;
+            color: var(--text-main) !important;
+            cursor: pointer !important;
+            user-select: none !important;
+            transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            line-height: 22px !important;
+            white-space: nowrap !important;
+            flex-shrink: 0 !important;
+            width: auto !important;
+            margin: 0 !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            outline: none !important;
+        }
+
+        button.rent-btn:hover {
+            transform: translateY(-1px) !important;
+        }
+
+        /* ⏸ 下架按钮 (在售机器) - 亮色模式使用深暖琥珀色，暗色模式使用亮暖黄，文本与底色强对比极度清晰 */
+        button.rent-btn-toggle.is-on-sale {
+            color: #92400e !important;
+            border: 1px solid #f59e0b !important;
+            background: #fffbeb !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        button.rent-btn-toggle.is-on-sale:hover {
+            border-color: #d97706 !important;
+            background: #fef3c7 !important;
+            color: #78350f !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-toggle.is-on-sale {
+            color: #fde68a !important;
+            border: 1px solid rgba(245, 158, 11, 0.55) !important;
+            background: rgba(245, 158, 11, 0.18) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-toggle.is-on-sale:hover {
+            border-color: #f59e0b !important;
+            background: rgba(245, 158, 11, 0.3) !important;
+            color: #ffffff !important;
+        }
+
+        /* ▶ 上架按钮 (已下架机器) - 亮色模式深翡翠绿，暗色模式青翠绿，对比鲜明 */
+        button.rent-btn-toggle.is-off-sale {
+            color: #065f46 !important;
+            border: 1px solid #10b981 !important;
+            background: #ecfdf5 !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        button.rent-btn-toggle.is-off-sale:hover {
+            border-color: #059669 !important;
+            background: #d1fae5 !important;
+            color: #047857 !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-toggle.is-off-sale {
+            color: #6ee7b7 !important;
+            border: 1px solid rgba(16, 185, 129, 0.55) !important;
+            background: rgba(16, 185, 129, 0.18) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-toggle.is-off-sale:hover {
+            border-color: #10b981 !important;
+            background: rgba(16, 185, 129, 0.3) !important;
+            color: #ffffff !important;
+        }
+
+        /* ✏️ 编辑按钮 - 鲜明深蓝，高对比 */
+        button.rent-btn-edit {
+            color: #1e40af !important;
+            border: 1px solid #3b82f6 !important;
+            background: #eff6ff !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        button.rent-btn-edit:hover {
+            border-color: #2563eb !important;
+            background: #dbeafe !important;
+            color: #1d4ed8 !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-edit {
+            color: #93c5fd !important;
+            border: 1px solid rgba(59, 130, 246, 0.55) !important;
+            background: rgba(59, 130, 246, 0.18) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-edit:hover {
+            border-color: #60a5fa !important;
+            background: rgba(59, 130, 246, 0.3) !important;
+            color: #ffffff !important;
+        }
+
+        /* 🗑️ 删除按钮 - 鲜明深玫瑰红，清晰醒目 */
+        button.rent-btn-del {
+            color: #9f1239 !important;
+            border: 1px solid #f43f5e !important;
+            background: #fff1f2 !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        button.rent-btn-del:hover {
+            border-color: #e11d48 !important;
+            background: #ffe4e6 !important;
+            color: #881337 !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-del {
+            color: #fda4af !important;
+            border: 1px solid rgba(244, 63, 94, 0.55) !important;
+            background: rgba(244, 63, 94, 0.18) !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+
+        [data-theme="dark"] button.rent-btn-del:hover {
+            border-color: #fb7185 !important;
+            background: rgba(244, 63, 94, 0.3) !important;
+            color: #ffffff !important;
+        }
+
+        /* 🛒 工具栏精细按钮: 刷新 与 上架机器 */
+        .rentable-toolbar-refresh-btn {
+            height: 28px !important;
+            padding: 0 12px !important;
+            border-radius: 6px !important;
+            font-size: 12px !important;
+            font-weight: 500 !important;
+            border: 1px solid var(--border) !important;
+            background: var(--surface) !important;
+            color: var(--text-main) !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 5px !important;
+            cursor: pointer !important;
+            transition: all 0.15s ease !important;
+            white-space: nowrap !important;
+            flex-shrink: 0 !important;
+            width: auto !important;
+            margin: 0 !important;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+        }
+
+        .rentable-toolbar-refresh-btn:hover {
+            border-color: var(--primary) !important;
+            color: var(--primary) !important;
+            background: var(--bg-hover) !important;
+            transform: translateY(-0.5px) !important;
+        }
+
+        .rentable-toolbar-add-btn {
+            height: 28px !important;
+            padding: 0 14px !important;
+            border-radius: 6px !important;
+            font-size: 12px !important;
+            font-weight: 600 !important;
+            border: none !important;
+            background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important;
+            color: #ffffff !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 5px !important;
+            cursor: pointer !important;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.35) !important;
+            transition: all 0.15s ease !important;
+            white-space: nowrap !important;
+            flex-shrink: 0 !important;
+            width: auto !important;
+            margin: 0 !important;
+        }
+
+        .rentable-toolbar-add-btn:hover {
+            transform: translateY(-1px) !important;
+            background: linear-gradient(135deg, #34d399 0%, #059669 100%) !important;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.45) !important;
+        }
+
+        /* ⚡ 自动从 API 提取配置按钮 */
+        .specs-fetch-btn {
+            height: 22px;
+            padding: 0 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 500;
+            border: 1px solid rgba(59, 130, 246, 0.35);
+            background: rgba(59, 130, 246, 0.08);
+            color: #60a5fa;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.15s ease;
+        }
+
+        .specs-fetch-btn:hover:not(:disabled) {
+            background: rgba(59, 130, 246, 0.18);
+            border-color: #3b82f6;
+            color: #93c5fd;
+        }
+
+        .specs-fetch-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* 弹窗底栏按钮 */
+        .rentable-modal-cancel-btn {
+            flex: 1;
+            height: 36px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-muted);
+            font-size: 12.5px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .rentable-modal-cancel-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-main);
+        }
+
+        .rentable-modal-submit-btn {
+            flex: 1.5;
+            height: 36px;
+            border-radius: 6px;
+            border: none;
+            background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+            color: #ffffff;
+            font-size: 12.5px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: 0 2px 8px rgba(37, 99, 235, 0.35);
+            transition: all 0.15s ease;
+        }
+
+        .rentable-modal-submit-btn:hover:not(:disabled) {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.5);
+        }
+
+        .rentable-modal-submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        @keyframes rotate-spin {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+
+        .spin-icon {
+            display: inline-block;
+            animation: rotate-spin 1s linear infinite;
+        }
+
+        /* 🌍 待租机器 - 弹窗区域预设按钮网格 */
+        .region-preset-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 6px;
+            margin-bottom: 8px;
+        }
+
+        @media (max-width: 520px) {
+            .region-preset-grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+
+        .region-preset-chip {
+            height: 32px;
+            padding: 0 4px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-main);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 4px;
+            font-size: 11.5px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+            box-sizing: border-box;
+            white-space: nowrap;
+        }
+
+        .region-preset-chip:hover {
+            border-color: rgba(16, 185, 129, 0.5);
+            background: rgba(16, 185, 129, 0.06);
+            color: #10b981;
+            transform: translateY(-1px);
+        }
+
+        .region-preset-chip.active {
+            border-color: #10b981;
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            font-weight: 600;
+            box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.25), 0 2px 6px rgba(16, 185, 129, 0.15);
+        }
+
+        .region-preset-chip .region-flag {
+            font-size: 13.5px;
+            line-height: 1;
+        }
+
+        .region-preset-chip .region-name {
+            letter-spacing: 0.2px;
+        }
+
+        .region-preset-chip .region-check {
+            font-size: 10px;
+            font-weight: 700;
+            color: #10b981;
+            margin-left: 1px;
+        }
+
+        /* 💰 价格预设按钮 */
+        .price-preset-group {
+            display: flex;
+            gap: 5px;
+        }
+
+        .price-preset-chip {
+            flex: 1;
+            height: 26px;
+            padding: 0;
+            border-radius: 5px;
+            border: 1px solid var(--border);
+            background: var(--surface);
+            color: var(--text-muted);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.15s ease;
+            user-select: none;
+            box-sizing: border-box;
+        }
+
+        .price-preset-chip:hover {
+            border-color: rgba(16, 185, 129, 0.5);
+            color: #10b981;
+        }
+
+        .price-preset-chip.active {
+            border-color: #10b981;
+            background: rgba(16, 185, 129, 0.15);
+            color: #10b981;
+            font-weight: 700;
+        }
+
+        /* 🛒 工具栏状态/区域过滤药丸按钮 */
+        .rentable-filter-group {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
+            background: var(--bg-color);
+            padding: 2px 3px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+
+        [data-theme="dark"] .rentable-filter-group {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        .rentable-filter-pill {
+            height: 24px !important;
+            padding: 0 9px !important;
+            border-radius: 4px !important;
+            border: 1px solid transparent !important;
+            background: transparent !important;
+            color: var(--text-muted) !important;
+            font-size: 11.5px !important;
+            font-weight: 500 !important;
+            cursor: pointer !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            gap: 4px !important;
+            transition: all 0.15s ease !important;
+            user-select: none !important;
+            white-space: nowrap !important;
+            width: auto !important;
+            box-shadow: none !important;
+            margin: 0 !important;
+        }
+
+        .rentable-filter-pill:hover {
+            color: var(--text-main) !important;
+            background: var(--surface) !important;
+        }
+
+        /* 全部: 激活时深石板灰，纯白文字，最高对比 */
+        .rentable-filter-pill.is-all.active,
+        .rentable-filter-pill.active {
+            background: #334155 !important;
+            border-color: #1e293b !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12) !important;
+        }
+
+        [data-theme="dark"] .rentable-filter-pill.is-all.active,
+        [data-theme="dark"] .rentable-filter-pill.active {
+            background: #475569 !important;
+            border-color: #64748b !important;
+            color: #ffffff !important;
+        }
+
+        /* 在售: 激活时翡翠绿背景，纯白文字，鲜明突出 */
+        .rentable-filter-pill.is-on-sale.active {
+            border-color: #059669 !important;
+            background: #10b981 !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            box-shadow: 0 2px 6px rgba(16, 185, 129, 0.3) !important;
+        }
+
+        [data-theme="dark"] .rentable-filter-pill.is-on-sale.active {
+            border-color: #10b981 !important;
+            background: #059669 !important;
+            color: #ffffff !important;
+        }
+
+        /* 已下架: 激活时暖琥珀橙背景，纯白文字，绝不模糊 */
+        .rentable-filter-pill.is-off-sale.active {
+            border-color: #d97706 !important;
+            background: #f59e0b !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            box-shadow: 0 2px 6px rgba(245, 158, 11, 0.3) !important;
+        }
+
+        [data-theme="dark"] .rentable-filter-pill.is-off-sale.active {
+            border-color: #f59e0b !important;
+            background: #d97706 !important;
+            color: #ffffff !important;
+        }
+
+        /* 区域药丸 */
+        .rentable-filter-pill.is-region.active {
+            border-color: #2563eb !important;
+            background: #3b82f6 !important;
+            color: #ffffff !important;
+            font-weight: 700 !important;
+            box-shadow: 0 2px 6px rgba(59, 130, 246, 0.3) !important;
+        }
+
+        /* ============================================================
+           🌍 区域扩展与多区域订阅组件样式 (Region Expansion & Subscription)
+           ============================================================ */
+        .btn-region-expand-tag {
+            background: rgba(16, 185, 129, 0.12);
+            color: var(--primary);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            border-radius: 99px;
+            padding: 3px 10px;
+            font-size: 11.5px;
+            font-weight: 600;
+            cursor: pointer;
+            width: auto;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            transition: all 0.2s ease;
+        }
+
+        .btn-region-expand-tag:hover {
+            background: var(--primary);
+            color: #ffffff;
+            border-color: var(--primary);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .region-select-container {
+            position: relative;
+            width: 100%;
+            margin-bottom: 4px;
+            user-select: none;
+        }
+
+        .region-select-trigger {
+            background-color: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            padding: 10px 14px;
+            font-size: 14px;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .region-select-trigger:hover {
+            border-color: var(--primary);
+        }
+
+        .region-select-trigger.is-open {
+            border-color: var(--primary);
+            box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.15);
+        }
+
+        .region-trigger-content {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .region-trigger-label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+        }
+
+        .region-trigger-arrow {
+            font-size: 10px;
+            color: var(--text-muted);
+            transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+            margin-left: 8px;
+        }
+
+        .region-trigger-arrow.rotated {
+            transform: rotate(180deg);
+            color: var(--primary);
+        }
+
+        .region-dropdown-menu {
+            position: absolute;
+            top: calc(100% + 6px);
+            left: 0;
+            right: 0;
+            z-index: 999;
+            background: #ffffff;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-md);
+            box-shadow: 0 14px 34px -4px rgba(0, 0, 0, 0.22), 0 6px 16px -2px rgba(0, 0, 0, 0.10);
+            max-height: 310px;
+            overflow-y: auto;
+            animation: regionMenuFadeIn 0.18s ease-out;
+        }
+
+        [data-theme="dark"] .region-dropdown-menu {
+            background: #0d1b27;
+            border-color: rgba(16, 185, 129, 0.28);
+            box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.75), 0 6px 16px -2px rgba(0, 0, 0, 0.5);
+        }
+
+        @keyframes regionMenuFadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-6px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .region-dropdown-item {
+            padding: 10px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            font-size: 13.5px;
+            color: var(--text-main);
+            transition: background 0.15s ease, color 0.15s ease;
+        }
+
+        .region-dropdown-item:hover {
+            background: rgba(16, 185, 129, 0.08);
+            color: var(--primary);
+        }
+
+        .region-dropdown-item.selected {
+            background: rgba(16, 185, 129, 0.14);
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        [data-theme="dark"] .region-dropdown-item {
+            color: #f2fbf7;
+        }
+
+        [data-theme="dark"] .region-dropdown-item:hover {
+            background: rgba(16, 185, 129, 0.18);
+            color: #34d399;
+        }
+
+        [data-theme="dark"] .region-dropdown-item.selected {
+            background: rgba(16, 185, 129, 0.25);
+            color: #34d399;
+        }
+
+        .region-check-mark {
+            color: var(--primary);
+            font-weight: bold;
+            font-size: 13px;
+        }
+
+        .region-dropdown-divider {
+            height: 1px;
+            background: var(--border);
+            margin: 4px 0;
+        }
+
+        /* 🎯 点击下拉菜单后区域下方新增一栏加号 点击订阅新的区域 */
+        .region-dropdown-add-row {
+            padding: 11px 14px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: linear-gradient(90deg, rgba(16, 185, 129, 0.12), rgba(59, 130, 246, 0.08));
+            border-top: 1px dashed rgba(16, 185, 129, 0.35);
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .region-dropdown-add-row:hover {
+            background: linear-gradient(90deg, rgba(16, 185, 129, 0.22), rgba(59, 130, 246, 0.16));
+            transform: translateY(-1px);
+        }
+
+        .action-plus-badge {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            background: var(--primary);
+            color: #ffffff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 800;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.45);
+            flex-shrink: 0;
+        }
+
+        .action-text-wrapper {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .action-title {
+            font-weight: 700;
+            font-size: 13.5px;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .action-sub {
+            font-size: 11px;
+            color: var(--text-muted);
+        }
+
+        /* 弹窗中的区域列表卡片与标签 */
+        .btn-apple-tab {
+            background: var(--input-bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            color: var(--text-muted);
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .btn-apple-tab:hover {
+            color: var(--text-main);
+            border-color: var(--text-muted);
+        }
+
+        .btn-apple-tab.active {
+            background: var(--primary);
+            border-color: var(--primary);
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .subscribe-region-card {
+            padding: 10px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            background: var(--bg-card);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            cursor: pointer;
+            transition: all 0.18s ease;
+        }
+
+        .subscribe-region-card:hover:not(.is-subscribed) {
+            border-color: var(--primary);
+            background: rgba(16, 185, 129, 0.05);
+            transform: translateX(2px);
+        }
+
+        .subscribe-region-card.selected {
+            border-color: var(--primary);
+            background: rgba(16, 185, 129, 0.14);
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.25);
+        }
+
+        .subscribe-region-card.is-subscribed {
+            opacity: 0.6;
+            cursor: not-allowed;
+            background: var(--panel-dashed-bg);
+            border-style: dashed;
+        }
+
+        .region-pill-home {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 99px;
+            background: rgba(16, 185, 129, 0.2);
+            color: #10b981;
+            font-weight: 700;
+        }
+
+        .region-pill-subscribed {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 99px;
+            background: rgba(100, 116, 139, 0.2);
+            color: var(--text-muted);
+            font-weight: 500;
+        }
+
+        .region-pill-selected {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 99px;
+            background: var(--primary);
+            color: #ffffff;
+            font-weight: 700;
+            box-shadow: 0 2px 6px rgba(16, 185, 129, 0.35);
+        }
+
+        .region-pill-action {
+            font-size: 11px;
+            padding: 3px 8px;
+            border-radius: 99px;
+            background: rgba(59, 130, 246, 0.15);
+            color: #3b82f6;
+            font-weight: 600;
+        }
+
+
