@@ -4,7 +4,7 @@ import {
     isInitializing, tgBotRunning, isDarkTheme, sessionToken, currentTab, isEditing,
     globalInstances, trafficData, tasksData, bootVolumes, globalAccounts, accountDetails,
     accountSortMode, accountTagFilter, sortedAccountDetails, trafficSortMode, trafficFilterMode,
-    loginCode, isSendingCode, isLoggingIn, isPasskeyLoggingIn, cooldown,
+    loginUsername, loginCode, isSendingCode, isLoggingIn, isPasskeyLoggingIn, cooldown,
     networkAccount, manageAccountSelect, deleteAccountSelect,
     deleteAccountList, createAccountList, manageAccountList,
     quotaTemplate, isLoadingTemplate, isSavingTemplate, isSyncing, isSyncingAccounts, isTrafficLoading, trafficSyncing,
@@ -88,10 +88,18 @@ const app = createApp({
         // 👤 登录、退出与验证码
         // ==========================================
         async function login() {
-            if (!loginCode.value) return showMessage(loginMsg, '请输入验证码', false);
+            if (!loginCode.value) return showMessage(loginMsg, '请输入管理员密码或动态码', false);
             isLoggingIn.value = true;
-            const data = await apiCall('login', { code: loginCode.value }, loginMsg);
+            const payload = {
+                username: loginUsername.value ? loginUsername.value.trim() : '',
+                password: loginCode.value,
+                code: loginCode.value
+            };
+            const data = await apiCall('login', payload, loginMsg);
             if (data.success) {
+                if (loginUsername.value) {
+                    localStorage.setItem('oci_admin_username', loginUsername.value.trim());
+                }
                 sessionToken.value = data.token;
                 localStorage.setItem('oci_session_token', data.token);
                 await checkSession();
@@ -1327,7 +1335,7 @@ const app = createApp({
             isInitializing, tgBotRunning, isDarkTheme, sessionToken, currentTab, isEditing,
             globalInstances, trafficData, tasksData, bootVolumes, globalAccounts, accountDetails,
             accountSortMode, accountTagFilter, sortedAccountDetails, trafficSortMode, trafficFilterMode, sortedTrafficData, trafficStats, isUpgradedAccount,
-            loginCode, isSendingCode, isLoggingIn, isPasskeyLoggingIn, cooldown,
+            loginUsername, loginCode, isSendingCode, isLoggingIn, isPasskeyLoggingIn, cooldown,
             networkAccount, manageAccountSelect, deleteAccountSelect, deleteAccountList, createAccountList, manageAccountList,
             quotaTemplate, isLoadingTemplate, isSavingTemplate, isSyncing, isSyncingAccounts, isTrafficLoading, trafficSyncing,
             isSavingLimit, isFetchingImages, isCreating, isFetchingBV, isFixingRoute,

@@ -162,7 +162,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
     }
 
     public static String generateRandomPassword(int length) {
-        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*";
+        String chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()_=+";
         SecureRandom random = new SecureRandom();
         StringBuilder sb = new StringBuilder(length);
         for (int i = 0; i < length; i++) {
@@ -660,7 +660,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
                 Map<String, String> info = instances.get(ocid);
                 String accName = info != null ? info.get("account") : null;
-                String randomPwd = generateRandomPassword(16);
+                String randomPwd = generateRandomPassword(32);
                 String[] osParts = imgVal.split("\\|", 2);
                 String osName = osParts[0];
                 String osVersion = osParts.length > 1 ? osParts[1] : "";

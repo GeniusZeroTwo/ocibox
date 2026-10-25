@@ -61,6 +61,7 @@ if [[ ! -f "${EXISTING_CONFIG}" && -f "/root/oci-personal/application.yml" ]]; t
     EXISTING_CONFIG="/root/oci-personal/application.yml"
 fi
 EXISTING_PORT=""
+EXISTING_ADMIN_USER=""
 EXISTING_ADMIN_PWD=""
 EXISTING_BOT_TOKEN=""
 EXISTING_ADMIN_ID=""
@@ -70,6 +71,7 @@ EXISTING_BACKUP_PWD=""
 
 if [[ -f "${EXISTING_CONFIG}" ]]; then
     EXISTING_PORT=$(get_yaml_val "port" "${EXISTING_CONFIG}")
+    EXISTING_ADMIN_USER=$(get_yaml_val "admin-username" "${EXISTING_CONFIG}")
     EXISTING_ADMIN_PWD=$(get_yaml_val "admin-password" "${EXISTING_CONFIG}")
     EXISTING_BOT_TOKEN=$(get_yaml_val "bot-token" "${EXISTING_CONFIG}")
     EXISTING_ADMIN_ID=$(get_yaml_val "admin-id" "${EXISTING_CONFIG}")
@@ -88,13 +90,23 @@ else
     PORT="${INPUT_PORT:-5000}"
 fi
 
-# 管理员密码配置
+# 管理员账户名配置
+if is_configured "${EXISTING_ADMIN_USER}"; then
+    read -rp "👉 请输入管理员账户名 [检测到原配置: ${EXISTING_ADMIN_USER}, 回车直接沿用]: " INPUT_USER
+    ADMIN_USER="${INPUT_USER:-${EXISTING_ADMIN_USER}}"
+else
+    read -rp "👉 请输入管理员账户名 [默认: admin]: " INPUT_USER
+    ADMIN_USER="${INPUT_USER:-admin}"
+fi
+
+# 管理员密码配置 (自动生成32位带符号高强度密码)
 if is_configured "${EXISTING_ADMIN_PWD}"; then
     read -rp "👉 请设置管理员登录密码 [检测到已有密码, 回车保留原密码不修改]: " INPUT_PWD
     ADMIN_PWD="${INPUT_PWD:-${EXISTING_ADMIN_PWD}}"
 else
-    DEFAULT_PWD=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16 2>/dev/null || echo "OCIBox998")
-    read -rp "👉 请设置管理员登录密码 [回车自动生成: ${DEFAULT_PWD}]: " INPUT_PWD
+    DEFAULT_PWD=$(LC_ALL=C tr -dc 'A-Za-z0-9@#$%&*!_=+' < /dev/urandom 2>/dev/null | head -c 32)
+    [[ -z "${DEFAULT_PWD}" || ${#DEFAULT_PWD} -lt 32 ]] && DEFAULT_PWD=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9@#$%&*!_=+' | head -c 32)
+    read -rp "👉 请设置管理员登录密码 [回车自动生成32位带符号密码: ${DEFAULT_PWD}]: " INPUT_PWD
     ADMIN_PWD="${INPUT_PWD:-${DEFAULT_PWD}}"
 fi
 
@@ -247,6 +259,7 @@ spring:
         size: 2
 
 app:
+  admin-username: "${ADMIN_USER}"
   admin-password: "${ADMIN_PWD}"
   bot-token: "${BOT_TOKEN}"
   admin-id: "${ADMIN_ID}"
@@ -415,7 +428,8 @@ ocibox_info() {
         echo -e "${RED}未找到配置文件: $conf${PLAIN}"
         return
     fi
-    local port=$(grep -E '^[[:space:]]*port:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    local user=$(grep -E '^[[:space:]]*admin-username:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-username:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    [[ -z "$user" ]] && user="admin"
     local pwd=$(grep -E '^[[:space:]]*admin-password:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-password:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local bot=$(grep -E '^[[:space:]]*bot-token:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*bot-token:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local admin_id=$(grep -E '^[[:space:]]*admin-id:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-id:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
@@ -423,6 +437,7 @@ ocibox_info() {
 
     echo -e "\n${GREEN}================== [ OCIBox 面板信息 ] ==================${PLAIN}"
     echo -e "🌐 面板后台地址 : ${GREEN}http://${ip}:${port}${PLAIN}"
+    echo -e "👤 管理员账号   : ${GREEN}${user}${PLAIN}"
     echo -e "🔑 管理员密码   : ${YELLOW}${pwd}${PLAIN}"
     if [[ -n "$bot" && "$bot" != '""' && -n "$admin_id" ]]; then
         echo -e "🤖 Telegram推送 : ${GREEN}已配置 (Admin ID: ${admin_id})${PLAIN}"
@@ -462,6 +477,7 @@ echo -e "\n${GREEN}=============================================================
 echo -e "${GREEN}             🎉 OCIBox 个人专属管理面板 部署成功！${PLAIN}"
 echo -e "${GREEN}================================================================${PLAIN}"
 echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${SERVER_IP}:${PORT}${PLAIN}"
+echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${ADMIN_USER}${PLAIN}"
 echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}${ADMIN_PWD}${PLAIN}"
 echo -e "🤖 ${CYAN}Telegram 状态${PLAIN}: ${TG_STATUS}"
 echo -e "📂 ${CYAN}数据持久目录${PLAIN} : ${INSTALL_DIR}/data/"

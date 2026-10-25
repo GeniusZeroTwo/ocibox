@@ -55,6 +55,7 @@ watch(trafficFilterMode, (newVal) => {
 });
 
 // 登录与验证码
+export const loginUsername = ref(localStorage.getItem('oci_admin_username') || 'admin');
 export const loginCode = ref('');
 export const isSendingCode = ref(false);
 export const isLoggingIn = ref(false);

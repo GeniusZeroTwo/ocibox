@@ -28,7 +28,12 @@ public class AdminAuthController {
 
     @PostMapping("/login")
     public Map<String, Object> login(@RequestBody Map<String, String> payload, HttpServletRequest request) {
-        return adminAuthService.login(payload.get("code"), ClientIpResolver.resolve(request));
+        String username = payload != null ? payload.get("username") : null;
+        String password = payload != null ? payload.get("password") : null;
+        if (password == null && payload != null) {
+            password = payload.get("code");
+        }
+        return adminAuthService.login(username, password, ClientIpResolver.resolve(request));
     }
 
     @PostMapping("/logout")

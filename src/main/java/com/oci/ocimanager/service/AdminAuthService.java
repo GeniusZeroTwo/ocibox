@@ -24,6 +24,9 @@ public class AdminAuthService {
     @Autowired private LocalCacheService redisTemplate;
     @Autowired private SystemConfigRepository systemConfigRepo;
 
+    @Value("${app.admin-username:admin}")
+    private String adminUsername;
+
     @Value("${app.admin-password:}")
     private String adminPassword;
 
@@ -68,6 +71,10 @@ public class AdminAuthService {
     }
 
     public Map<String, Object> login(String code, String clientIp) {
+        return login(null, code, clientIp);
+    }
+
+    public Map<String, Object> login(String username, String code, String clientIp) {
         String ip = normalizeIp(clientIp);
         if (isLocked(ip)) {
             return Map.of("success", false, "error", "错误次数过多，请 " + lockSecondsLeft(ip) + " 秒后重试");
@@ -82,19 +89,32 @@ public class AdminAuthService {
                         presented.getBytes(StandardCharsets.UTF_8),
                         current.getBytes(StandardCharsets.UTF_8));
 
-        boolean passwordValid = false;
-        if (adminPassword != null && !adminPassword.isBlank()) {
-            passwordValid = MessageDigest.isEqual(
-                    presented.getBytes(StandardCharsets.UTF_8),
-                    adminPassword.trim().getBytes(StandardCharsets.UTF_8));
+        // 校验管理员账户名
+        String configuredUser = (adminUsername != null && !adminUsername.isBlank()) ? adminUsername.trim() : "admin";
+        if (systemConfigRepo != null) {
+            var optUser = systemConfigRepo.findById("ADMIN_WEB_USERNAME");
+            if (optUser.isPresent() && optUser.get().getConfigValue() != null && !optUser.get().getConfigValue().isBlank()) {
+                configuredUser = optUser.get().getConfigValue().trim();
+            }
         }
-        if (!passwordValid && systemConfigRepo != null) {
-            var opt = systemConfigRepo.findById("ADMIN_WEB_PASSWORD");
-            if (opt.isPresent() && opt.get().getConfigValue() != null && !opt.get().getConfigValue().isBlank()) {
-                String dbPwd = opt.get().getConfigValue().trim();
+        boolean usernameValid = (username == null || username.isBlank())
+                || MessageDigest.isEqual(username.trim().getBytes(StandardCharsets.UTF_8), configuredUser.getBytes(StandardCharsets.UTF_8));
+
+        boolean passwordValid = false;
+        if (usernameValid) {
+            if (adminPassword != null && !adminPassword.isBlank()) {
                 passwordValid = MessageDigest.isEqual(
                         presented.getBytes(StandardCharsets.UTF_8),
-                        dbPwd.getBytes(StandardCharsets.UTF_8));
+                        adminPassword.trim().getBytes(StandardCharsets.UTF_8));
+            }
+            if (!passwordValid && systemConfigRepo != null) {
+                var opt = systemConfigRepo.findById("ADMIN_WEB_PASSWORD");
+                if (opt.isPresent() && opt.get().getConfigValue() != null && !opt.get().getConfigValue().isBlank()) {
+                    String dbPwd = opt.get().getConfigValue().trim();
+                    passwordValid = MessageDigest.isEqual(
+                            presented.getBytes(StandardCharsets.UTF_8),
+                            dbPwd.getBytes(StandardCharsets.UTF_8));
+                }
             }
         }
 
@@ -123,7 +143,7 @@ public class AdminAuthService {
             redisTemplate.delete(codeKey(ip));
             return Map.of("success", false, "error", "错误次数过多，该来源已锁定 15 分钟");
         }
-        return Map.of("success", false, "error", "密码或动态码错误，请重新输入");
+        return Map.of("success", false, "error", "账户名、密码或动态码错误，请重新输入");
     }
 
     public boolean isClientIpLocked(String clientIp) {

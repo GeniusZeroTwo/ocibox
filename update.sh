@@ -185,6 +185,8 @@ ocibox_info() {
         echo -e "${RED}未找到配置文件: $conf${PLAIN}"
         return
     fi
+    local user=$(grep -E '^[[:space:]]*admin-username:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-username:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    [[ -z "$user" ]] && user="admin"
     local port=$(grep -E '^[[:space:]]*port:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local pwd=$(grep -E '^[[:space:]]*admin-password:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-password:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local bot=$(grep -E '^[[:space:]]*bot-token:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*bot-token:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
@@ -193,6 +195,7 @@ ocibox_info() {
 
     echo -e "\n${GREEN}================== [ OCIBox 面板信息 ] ==================${PLAIN}"
     echo -e "🌐 面板后台地址 : ${GREEN}http://${ip}:${port}${PLAIN}"
+    echo -e "👤 管理员账号   : ${GREEN}${user}${PLAIN}"
     echo -e "🔑 管理员密码   : ${YELLOW}${pwd}${PLAIN}"
     if [[ -n "$bot" && "$bot" != '""' && -n "$admin_id" ]]; then
         echo -e "🤖 Telegram推送 : ${GREEN}已配置 (Admin ID: ${admin_id})${PLAIN}"

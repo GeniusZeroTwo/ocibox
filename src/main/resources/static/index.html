@@ -560,6 +560,26 @@
                     <span>{{ cooldown > 0 ? `${cooldown} 秒后重试` : (isSendingCode ? '发送中...' : '获取 TG 动态码') }}</span>
                 </button>
                 <div data-lpignore="true" data-1p-ignore="true" data-bwignore="true" style="margin: 0; width: 100%;">
+                    <!-- 管理员账户名 -->
+                    <div class="group login-code-group" style="margin-bottom: 14px;">
+                        <label class="login-label" for="adminUsername">
+                            <span>管理员账户名</span>
+                        </label>
+                        <div class="login-input-wrap">
+                            <span class="login-input-icon">👤</span>
+                            <input type="text"
+                                id="adminUsername"
+                                name="admin_username"
+                                autocomplete="username"
+                                spellcheck="false"
+                                v-model="loginUsername"
+                                class="login-code-input"
+                                placeholder="输入管理员账户名 (默认 admin)"
+                                @keypress.enter="login">
+                        </div>
+                    </div>
+
+                    <!-- 管理员密码 / 动态码 -->
                     <div class="group login-code-group">
                         <label class="login-label" for="adminDynamicToken">
                             <span>管理员密码 / 动态码</span>

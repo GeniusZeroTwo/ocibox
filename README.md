@@ -38,8 +38,9 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.
 
 > **脚本交互过程示例：**
 > 1. `请输入管理后台服务端口 [默认: 5000]:` （直接回车使用 5000，或输入自定义端口如 8080）
-> 2. `请设置管理员登录密码 [回车自动生成随机强密码]:` （输入您想使用的后台登录密码）
-> 3. `是否需要绑定您的 Telegram 运维机器人？(y/N, 默认 N):`
+> 2. `请输入管理员账户名 [默认: admin]:` （输入您想使用的后台管理员账号名，回车默认 admin）
+> 3. `请设置管理员登录密码 [回车自动生成32位带符号密码]:` （直接回车将随机生成32位高强度带符号复杂密码）
+> 4. `是否需要绑定您的 Telegram 运维机器人？(y/N, 默认 N):`
 >    - 若输入 `y`：进一步输入从 `@BotFather` 获取的 Bot Token 与个人 Telegram ID。
 >    - 若输入 `N`：直接跳过 Telegram 绑定，纯网页后台模式运行。
 
@@ -50,7 +51,8 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.
              🎉 OCIBox 个人专属管理面板 部署成功！
 ================================================================
 🌐 管理后台地址 : http://123.45.67.89:5000
-🔑 管理登录密码 : YourAdminPassword123
+👤 管理登录账号 : admin
+🔑 管理登录密码 : xK9#mQ!2$vLp&8*rT_5+wE=1oY0zAn7B
 🤖 Telegram 状态: 已绑定 (Admin ID: 123456789)
 📂 数据持久目录 : /root/ocibox/data/
 🔑 密钥保存目录 : /root/ocibox/keys/
@@ -106,7 +108,8 @@ spring:
       enabled: true
 
 app:
-  admin-password: "设置您的管理员密码"
+  admin-username: "admin"
+  admin-password: "设置您的32位高强密码"
   bot-token: "可选：您的TG_BOT_TOKEN"
   admin-id: "可选：您的TG_CHAT_ID"
 ```

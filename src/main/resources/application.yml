@@ -69,6 +69,8 @@ spring:
  
 # 核心系统配置
 app:
+  admin-username: "${ADMIN_USERNAME:admin}"
+  admin-password: "${ADMIN_PASSWORD:}"
   bot-token: "${BOT_TOKEN:}"
   admin-id: "${ADMIN_ID:}"
   github-token: "${GITHUB_TOKEN:}"
