@@ -40,42 +40,9 @@ const app = createApp({
             isEditing.value = status;
         }
 
-        // ==========================================
-        // 🔑 权限勾选本地状态与用户配置
-        // ==========================================
-        function initLocalPermState() {
-            const userPerms = globalPerms.value[targetTgId.value]?.ocids || {};
-
-            if (Object.keys(localPermState.value).length === 0) {
-                const newLocal = {};
-                for (const ocid of Object.keys(globalInstances.value)) {
-                    newLocal[ocid] = { selected: Object.prototype.hasOwnProperty.call(userPerms, ocid), dateVal: userPerms[ocid] || '' };
-                }
-                localPermState.value = newLocal;
-                return;
-            }
-
-            for (const ocid of Object.keys(globalInstances.value)) {
-                const isSelected = Object.prototype.hasOwnProperty.call(userPerms, ocid);
-                const dateVal = userPerms[ocid] || '';
-
-                if (localPermState.value[ocid]) {
-                    if (localPermState.value[ocid].selected !== isSelected) {
-                        localPermState.value[ocid].selected = isSelected;
-                    }
-                    if (localPermState.value[ocid].dateVal !== dateVal) {
-                        localPermState.value[ocid].dateVal = dateVal;
-                    }
-                } else {
-                    localPermState.value[ocid] = { selected: isSelected, dateVal: dateVal };
-                }
-            }
-        }
-
         function applyServerData(data) {
             tgBotRunning.value = !!data.tgBotRunning;
             globalInstances.value = data.instances || {};
-            globalPerms.value = data.permissions || {};
             globalAccounts.value = data.accounts || [];
             accountDetails.value = formatAccountDetails(data.accountDetails, globalInstances.value);
 
@@ -94,27 +61,27 @@ const app = createApp({
                     createForm.account = '';
                 }
             }
-            if (targetTgId.value) {
-                const user = globalPerms.value[targetTgId.value];
-                currentUserMaxChanges.value = user ? user.max_changes : 0;
-            }
-            // 纯个人版无租户/客户授权
             ensureChangingInstanceWatcher();
         }
 
         async function checkSession() {
-            if (sessionToken.value) {
-                const data = await apiCall('data');
-                if (data.success) {
-                    applyServerData(data);
-                    loadTraffic(false);
-                    startGlobalPolling();
-                } else if (!data.networkError) {
-                    // 🐞 仅在真正的鉴权失败时登出；网络抖动/瞬时错误不清除会话，避免误踢下线。
-                    logout();
+            try {
+                if (sessionToken.value) {
+                    const data = await apiCall('data');
+                    if (data.success) {
+                        applyServerData(data);
+                        loadTraffic(false);
+                        startGlobalPolling();
+                    } else if (!data.networkError) {
+                        // 🐞 仅在真正的鉴权失败时登出；网络抖动/瞬时错误不清除会话，避免误踢下线。
+                        logout();
+                    }
                 }
+            } catch (err) {
+                console.error('恢复会话异常:', err);
+            } finally {
+                isInitializing.value = false;
             }
-            isInitializing.value = false;
         }
 
         // ==========================================
@@ -388,12 +355,6 @@ const app = createApp({
                 ensureBootVolumeWatcher();
             }
             if (tab === 'create') fetchTasks();
-            if (tab === 'tenant') {
-                fetchTenants();
-                fetchAlipayConfig();
-                fetchTenantOrders();
-                fetchRentableMachines();
-            }
         }
 
 
@@ -401,137 +362,6 @@ const app = createApp({
             isDarkTheme.value = !isDarkTheme.value;
             document.documentElement.setAttribute('data-theme', isDarkTheme.value ? 'dark' : 'light');
             localStorage.setItem('oci-theme', isDarkTheme.value ? 'dark' : 'light');
-        }
-
-        // ==========================================
-        // 🛠️ 客户与换IP额度/权限管理
-        // ==========================================
-        function applyManualTgId() {
-            if (targetTgIdInput.value) {
-                targetTgId.value = targetTgIdInput.value;
-                loadUserPerms();
-            }
-        }
-
-        function loadUserPerms() {
-            const user = globalPerms.value[targetTgId.value];
-            if (user) showMessage(sysMsg, `已加载客户 ${targetTgId.value} 的配置`, true);
-            else showMessage(sysMsg, '新客户，请配置后保存', true);
-            currentUserMaxChanges.value = user ? user.max_changes : 0;
-            currentUserQuotaMode.value = (user && user.quota_mode !== undefined) ? user.quota_mode : 0;
-            // 纯个人版无租户/客户授权
-        }
-
-        function addTimes(amount) {
-            currentUserMaxChanges.value = Math.max(currentUserMaxChanges.value + amount, 0);
-        }
-
-        function addCustomTimes() {
-            if (customAddAmount.value) addTimes(customAddAmount.value);
-            customAddAmount.value = null;
-        }
-
-        async function saveIpLimitOnly() {
-            if (!targetTgId.value) return showMessage(sysMsg, '错误：未选择客户', false);
-            isSavingLimit.value = true;
-            const ocids = globalPerms.value[targetTgId.value]?.ocids || {};
-            const data = await apiCall('save', {
-                tg_id: targetTgId.value,
-                ocids: ocids,
-                max_changes: currentUserMaxChanges.value,
-                quota_mode: currentUserQuotaMode.value
-            }, sysMsg);
-            if (data.success) {
-                if (!globalPerms.value[targetTgId.value]) globalPerms.value[targetTgId.value] = { ocids: {}, used_changes: 0 };
-                globalPerms.value[targetTgId.value].max_changes = currentUserMaxChanges.value;
-                globalPerms.value[targetTgId.value].quota_mode = currentUserQuotaMode.value;
-                globalPerms.value[targetTgId.value].is_manual = 1;
-                showMessage(sysMsg, '✅ 换IP额度与模式配置保存成功！已加入目标客户列表', true);
-            }
-            isSavingLimit.value = false;
-        }
-
-        async function savePermissions() {
-            if (!targetTgId.value) return showMessage(sysMsg, '错误：未选择客户', false);
-            isSavingPerms.value = true;
-            const selectedOcids = {};
-            const existingOcids = globalPerms.value[targetTgId.value]?.ocids || {};
-            for (const [ocid, exp] of Object.entries(existingOcids)) {
-                if (!Object.prototype.hasOwnProperty.call(globalInstances.value, ocid)) {
-                    selectedOcids[ocid] = exp || '';
-                }
-            }
-            for (const [ocid, state] of Object.entries(localPermState.value)) {
-                if (state.selected) selectedOcids[ocid] = state.dateVal || '';
-            }
-
-            const data = await apiCall('save', {
-                tg_id: targetTgId.value,
-                ocids: selectedOcids,
-                max_changes: currentUserMaxChanges.value,
-                quota_mode: currentUserQuotaMode.value
-            }, sysMsg);
-            if (data.success) {
-                if (!globalPerms.value[targetTgId.value]) globalPerms.value[targetTgId.value] = { used_changes: 0 };
-                globalPerms.value[targetTgId.value].ocids = selectedOcids;
-                globalPerms.value[targetTgId.value].max_changes = currentUserMaxChanges.value;
-                globalPerms.value[targetTgId.value].quota_mode = currentUserQuotaMode.value;
-                globalPerms.value[targetTgId.value].is_manual = 1;
-                showMessage(sysMsg, '✅ 客户全部配置保存成功！已加入目标客户列表', true);
-            }
-            isSavingPerms.value = false;
-        }
-
-        function resetUsedChanges() {
-            if (!targetTgId.value) return showMessage(sysMsg, '错误：未选择客户', false);
-            openConfirmModal(
-                "清零已用次数",
-                `🧹 确定要清零客户 <strong>[${esc(targetTgId.value)}]</strong> 的换 IP 已用次数吗？<br>重置后该客户的已更换次数将恢复为 0 次。`,
-                "确认清零",
-                true,
-                async () => {
-                    isResettingUsed.value = true;
-                    const data = await apiCall('reset-used-changes', { tg_id: targetTgId.value }, sysMsg);
-                    if (data.success) {
-                        if (globalPerms.value[targetTgId.value]) {
-                            globalPerms.value[targetTgId.value].used_changes = 0;
-                        }
-                        showMessage(sysMsg, '✅ 已用次数已成功清零！', true);
-                    }
-                    isResettingUsed.value = false;
-                }
-            );
-        }
-
-        function disablePermission() {
-            currentUserQuotaMode.value = -1;
-            saveIpLimitOnly();
-        }
-
-        function enableUnlimitedPermission() {
-            currentUserQuotaMode.value = 1;
-            saveIpLimitOnly();
-        }
-
-        function addDaysToSelected(days) {
-            let any = false;
-            for (const state of Object.values(localPermState.value)) {
-                if (state.selected) {
-                    any = true;
-                    const d = state.dateVal ? new Date(state.dateVal) : new Date();
-                    d.setDate(d.getDate() + days);
-                    state.dateVal = d.toISOString().split('T')[0];
-                }
-            }
-            if (!any) showMessage(sysMsg, '❌ 请先勾选服务器！', false);
-        }
-
-        function setPermanentSelected() {
-            let any = false;
-            for (const state of Object.values(localPermState.value)) {
-                if (state.selected) { any = true; state.dateVal = ''; }
-            }
-            if (!any) showMessage(sysMsg, '❌ 请先勾选服务器！', false);
         }
 
         // ==========================================
@@ -543,7 +373,6 @@ const app = createApp({
             const data = await apiCall('sync', {}, sysMsg);
             if (data.success && data.instances) {
                 globalInstances.value = data.instances;
-                // 纯个人版无租户/客户授权
                 showMessage(sysMsg, data.msg || '同步成功！', true);
                 triggerFastPolling(600000); // 🌟 后台拉取最新 IP，开启轮询实现自动刷新显示
             }
@@ -576,15 +405,9 @@ const app = createApp({
                         const updated = { ...globalInstances.value };
                         delete updated[ocid];
                         globalInstances.value = updated;
-                        if (localPermState.value && localPermState.value[ocid]) {
-                            delete localPermState.value[ocid];
-                        }
                         showMessage(sysMsg, data.message || 'ℹ️ 该实例在甲骨文云端已不存在或已被终止，已从列表中移除', true);
                     } else if (data.instance) {
                         globalInstances.value = { ...globalInstances.value, [ocid]: data.instance };
-                        if (!localPermState.value[ocid]) {
-                            localPermState.value[ocid] = { selected: false, dateVal: '' };
-                        }
                         if (!silent) showMessage(sysMsg, '✅ 机器信息已全面同步', true);
                     }
                     return data;

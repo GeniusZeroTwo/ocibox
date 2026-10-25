@@ -22,7 +22,6 @@ export const isEditing = ref(false);
 
 // 云资源数据核心集合
 export const globalInstances = ref({});
-export const globalPerms = ref({});
 export const trafficData = ref({});
 export const tasksData = ref({});
 export const bootVolumes = ref([]);
@@ -82,14 +81,12 @@ export const isSyncingAccounts = ref(false);
 export const isTrafficLoading = ref(false);
 export const trafficSyncing = reactive({});
 export const isSavingLimit = ref(false);
-export const isSavingPerms = ref(false);
 export const isFetchingImages = ref(false);
 export const isCreating = ref(false);
 export const isFetchingBV = ref(false);
 export const isFixingRoute = ref(false);
 
 // 细粒度操作标记
-export const localPermState = ref({});
 export const syncingOcids = ref({});
 export const enablingIpv6Ocids = ref({});
 export const disablingIpv6Ocids = ref({});
@@ -100,7 +97,6 @@ export const loginMsg = createMsgObject();
 export const sysMsg = createMsgObject();
 export const createMsg = createMsgObject();
 export const manageMsg = createMsgObject();
-export const delUserMsg = createMsgObject();
 export const reinstallMsg = createMsgObject();
 export const importMsg = createMsgObject();
 

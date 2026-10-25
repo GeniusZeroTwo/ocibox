@@ -840,7 +840,7 @@
                     <div
                         style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-shrink: 0; flex-wrap: wrap; gap: 8px;">
                         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
-                            <label style="margin:0; white-space: nowrap;">💻 授权服务器与电源管理</label>
+                            <label style="margin:0; white-space: nowrap;">💻 服务器与电源管理</label>
                             <div style="position: relative; width: 230px; max-width: 100%;">
                                 <input type="text" v-model="serverSearchKeyword" placeholder="🔍 搜索名称/IP/账号/区域..."
                                     style="width: 100%; height: 28px; font-size: 12px; padding: 0 26px 0 10px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text-main); outline: none; box-sizing: border-box; transition: border-color 0.2s;"
@@ -849,14 +849,6 @@
                                     style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); cursor: pointer; color: var(--text-muted); font-size: 12px; line-height: 1; user-select: none;"
                                     title="清空搜索">✕</span>
                             </div>
-                        </div>
-                        <div style="display: flex; gap: 8px; font-size: 13px;">
-                            <button type="button" class="btn-secondary"
-                                style="padding: 4px 10px; width: auto; font-size: 12px;"
-                                @click="addDaysToSelected(30)">批量 +1 个月</button>
-                            <button type="button" class="btn-secondary"
-                                style="padding: 4px 10px; width: auto; font-size: 12px;"
-                                @click="setPermanentSelected">设为永久</button>
                         </div>
                     </div>
 
@@ -982,11 +974,6 @@
                         </div>
                     </div>
 
-                    <div style="display: flex; gap: 12px; margin-top: auto; flex-shrink: 0;">
-                        <button @click="savePermissions" :disabled="isSavingPerms">
-                            💾 {{ isSavingPerms ? '正在保存...' : '保存当前配置' }}
-                        </button>
-                    </div>
                     <div class="sys-msg" :class="{ success: sysMsg.isSuccess, error: !sysMsg.isSuccess }">{{ sysMsg.text
                         }}</div>
                 </div>
@@ -2331,9 +2318,9 @@
 
 
 
-        <!-- 🛒 租户弹窗：上架/编辑可出租机器 -->
-        
-
+        <!-- 🛒 租户弹窗：上架/编辑可出租机器 (个人版已移除) -->
+        </div>
+    </div>
 
     <!-- 🚀 首屏无缝加载指示层：Vue 挂载前优雅占位，杜绝任何模板插值花括号/未渲染 DOM 闪烁 -->
     <div id="app-loader">
@@ -2346,10 +2333,10 @@
     </div>
 
     <!-- 🛡️ 首屏自愈与异常哨兵：外置脚本，便于收紧 CSP -->
-    <script src="js/loader-guard.js?v=20261017_01"></script>
+    <script src="js/loader-guard.js?v=20261026_02"></script>
 
     <!-- 现代原生 ESM 入口，0 构建依赖，模块化加载 -->
-    <script type="module" src="js/app.js?v=20261017_01"></script>
+    <script type="module" src="js/app.js?v=20261026_02"></script>
 </body>
 
 </html>

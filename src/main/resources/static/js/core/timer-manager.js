@@ -1,6 +1,6 @@
 // ⏱️ 定时器与自适应轮询集中管理中心 (Timer Manager)
 import {
-    sessionToken, isEditing, currentTab, globalInstances, localPermState,
+    sessionToken, isEditing, currentTab, globalInstances,
     accountDetails, globalAccounts, trafficData, isSyncingAccounts,
     syncingOcids, sysMsg, bootVolumes, manageAccountSelect
 } from './state.js';
@@ -97,9 +97,6 @@ export async function checkAndAutoSyncChangingInstances() {
                         const updated = { ...globalInstances.value };
                         delete updated[item.ocid];
                         globalInstances.value = updated;
-                        if (localPermState.value && localPermState.value[item.ocid]) {
-                            delete localPermState.value[item.ocid];
-                        }
                         showMessage(sysMsg, `ℹ️ 实例【${item.name}】已终止并移出列表`, true);
                     } else if (data.instance) {
                         const oldState = globalInstances.value[item.ocid] ? globalInstances.value[item.ocid].state : '';
@@ -175,7 +172,6 @@ export function startGlobalPolling() {
                             } else {
                                 globalInstances.value[ocid] = newInfo;
                             }
-                            if (!localPermState.value[ocid]) localPermState.value[ocid] = { selected: false, dateVal: '' };
                         }
                     }
                     if (data.accountDetails) {
