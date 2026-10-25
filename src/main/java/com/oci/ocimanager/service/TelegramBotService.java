@@ -495,7 +495,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 Map<String, String> info = instances.get(ocid);
                 String accName = info != null ? info.get("account") : null;
 
-                String newIp = ociCloudService.changePublicIp(ocid, accName);
+                String newIp = ociCloudService.changeInstanceIp(ocid, accName);
                 if (newIp != null && !newIp.isBlank()) {
                     getAndIncrementTotalSystemChanges();
                     String success = "✅ <b>【公网 IP 更换成功】</b>\n\n"
@@ -530,11 +530,11 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 String accName = info != null ? info.get("account") : null;
 
                 if ("START".equals(action)) {
-                    ociCloudService.startInstance(ocid, accName);
+                    ociCloudService.instanceAction(ocid, "START", accName);
                 } else if ("STOP".equals(action)) {
-                    ociCloudService.stopInstance(ocid, accName);
+                    ociCloudService.instanceAction(ocid, "STOP", accName);
                 } else {
-                    ociCloudService.rebootInstance(ocid, accName);
+                    ociCloudService.instanceAction(ocid, "SOFTRESET", accName);
                 }
 
                 answerCallback(queryId, "✅ 已成功发送" + actionName + "指令！", true);
@@ -632,8 +632,8 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
 
         List<InlineKeyboardRow> rows = new ArrayList<>();
         InlineKeyboardRow r = new InlineKeyboardRow();
-        r.add(InlineKeyboardButton.builder().text("🔥 确认立即重装", null).callbackData("do_reinst_" + sessId + "_" + idx).build());
-        r.add(InlineKeyboardButton.builder().text("🔙 取消", null).callbackData("inst_" + shortId).build());
+        r.add(InlineKeyboardButton.builder().text("🔥 确认立即重装").callbackData("do_reinst_" + sessId + "_" + idx).build());
+        r.add(InlineKeyboardButton.builder().text("🔙 取消").callbackData("inst_" + shortId).build());
         rows.add(r);
 
         updateMessage(chatId, messageId, msg, InlineKeyboardMarkup.builder().keyboard(rows).build());
@@ -664,8 +664,11 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
                 Map<String, String> info = instances.get(ocid);
                 String accName = info != null ? info.get("account") : null;
                 String randomPwd = generateRandomPassword(16);
+                String[] osParts = imgVal.split("\\|", 2);
+                String osName = osParts[0];
+                String osVersion = osParts.length > 1 ? osParts[1] : "";
 
-                boolean ok = ociCloudService.reinstallInstanceOS(ocid, accName, imgVal, randomPwd);
+                boolean ok = ociCloudService.reinstallInstance(ocid, accName, (info != null ? info.get("name") : null), osName, osVersion, null, null, randomPwd);
                 if (ok) {
                     String success = "✅ <b>【系统重装任务已成功派发】</b>\n\n"
                             + "🐧 <b>安装镜像</b>: <code>" + imgName + "</code>\n"

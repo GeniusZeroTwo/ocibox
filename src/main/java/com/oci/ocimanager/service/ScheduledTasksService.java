@@ -31,6 +31,7 @@ import java.util.HashSet;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
+import java.util.Collections;
 import java.util.Locale;
 
 @Service
@@ -69,16 +70,14 @@ public class ScheduledTasksService {
     @PostConstruct
     public void initCacheOnStartup() {
         instance = this;
-        // 🌟 启动时执行兼容性数据迁移（从旧版 JSON 到 Redis）
-        migrateOldJsonToRedis();
-        // 从数据库恢复本月已发送的警告记录，防止代码更新后重复推送
-        syncWarningRecordFromDb();
+        // 🌟 从 SQLite 恢复缓存与本月已发送的警告记录，防止服务重启后数据丢失
+        loadSystemCache();
         // 🌟 启动补漏检查：如果今天就是 1 号且本月尚未执行自动开机复活，异步自动补救拉起
         checkAndAutoStartOnStartup();
         System.out.println("⚡ [快速启动] 已跳过启动时 OCI API 预热。需要最新状态时请在后台点击同步服务器状态。");
     }
     
-        public void saveSystemCache() {
+    public void saveSystemCache() {
         try {
             redisTemplate.opsForValue().set("oci:cache:traffic", objectMapper.writeValueAsString(TRAFFIC_CACHE));
             redisTemplate.opsForValue().set("oci:cache:updateTime", objectMapper.writeValueAsString(UPDATE_TIME_CACHE));
@@ -86,13 +85,13 @@ public class ScheduledTasksService {
             redisTemplate.opsForValue().set("oci:cache:warningSent", objectMapper.writeValueAsString(WARNING_SENT_RECORD));
 
             // 持久化到 SQLite 数据库 system_config 表，确保服务重启/升级数据零丢失
-            systemConfigRepository.save(new SystemConfig("CACHE_TRAFFIC", objectMapper.writeValueAsString(TRAFFIC_CACHE), "流量缓存"));
-            systemConfigRepository.save(new SystemConfig("CACHE_UPDATE_TIME", objectMapper.writeValueAsString(UPDATE_TIME_CACHE), "更新时间缓存"));
-            systemConfigRepository.save(new SystemConfig("CACHE_INSTANCES", objectMapper.writeValueAsString(OciCloudService.INSTANCE_CACHE), "实例缓存"));
-            systemConfigRepository.save(new SystemConfig("CACHE_WARNING_SENT", objectMapper.writeValueAsString(WARNING_SENT_RECORD), "预警发送记录"));
+            systemConfigRepository.save(new SystemConfig("CACHE_TRAFFIC", objectMapper.writeValueAsString(TRAFFIC_CACHE)));
+            systemConfigRepository.save(new SystemConfig("CACHE_UPDATE_TIME", objectMapper.writeValueAsString(UPDATE_TIME_CACHE)));
+            systemConfigRepository.save(new SystemConfig("CACHE_INSTANCES", objectMapper.writeValueAsString(OciCloudService.INSTANCE_CACHE)));
+            systemConfigRepository.save(new SystemConfig("CACHE_WARNING_SENT", objectMapper.writeValueAsString(WARNING_SENT_RECORD)));
 
             if (billingService != null) {
-                billingService.saveBillsToRedis();
+                billingService.saveBillsToDatabase();
             }
         } catch (Exception e) {
             System.err.println("❌ 保存系统缓存失败: " + e.getMessage());
@@ -139,7 +138,7 @@ public class ScheduledTasksService {
             });
 
             if (billingService != null) {
-                billingService.loadBillsFromRedis();
+                billingService.loadBillsFromDatabase();
             }
             System.out.println("📦 [SQLite 缓存恢复] 成功恢复历史流量与实例监控数据！");
         } catch (Exception e) {
