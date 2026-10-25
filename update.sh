@@ -39,6 +39,61 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# 自动放行防火墙指定端口 (支持 ufw / firewalld / iptables / ip6tables)
+open_port() {
+    local target_port="$1"
+    if [[ -z "${target_port}" ]]; then
+        return 0
+    fi
+
+    echo -e "🛡️  正在自动放行系统防火墙端口: ${GREEN}${target_port}/tcp${PLAIN}..."
+
+    # 1. 尝试 ufw (Ubuntu / Debian)
+    if command -v ufw >/dev/null 2>&1; then
+        if ufw status 2>/dev/null | grep -qi "active"; then
+            ufw allow "${target_port}/tcp" >/dev/null 2>&1 || true
+            ufw reload >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 2. 尝试 firewalld (CentOS / RHEL / Fedora / AlmaLinux / RockyLinux / Oracle Linux)
+    if command -v firewall-cmd >/dev/null 2>&1; then
+        if systemctl is-active --quiet firewalld 2>/dev/null; then
+            firewall-cmd --zone=public --add-port="${target_port}/tcp" --permanent >/dev/null 2>&1 || true
+            firewall-cmd --reload >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 3. 尝试 iptables (最通用底座，特别针对甲骨文云 OCI 自带 Linux 镜像)
+    # 甲骨文云 Ubuntu / Oracle Linux 默认可能在 INPUT 链尾部带 REJECT/DROP 规则，故必须用 -I 插入到首行
+    if command -v iptables >/dev/null 2>&1; then
+        if ! iptables -C INPUT -p tcp --dport "${target_port}" -j ACCEPT 2>/dev/null; then
+            iptables -I INPUT -p tcp --dport "${target_port}" -j ACCEPT 2>/dev/null || true
+        fi
+
+        # 规则持久化，防止服务器重启后失效
+        if command -v netfilter-persistent >/dev/null 2>&1; then
+            netfilter-persistent save >/dev/null 2>&1 || true
+        elif [[ -d "/etc/iptables" ]]; then
+            iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+        elif command -v service >/dev/null 2>&1 && service iptables status >/dev/null 2>&1; then
+            service iptables save >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 4. 尝试 ip6tables (IPv6 防火墙放行)
+    if command -v ip6tables >/dev/null 2>&1; then
+        if ! ip6tables -C INPUT -p tcp --dport "${target_port}" -j ACCEPT 2>/dev/null; then
+            ip6tables -I INPUT -p tcp --dport "${target_port}" -j ACCEPT 2>/dev/null || true
+        fi
+        if [[ -d "/etc/iptables" ]]; then
+            ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
+        fi
+    fi
+
+    echo -e "  ${GREEN}✅ 端口 ${target_port}/tcp 防火墙规则已成功放行！${PLAIN}"
+}
+
 # 1. 停止当前运行服务
 echo -e "⏹️ 正在暂停现有服务 (${SERVICE_NAME}) 以确保 SQLite 数据安全..."
 systemctl stop "$SERVICE_NAME" >/dev/null 2>&1 || true
@@ -214,8 +269,108 @@ ocibox_info() {
     echo -e "   - 查看服务状态 : systemctl status ${svc}"
     echo -e "   - 重启管理面板 : systemctl restart ${svc}"
     echo -e "   - 停止管理面板 : systemctl stop ${svc}"
+    echo -e "   - 修改服务端口 : oci port [新端口]"
     echo -e "   - 查看实时日志 : journalctl -u ${svc} -f -n 50"
     echo -e "${GREEN}================================================================${PLAIN}"
+}
+
+open_port() {
+    local target_port="$1"
+    if [[ -z "${target_port}" ]]; then
+        return 0
+    fi
+
+    echo -e "🛡️  正在自动放行系统防火墙端口: ${GREEN}${target_port}/tcp${PLAIN}..."
+
+    # 1. 尝试 ufw (Ubuntu / Debian)
+    if command -v ufw >/dev/null 2>&1; then
+        if ufw status 2>/dev/null | grep -qi "active"; then
+            ufw allow "${target_port}/tcp" >/dev/null 2>&1 || true
+            ufw reload >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 2. 尝试 firewalld (CentOS / RHEL / Fedora / AlmaLinux / RockyLinux / Oracle Linux)
+    if command -v firewall-cmd >/dev/null 2>&1; then
+        if systemctl is-active --quiet firewalld 2>/dev/null; then
+            firewall-cmd --zone=public --add-port="${target_port}/tcp" --permanent >/dev/null 2>&1 || true
+            firewall-cmd --reload >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 3. 尝试 iptables (最通用底座，特别针对甲骨文云 OCI 自带 Linux 镜像)
+    if command -v iptables >/dev/null 2>&1; then
+        if ! iptables -C INPUT -p tcp --dport "${target_port}" -j ACCEPT 2>/dev/null; then
+            iptables -I INPUT -p tcp --dport "${target_port}" -j ACCEPT 2>/dev/null || true
+        fi
+
+        # 规则持久化
+        if command -v netfilter-persistent >/dev/null 2>&1; then
+            netfilter-persistent save >/dev/null 2>&1 || true
+        elif [[ -d "/etc/iptables" ]]; then
+            iptables-save > /etc/iptables/rules.v4 2>/dev/null || true
+        elif command -v service >/dev/null 2>&1 && service iptables status >/dev/null 2>&1; then
+            service iptables save >/dev/null 2>&1 || true
+        fi
+    fi
+
+    # 4. 尝试 ip6tables (IPv6 防火墙放行)
+    if command -v ip6tables >/dev/null 2>&1; then
+        if ! ip6tables -C INPUT -p tcp --dport "${target_port}" -j ACCEPT 2>/dev/null; then
+            ip6tables -I INPUT -p tcp --dport "${target_port}" -j ACCEPT 2>/dev/null || true
+        fi
+        if [[ -d "/etc/iptables" ]]; then
+            ip6tables-save > /etc/iptables/rules.v6 2>/dev/null || true
+        fi
+    fi
+
+    echo -e "  ${GREEN}✅ 端口 ${target_port}/tcp 防火墙规则已成功放行！${PLAIN}"
+}
+
+ocibox_port() {
+    local conf="${INSTALL_DIR}/application.yml"
+    [[ ! -f "$conf" && -f "/root/oci-personal/application.yml" ]] && conf="/root/oci-personal/application.yml"
+    [[ ! -f "$conf" && -f "/root/ocibox/application.yml" ]] && conf="/root/ocibox/application.yml"
+    if [[ ! -f "$conf" ]]; then
+        echo -e "${RED}未找到配置文件: $conf${PLAIN}"
+        return 1
+    fi
+
+    local current_port=$(grep -E '^[[:space:]]*port:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    [[ -z "$current_port" || "$current_port" =~ ^\$\{ ]] && current_port="5000"
+
+    local new_port="${1:-}"
+    if [[ -z "$new_port" ]]; then
+        echo -e "${CYAN}当前管理后台服务端口为: ${GREEN}${current_port}${PLAIN}"
+        read -rp "👉 请输入新的服务端口 (1-65535): " new_port
+    fi
+
+    if [[ ! "$new_port" =~ ^[0-9]+$ ]] || [ "$new_port" -lt 1 ] || [ "$new_port" -gt 65535 ]; then
+        echo -e "${RED}❌ 端口格式无效，请输入 1-65535 之间的有效端口号！${PLAIN}"
+        return 1
+    fi
+
+    if [[ "$new_port" == "$current_port" ]]; then
+        echo -e "${YELLOW}当前端口已为 ${new_port}，正在重新确保防火墙放行...${PLAIN}"
+        open_port "$new_port"
+        return 0
+    fi
+
+    echo -e "正在更新配置文件端口: ${current_port} -> ${new_port}..."
+    sed -i.bak -E "s/^([[:space:]]*port:[[:space:]]*).*$/\1${new_port}/" "$conf" 2>/dev/null || sed -i -E "s/^([[:space:]]*port:[[:space:]]*).*$/\1${new_port}/" "$conf"
+    rm -f "${conf}.bak" 2>/dev/null || true
+
+    # 自动开放新端口
+    open_port "$new_port"
+
+    local svc=$(get_service_name)
+    echo -e "${GREEN}正在重启 ${svc} 面板服务以使新端口生效...${PLAIN}"
+    systemctl restart "$svc"
+    sleep 2
+
+    local ip=$(curl -s4 --max-time 2 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 2 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 2 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
+    echo -e "\n${GREEN}🎉 端口已成功修改为 ${new_port}，防火墙已自动放行！${PLAIN}"
+    echo -e "🌐 ${CYAN}管理后台新地址${PLAIN} : ${GREEN}http://${ip}:${new_port}${PLAIN}\n"
 }
 
 case "${1:-}" in
@@ -225,20 +380,22 @@ case "${1:-}" in
     stop) ocibox_stop ;;
     log|logs) ocibox_logs ;;
     update) ocibox_update ;;
+    port) ocibox_port "${2:-}" ;;
     info) ocibox_info ;;
     help|--help|-h)
-        echo "用法: oci [status|restart|start|stop|logs|update|info]"
+        echo "用法: oci [status|restart|start|stop|logs|update|port|info]"
         ;;
     *)
         ocibox_info
         if [[ -t 0 ]]; then
-            echo -e "\n${CYAN}💡 快捷操作: [1] 重启面板  [2] 查看状态  [3] 实时日志  [4] 在线更新  [0/回车] 退出${PLAIN}"
+            echo -e "\n${CYAN}💡 快捷操作: [1] 重启面板  [2] 查看状态  [3] 实时日志  [4] 在线更新  [5] 修改端口  [0/回车] 退出${PLAIN}"
             read -rp "👉 请输入选项编号 [默认回车退出]: " opt
             case "$opt" in
                 1) ocibox_restart ;;
                 2) ocibox_status ;;
                 3) ocibox_logs ;;
                 4) ocibox_update ;;
+                5) ocibox_port ;;
                 *) exit 0 ;;
             esac
         fi
@@ -255,6 +412,12 @@ ln -sf /usr/local/bin/ocibox /usr/local/bin/oci-personal 2>/dev/null || true
 echo -e "🚀 正在启动更新后的服务 (${SERVICE_NAME})..."
 systemctl daemon-reload
 systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1
+
+# 自动确保当前配置端口放通防火墙
+CONF_PORT=$(grep -E '^[[:space:]]*port:' "${INSTALL_DIR}/application.yml" 2>/dev/null | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+[[ -z "${CONF_PORT}" || "${CONF_PORT}" =~ ^\$\{ ]] && CONF_PORT="5000"
+open_port "${CONF_PORT}"
+
 systemctl restart "${SERVICE_NAME}"
 
 sleep 2

@@ -37,7 +37,7 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.
 ```
 
 > **脚本交互过程示例：**
-> 1. `请输入管理后台服务端口 [默认: 5000]:` （直接回车使用 5000，或输入自定义端口如 8080）
+> 1. `请输入管理后台服务端口 [默认: 5000]:` （直接回车使用 5000，或输入自定义端口如 8080，脚本将自动检测并放通系统防火墙规则）
 > 2. `请输入管理员账户名 [默认: admin]:` （输入您想使用的后台管理员账号名，回车默认 admin）
 > 3. `请设置管理员登录密码 [回车自动生成32位带符号密码]:` （直接回车将随机生成32位高强度带符号复杂密码）
 > 4. `是否需要绑定您的 Telegram 运维机器人？(y/N, 默认 N):`
@@ -63,6 +63,7 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.
    - 查看服务状态 : ocibox status (或 systemctl status ocibox)
    - 重启管理面板 : ocibox restart (或 systemctl restart ocibox)
    - 停止管理面板 : ocibox stop (或 systemctl stop ocibox)
+   - 修改服务端口 : ocibox port [新端口] (自动放行防火墙并重启)
    - 查看实时日志 : ocibox logs (或 journalctl -u ocibox -f -n 50)
    - 在线版本更新 : ocibox update
    - 查看面板信息 : ocibox info
