@@ -47,20 +47,23 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.
 
 ```text
 ================================================================
-       🎉 OCI Personal 个人轻量管理面板 部署成功！
+             🎉 OCIBox 个人专属管理面板 部署成功！
 ================================================================
 🌐 管理后台地址 : http://123.45.67.89:5000
 🔑 管理登录密码 : YourAdminPassword123
 🤖 Telegram 状态: 已绑定 (Admin ID: 123456789)
-📂 数据持久目录 : /root/oci-personal/data/
-🔑 密钥保存目录 : /root/oci-personal/keys/
-📄 配置文件路径 : /root/oci-personal/application.yml
+📂 数据持久目录 : /root/ocibox/data/
+🔑 密钥保存目录 : /root/ocibox/keys/
+📄 配置文件路径 : /root/ocibox/application.yml
 ----------------------------------------------------------------
-💡 服务日常维护指令:
-   - 查看服务状态 : systemctl status oci-personal
-   - 重启管理面板 : systemctl restart oci-personal
-   - 停止管理面板 : systemctl stop oci-personal
-   - 查看实时日志 : journalctl -u oci-personal -f -n 50
+💡 系统管理快捷指令 (终端直接输入 ocibox 即可呼出管理菜单):
+   - 快捷控制菜单 : ocibox
+   - 查看服务状态 : ocibox status (或 systemctl status ocibox)
+   - 重启管理面板 : ocibox restart (或 systemctl restart ocibox)
+   - 停止管理面板 : ocibox stop (或 systemctl stop ocibox)
+   - 查看实时日志 : ocibox logs (或 journalctl -u ocibox -f -n 50)
+   - 在线版本更新 : ocibox update
+   - 查看面板信息 : ocibox info
 ================================================================
 ```
 
@@ -83,11 +86,11 @@ dnf install -y java-21-openjdk-headless sqlite3 curl jq
 ### 2. 目录创建与配置文件准备
 
 ```bash
-mkdir -p /root/oci-personal/data /root/oci-personal/keys /root/oci-personal/logs
-chmod 700 /root/oci-personal/keys /root/oci-personal/data
+mkdir -p /root/ocibox/data /root/ocibox/keys /root/ocibox/logs
+chmod 700 /root/ocibox/keys /root/ocibox/data
 ```
 
-在 `/root/oci-personal/application.yml` 中写入：
+在 `/root/ocibox/application.yml` 中写入：
 
 ```yaml
 server:
@@ -96,7 +99,7 @@ server:
 
 spring:
   datasource:
-    url: jdbc:sqlite:/root/oci-personal/data/oci_personal.db?journal_mode=WAL&busy_timeout=60000
+    url: jdbc:sqlite:/root/ocibox/data/oci_personal.db?journal_mode=WAL&busy_timeout=60000
     driver-class-name: org.sqlite.JDBC
   threads:
     virtual:
@@ -110,18 +113,18 @@ app:
 
 ### 3. 配置 Systemd 开机自启
 
-创建 `/etc/systemd/system/oci-personal.service`：
+创建 `/etc/systemd/system/ocibox.service`：
 
 ```ini
 [Unit]
-Description=OCI Personal Cloud Management Service
+Description=OCIBox Cloud Management Service
 After=network.target
 
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/oci-personal
-ExecStart=/usr/bin/java -Xms64m -Xmx384m -XX:+UseG1GC -jar /root/oci-personal/app.jar
+WorkingDirectory=/root/ocibox
+ExecStart=/usr/bin/java -Xms64m -Xmx384m -XX:+UseG1GC -jar /root/ocibox/app.jar
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -136,7 +139,7 @@ WantedBy=multi-user.target
 
 ```bash
 systemctl daemon-reload
-systemctl enable --now oci-personal
+systemctl enable --now ocibox
 ```
 
 ---

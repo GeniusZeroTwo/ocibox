@@ -38,7 +38,11 @@ public class AccountYamlService {
      * 统一检索系统所使用的 application.yml 物理文件路径。
      */
     public File getConfigFile() {
-        File file = new File("/root/oci-manager/application.yml");
+        File file = new File("/root/ocibox/application.yml");
+        if (file.exists()) return file;
+        file = new File("/root/oci-personal/application.yml");
+        if (file.exists()) return file;
+        file = new File("/root/oci-manager/application.yml");
         if (file.exists()) return file;
         file = new File("application.yml");
         if (file.exists()) return file;

@@ -794,10 +794,11 @@ public class ScheduledTasksService {
             System.err.println("❌ [数据库维护] WAL 日志清理失败: " + e.getMessage());
         }
 
+        String basePath = new java.io.File("/root/ocibox").exists() ? "/root/ocibox" : (new java.io.File("/root/oci-personal").exists() ? "/root/oci-personal" : ".");
         List<String> filesToBackup = Arrays.asList(
-            "/root/oci-personal/data",
-            "/root/oci-personal/application.yml",
-            "/root/oci-personal/keys"
+            basePath + "/data",
+            basePath + "/application.yml",
+            basePath + "/keys"
         );
 
         if (backupPassword == null || backupPassword.isBlank()) {

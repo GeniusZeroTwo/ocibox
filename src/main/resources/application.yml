@@ -30,7 +30,7 @@ spring:
       request-timeout: 75000
 
   datasource:
-    url: jdbc:sqlite:/root/oci-personal/data/oci_personal.db?journal_mode=WAL&busy_timeout=60000&cache_size=-2000
+    url: jdbc:sqlite:data/oci_personal.db?journal_mode=WAL&busy_timeout=60000&cache_size=-2000
     driver-class-name: org.sqlite.JDBC
     hikari:
       maximum-pool-size: 1
@@ -85,4 +85,4 @@ oci:
   #     fingerprint: "xx:xx:xx:xx:11"
   #     tenancy: "ocid1.tenancy.oc1..example"
   #     region: "ap-tokyo-1"
-  #     key-file: "/root/oci-personal/keys/my_oracle_1.pem"
+  #     key-file: "/root/ocibox/keys/my_oracle_1.pem"

@@ -439,7 +439,7 @@ public class AdminAccountController {
                 return Map.of("success", false, "error", "OCI 凭据字段包含非法字符，导入已阻止");
             }
 
-            String basePath = new File("/root/oci-manager").exists() ? "/root/oci-manager" : ".";
+            String basePath = new File("/root/ocibox").exists() ? "/root/ocibox" : (new File("/root/oci-personal").exists() ? "/root/oci-personal" : (new File("/root/oci-manager").exists() ? "/root/oci-manager" : "."));
             String keysPath = basePath + "/keys";
             new File(keysPath).mkdirs();
             

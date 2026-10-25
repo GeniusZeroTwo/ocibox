@@ -14,14 +14,14 @@ PLAIN='\033[0m'
 
 echo -e "${CYAN}"
 cat << "BANNER"
-  ____   ____ ___   ____                                   _ 
- / __ \ / ___|_ _| |  _ \ ___ _ __ ___  ___  _ __   __ _  | |
-| |  | | |    | |  | |_) / _ \ '__/ __|/ _ \| '_ \ / _` | | |
-| |__| | |___ | |  |  __/  __/ |  \__ \ (_) | | | | (_| | | |
- \____/ \____|___| |_|   \___|_|  |___/\___/|_| |_|\__,_| |_|
+  ____   ____ ___ ____              
+ / __ \ / ___|_ _| __ )  _____  __ 
+| |  | | |    | ||  _ \ / _ \ \/ / 
+| |__| | |___ | || |_) | (_) >  <  
+ \____/ \____|___|____/ \___/_/\_\ 
 BANNER
 echo -e "${PLAIN}"
-echo -e "${GREEN}>>> 正在启动 OCI Personal 个人专属管理面板一键部署向导...${PLAIN}\n"
+echo -e "${GREEN}>>> 正在启动 OCIBox 个人专属管理面板一键部署向导...${PLAIN}\n"
 
 # 1. 检查 root 权限
 if [[ $EUID -ne 0 ]]; then
@@ -29,7 +29,12 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-INSTALL_DIR="/root/oci-personal"
+INSTALL_DIR="/root/ocibox"
+# 自动检测并平滑迁移旧版目录 /root/oci-personal
+if [[ -d "/root/oci-personal" && ! -d "${INSTALL_DIR}" ]]; then
+    echo -e "${GREEN}📦 检测到历史数据目录 /root/oci-personal，正在自动平滑迁移至 ${INSTALL_DIR}...${PLAIN}"
+    mv /root/oci-personal "${INSTALL_DIR}"
+fi
 mkdir -p "${INSTALL_DIR}/data" "${INSTALL_DIR}/keys" "${INSTALL_DIR}/logs"
 cd "${INSTALL_DIR}" || exit 1
 
@@ -52,6 +57,9 @@ is_configured() {
 }
 
 EXISTING_CONFIG="${INSTALL_DIR}/application.yml"
+if [[ ! -f "${EXISTING_CONFIG}" && -f "/root/oci-personal/application.yml" ]]; then
+    EXISTING_CONFIG="/root/oci-personal/application.yml"
+fi
 EXISTING_PORT=""
 EXISTING_ADMIN_PWD=""
 EXISTING_BOT_TOKEN=""
@@ -85,7 +93,7 @@ if is_configured "${EXISTING_ADMIN_PWD}"; then
     read -rp "👉 请设置管理员登录密码 [检测到已有密码, 回车保留原密码不修改]: " INPUT_PWD
     ADMIN_PWD="${INPUT_PWD:-${EXISTING_ADMIN_PWD}}"
 else
-    DEFAULT_PWD=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16 2>/dev/null || echo "OciPersonal998")
+    DEFAULT_PWD=$(openssl rand -base64 12 | tr -dc 'a-zA-Z0-9' | head -c 16 2>/dev/null || echo "OCIBox998")
     read -rp "👉 请设置管理员登录密码 [回车自动生成: ${DEFAULT_PWD}]: " INPUT_PWD
     ADMIN_PWD="${INPUT_PWD:-${DEFAULT_PWD}}"
 fi
@@ -265,8 +273,10 @@ elif compgen -G "${SCRIPT_DIR}/target/*.jar" > /dev/null; then
     cp -f "${LATEST_JAR}" "${INSTALL_DIR}/app.jar"
 else
     echo -e "⬇️ 正在从 GitHub Releases 下载最新版本核心程序包 (app.jar)..."
-    DOWNLOAD_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/oci-personal.jar"
-    if ! curl -fL --retry 3 --connect-timeout 10 "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/app.jar"; then
+    DOWNLOAD_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/ocibox.jar"
+    ALT_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/oci-personal.jar"
+    if ! curl -fL --retry 3 --connect-timeout 10 "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/app.jar" 2>/dev/null && \
+       ! curl -fL --retry 3 --connect-timeout 10 "${ALT_URL}" -o "${INSTALL_DIR}/app.jar"; then
         echo -e "${RED}❌ 下载核心程序包失败！请确认网络畅通或 GitHub Release 是否已生成。${PLAIN}"
         exit 1
     fi
@@ -277,10 +287,18 @@ if [[ ! -s "${INSTALL_DIR}/app.jar" ]]; then
     exit 1
 fi
 
-# 6. 配置 Systemd 服务
-cat << SERVICE > /etc/systemd/system/oci-personal.service
+# 6. 配置 Systemd 服务 (服务名统一为 ocibox)
+# 自动清理旧版 oci-personal 服务
+if systemctl list-unit-files 2>/dev/null | grep -q "oci-personal.service" || [[ -f "/etc/systemd/system/oci-personal.service" ]]; then
+    echo -e "🧹 正在平滑迁移旧版 oci-personal 服务至 ocibox 服务..."
+    systemctl stop oci-personal >/dev/null 2>&1 || true
+    systemctl disable oci-personal >/dev/null 2>&1 || true
+    rm -f /etc/systemd/system/oci-personal.service
+fi
+
+cat << SERVICE > /etc/systemd/system/ocibox.service
 [Unit]
-Description=OCI Personal Cloud Management Service
+Description=OCIBox Cloud Management Service
 After=network.target
 
 [Service]
@@ -299,14 +317,149 @@ WantedBy=multi-user.target
 SERVICE
 
 systemctl daemon-reload
-systemctl enable oci-personal >/dev/null 2>&1
-systemctl restart oci-personal >/dev/null 2>&1
+systemctl enable ocibox >/dev/null 2>&1
+systemctl restart ocibox >/dev/null 2>&1
 
-# 7. 获取公网 IP 与展示最终面板地址
+# 7. 安装全局管理命令 /usr/local/bin/ocibox
+cat << 'CLI' > /usr/local/bin/ocibox
+#!/bin/bash
+# ================================================================
+#  OCIBox - 个人专属云管理面板 系统快捷指令
+# ================================================================
+
+INSTALL_DIR="/root/ocibox"
+[[ ! -d "${INSTALL_DIR}" && -d "/root/oci-personal" ]] && INSTALL_DIR="/root/oci-personal"
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+PLAIN='\033[0m'
+
+show_menu() {
+    clear
+    echo -e "${CYAN}"
+    cat << "BANNER"
+  ____   ____ ___ ____              
+ / __ \ / ___|_ _| __ )  _____  __ 
+| |  | | |    | ||  _ \ / _ \ \/ / 
+| |__| | |___ | || |_) | (_) >  <  
+ \____/ \____|___|____/ \___/_/\_\ 
+BANNER
+    echo -e "${PLAIN}"
+    echo -e "${GREEN}=== OCIBox 个人面板管理系统 ===${PLAIN}"
+    echo -e " 1. 查看面板状态 (status)"
+    echo -e " 2. 重启管理面板 (restart)"
+    echo -e " 3. 启动管理面板 (start)"
+    echo -e " 4. 停止管理面板 (stop)"
+    echo -e " 5. 查看实时日志 (logs)"
+    echo -e " 6. 一键在线更新 (update)"
+    echo -e " 7. 查看访问信息 (info)"
+    echo -e " 0. 退出向导"
+    echo -e "----------------------------------"
+    read -rp "👉 请输入选项 [0-7]: " num
+    case "$num" in
+        1) ocibox_status ;;
+        2) ocibox_restart ;;
+        3) ocibox_start ;;
+        4) ocibox_stop ;;
+        5) ocibox_logs ;;
+        6) ocibox_update ;;
+        7) ocibox_info ;;
+        0) exit 0 ;;
+        *) echo -e "${RED}输入错误，请输入 0-7 之间的数字！${PLAIN}" ;;
+    esac
+}
+
+ocibox_status() {
+    systemctl status ocibox
+}
+
+ocibox_restart() {
+    echo -e "${GREEN}正在重启 OCIBox 面板服务...${PLAIN}"
+    systemctl restart ocibox
+    sleep 2
+    systemctl status ocibox --no-pager | head -n 12
+}
+
+ocibox_start() {
+    echo -e "${GREEN}正在启动 OCIBox 面板服务...${PLAIN}"
+    systemctl start ocibox
+    sleep 2
+    systemctl status ocibox --no-pager | head -n 12
+}
+
+ocibox_stop() {
+    echo -e "${YELLOW}正在停止 OCIBox 面板服务...${PLAIN}"
+    systemctl stop ocibox
+    echo -e "${GREEN}OCIBox 服务已停止。${PLAIN}"
+}
+
+ocibox_logs() {
+    echo -e "${CYAN}正在进入 OCIBox 实时日志输出 (按 Ctrl+C 退出)...${PLAIN}"
+    journalctl -u ocibox -f -n 50
+}
+
+ocibox_update() {
+    echo -e "${CYAN}正在检查并更新 OCIBox 核心版本...${PLAIN}"
+    if [[ -f "${INSTALL_DIR}/update.sh" ]]; then
+        bash "${INSTALL_DIR}/update.sh"
+    else
+        bash <(curl -fsSL https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/update.sh)
+    fi
+}
+
+ocibox_info() {
+    local conf="${INSTALL_DIR}/application.yml"
+    if [[ ! -f "$conf" ]]; then
+        echo -e "${RED}未找到配置文件: $conf${PLAIN}"
+        return
+    fi
+    local port=$(grep -E '^[[:space:]]*port:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    local pwd=$(grep -E '^[[:space:]]*admin-password:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-password:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    local bot=$(grep -E '^[[:space:]]*bot-token:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*bot-token:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    local admin_id=$(grep -E '^[[:space:]]*admin-id:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-id:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    local ip=$(curl -s4 --max-time 3 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 3 https://ifconfig.me 2>/dev/null || echo "127.0.0.1")
+
+    echo -e "\n${GREEN}================== [ OCIBox 面板信息 ] ==================${PLAIN}"
+    echo -e "🌐 面板后台地址 : ${GREEN}http://${ip}:${port}${PLAIN}"
+    echo -e "🔑 管理员密码   : ${YELLOW}${pwd}${PLAIN}"
+    if [[ -n "$bot" && "$bot" != '""' && -n "$admin_id" ]]; then
+        echo -e "🤖 Telegram推送 : ${GREEN}已配置 (Admin ID: ${admin_id})${PLAIN}"
+    else
+        echo -e "🤖 Telegram推送 : ${YELLOW}未配置${PLAIN}"
+    fi
+    echo -e "📂 数据持久目录 : ${INSTALL_DIR}/data/"
+    echo -e "🔑 密钥存储目录 : ${INSTALL_DIR}/keys/"
+    echo -e "📄 配置文件路径 : ${conf}"
+    echo -e "========================================================\n"
+}
+
+case "${1:-}" in
+    status) ocibox_status ;;
+    restart) ocibox_restart ;;
+    start) ocibox_start ;;
+    stop) ocibox_stop ;;
+    log|logs) ocibox_logs ;;
+    update) ocibox_update ;;
+    info) ocibox_info ;;
+    help|--help|-h)
+        echo "用法: ocibox [status|restart|start|stop|logs|update|info]"
+        ;;
+    *)
+        show_menu
+        ;;
+esac
+CLI
+chmod +x /usr/local/bin/ocibox
+ln -sf /usr/local/bin/ocibox /usr/bin/ocibox 2>/dev/null || true
+ln -sf /usr/local/bin/ocibox /usr/local/bin/oci-personal 2>/dev/null || true
+
+# 8. 获取公网 IP 与展示最终面板地址
 SERVER_IP=$(curl -s4 --max-time 3 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 3 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 3 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
 
 echo -e "\n${GREEN}================================================================${PLAIN}"
-echo -e "${GREEN}       🎉 OCI Personal 个人轻量管理面板 部署成功！${PLAIN}"
+echo -e "${GREEN}             🎉 OCIBox 个人专属管理面板 部署成功！${PLAIN}"
 echo -e "${GREEN}================================================================${PLAIN}"
 echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${SERVER_IP}:${PORT}${PLAIN}"
 echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}${ADMIN_PWD}${PLAIN}"
@@ -315,9 +468,11 @@ echo -e "📂 ${CYAN}数据持久目录${PLAIN} : ${INSTALL_DIR}/data/"
 echo -e "🔑 ${CYAN}密钥保存目录${PLAIN} : ${INSTALL_DIR}/keys/"
 echo -e "📄 ${CYAN}配置文件路径${PLAIN} : ${INSTALL_DIR}/application.yml"
 echo -e "----------------------------------------------------------------"
-echo -e "💡 ${CYAN}服务日常维护指令:${PLAIN}"
-echo -e "   - 查看服务状态 : ${YELLOW}systemctl status oci-personal${PLAIN}"
-echo -e "   - 重启管理面板 : ${YELLOW}systemctl restart oci-personal${PLAIN}"
-echo -e "   - 停止管理面板 : ${YELLOW}systemctl stop oci-personal${PLAIN}"
-echo -e "   - 查看实时日志 : ${YELLOW}journalctl -u oci-personal -f -n 50${PLAIN}"
+echo -e "💡 ${CYAN}系统管理快捷指令 (终端输入 ocibox 即可呼出管理菜单):${PLAIN}"
+echo -e "   - 快捷控制菜单 : ${GREEN}ocibox${PLAIN}"
+echo -e "   - 查看服务状态 : ${YELLOW}ocibox status${PLAIN} (或 systemctl status ocibox)"
+echo -e "   - 重启管理面板 : ${YELLOW}ocibox restart${PLAIN} (或 systemctl restart ocibox)"
+echo -e "   - 停止管理面板 : ${YELLOW}ocibox stop${PLAIN} (或 systemctl stop ocibox)"
+echo -e "   - 查看实时日志 : ${YELLOW}ocibox logs${PLAIN} (或 journalctl -u ocibox -f -n 50)"
+echo -e "   - 在线版本更新 : ${YELLOW}ocibox update${PLAIN}"
 echo -e "${GREEN}================================================================${PLAIN}\n"

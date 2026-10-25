@@ -43,11 +43,12 @@ jobs:
       id: date
       run: echo "date=$(date +'%Y-%m-%d %H:%M:%S')" >> $GITHUB_ENV
 
-    # 🔒 4.5 生成 SHA256 校验和，供 update.sh 在部署时核验 jar 完整性/来源
-    - name: Generate checksums
+    # 🔒 4.5 生成 SHA256 校验和并生成 ocibox.jar 别名
+    - name: Generate checksums and aliases
       run: |
         cd target
-        sha256sum oci-personal.jar > checksums.txt
+        cp -f oci-personal.jar ocibox.jar
+        sha256sum oci-personal.jar ocibox.jar > checksums.txt
         cat checksums.txt
 
     # 5. 自动发布到 GitHub Releases
@@ -60,6 +61,7 @@ jobs:
           这是由 GitHub Actions 全自动构建的最新版本。
           **构建时间**: ${{ env.date }} UTC
         files: |                  # jar 包 + 校验和一并上传
+          target/ocibox.jar
           target/oci-personal.jar
           target/checksums.txt
         make_latest: true         # 标记为最新版本
