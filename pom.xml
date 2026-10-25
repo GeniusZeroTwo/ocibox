@@ -18,7 +18,7 @@
     <description>OCI Personal Self-Hosted Management Panel</description>
 
     <properties>
-        <java.version>25</java.version>
+        <java.version>21</java.version>
         <oci.sdk.version>3.88.0</oci.sdk.version>
         <telegram.bot.version>9.6.0</telegram.bot.version>
     </properties>
@@ -122,6 +122,7 @@
     </dependencies>
 
     <build>
+        <finalName>oci-personal</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

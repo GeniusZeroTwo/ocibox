@@ -168,6 +168,18 @@ elif [[ -f "${SCRIPT_DIR}/oci-personal.jar" ]]; then
 elif compgen -G "${SCRIPT_DIR}/target/*.jar" > /dev/null; then
     LATEST_JAR=$(ls -t "${SCRIPT_DIR}"/target/*.jar | head -n 1)
     cp -f "${LATEST_JAR}" "${INSTALL_DIR}/app.jar"
+else
+    echo -e "⬇️ 正在从 GitHub Releases 下载最新版本核心程序包 (app.jar)..."
+    DOWNLOAD_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/oci-personal.jar"
+    if ! curl -fL --retry 3 --connect-timeout 10 "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/app.jar"; then
+        echo -e "${RED}❌ 下载核心程序包失败！请确认网络畅通或 GitHub Release 是否已生成。${PLAIN}"
+        exit 1
+    fi
+fi
+
+if [[ ! -s "${INSTALL_DIR}/app.jar" ]]; then
+    echo -e "${RED}❌ 未检测到有效的核心程序包 (${INSTALL_DIR}/app.jar 不存在或为空)，无法启动！${PLAIN}"
+    exit 1
 fi
 
 # 6. 配置 Systemd 服务

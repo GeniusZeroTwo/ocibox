@@ -34,6 +34,19 @@ if [[ -f "${SCRIPT_DIR}/target/oci-personal.jar" ]]; then
 elif [[ -f "${SCRIPT_DIR}/app.jar" ]]; then
     cp -f "${SCRIPT_DIR}/app.jar" "${INSTALL_DIR}/app.jar"
     echo -e "✅ 已更新核心程序包！"
+else
+    echo -e "⬇️ 正在从 GitHub 下载最新版本核心程序包..."
+    DOWNLOAD_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/oci-personal.jar"
+    if ! curl -fL --retry 3 --connect-timeout 10 "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/app.jar"; then
+        echo -e "${RED}❌ 下载最新核心程序包失败！${PLAIN}"
+        exit 1
+    fi
+    echo -e "✅ 已成功下载并更新核心程序包！"
+fi
+
+if [[ ! -s "${INSTALL_DIR}/app.jar" ]]; then
+    echo -e "${RED}❌ 未检测到有效的核心程序包，无法启动！${PLAIN}"
+    exit 1
 fi
 
 # 3. 确保存储目录权限安全

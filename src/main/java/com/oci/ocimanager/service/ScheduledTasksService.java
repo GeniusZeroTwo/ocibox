@@ -330,8 +330,7 @@ public class ScheduledTasksService {
         }
 
         if (!accountIps.isEmpty()) {
-            StringBuilder msg = new StringBuilder("📊 **【每日全量流量使用播报】**
-");
+            StringBuilder msg = new StringBuilder("📊 **【每日全量流量使用播报】**\n");
             for (Map.Entry<String, List<String>> entry : accountIps.entrySet()) {
                 String accName = entry.getKey();
                 List<String> ips = entry.getValue();
@@ -340,24 +339,18 @@ public class ScheduledTasksService {
                 int limitGb = (limit != null && limit.getLimitGb() != null) ? limit.getLimitGb() : 0;
                 String region = ociProperties.getAccounts().containsKey(accName) ? ociProperties.getAccounts().get(accName).getRegion() : "未知区域";
 
-                msg.append("
-☁️ 账号:  (").append(region).append(")
-");
-                msg.append("🌐 关联 IP: , 
-");
+                msg.append("\n☁️ 账号: ").append(accName).append(" (").append(region).append(")\n");
+                msg.append("🌐 关联 IP: ").append(String.join(", ", ips)).append("\n");
                 if (usage >= 0) {
                     if (limitGb > 0) {
                         double percent = (usage / limitGb) * 100;
                         String icon = percent >= 90 ? "🔴" : (percent >= 70 ? "🟡" : "🟢");
-                        msg.append("📈 ").append(icon).append(" 用量: ").append(String.format(Locale.US, "%.2f", usage)).append(" GB / ").append(limitGb).append(" GB (").append(String.format(Locale.US, "%.1f", percent)).append("%)
-");
+                        msg.append("📈 ").append(icon).append(" 用量: ").append(String.format(Locale.US, "%.2f", usage)).append(" GB / ").append(limitGb).append(" GB (").append(String.format(Locale.US, "%.1f", percent)).append("%)\n");
                     } else {
-                        msg.append("📈 🟢 用量: ").append(String.format(Locale.US, "%.2f", usage)).append(" GB / 不限流量
-");
+                        msg.append("📈 🟢 用量: ").append(String.format(Locale.US, "%.2f", usage)).append(" GB / 不限流量\n");
                     }
                 } else {
-                    msg.append("📈 ❓ 用量: API数据抓取中或未配置
-");
+                    msg.append("📈 ❓ 用量: API数据抓取中或未配置\n");
                 }
             }
             try {

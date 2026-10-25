@@ -70,7 +70,7 @@ public class LocalCacheService {
 
     public void deletePattern(String pattern) {
         if (pattern == null || pattern.isEmpty()) return;
-        String regex = pattern.replace(".", "\.").replace("*", ".*").replace("?", ".");
+        String regex = pattern.replace(".", "\\.").replace("*", ".*").replace("?", ".");
         Pattern p = Pattern.compile("^" + regex + "$");
         store.keySet().removeIf(k -> p.matcher(k).matches());
     }
