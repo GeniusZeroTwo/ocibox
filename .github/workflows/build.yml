@@ -5,11 +5,7 @@ on:
   push:
     branches: [ "main", "master" ]
 
-# 🌟 核心修复：强制 GitHub Actions 插件使用 Node.js 24 环境，消除弃用警告
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
-# 🔒 防止两次快速推送并发抢占同一个 latest 标签/资产（避免竞态导致资产半更新）
+# 🔒 防止两次快速推送并发抢占同一个 latest 标签/资产
 concurrency:
   group: build-and-release
   cancel-in-progress: true
@@ -25,19 +21,18 @@ jobs:
     steps:
     # 1. 拉取最新代码
     - name: Checkout Code
-      uses: actions/checkout@v5
+      uses: actions/checkout@v4
 
     # 🌟 1.5 前端静态代码与 ESM 模块完整性门禁校验（任何导入错误/缺失导出直接阻断 CI）
     - name: Verify Frontend Integrity
       run: python3 scripts/verify-frontend.py
 
-    # 🌟 2. 配置 Java 21 环境 (开启 Maven 缓存加速编译)
+    # 🌟 2. 配置 Java 21 环境
     - name: Set up JDK 21
-      uses: actions/setup-java@v5
+      uses: actions/setup-java@v4
       with:
         java-version: '21'
         distribution: 'temurin'
-        cache: maven
 
     # 3. 使用 Maven 编译打包
     - name: Build with Maven
