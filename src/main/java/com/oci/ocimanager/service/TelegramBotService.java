@@ -65,10 +65,8 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
 
     @Autowired private SystemConfigRepository systemConfigRepo;
     @Autowired private OciCloudService ociCloudService;
-    @Autowired private GitHubService gitHubService;
     @Autowired private TrafficLimitRepository trafficLimitRepo;
     @Autowired private OciProperties ociProperties;
-    @Autowired private AccountYamlService accountYamlService;
     @Autowired private LocalCacheService redisTemplate;
 
     private TelegramClient telegramClient;
@@ -646,7 +644,6 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
         String idx = parts[3];
 
         String ocid = redisTemplate.opsForValue().get("oci:tg_reinst_ocid:" + sessId);
-        String shortId = redisTemplate.opsForValue().get("oci:tg_reinst_btn:" + sessId);
         String imgVal = redisTemplate.opsForValue().get("oci:tg_reinst_val:" + sessId + ":" + idx);
         String imgName = redisTemplate.opsForValue().get("oci:tg_reinst_name:" + sessId + ":" + idx);
 

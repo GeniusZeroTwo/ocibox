@@ -1,6 +1,5 @@
 package com.oci.ocimanager.controller.admin;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oci.ocimanager.config.OciProperties;
 import com.oci.ocimanager.entity.TrafficLimit;
 import com.oci.ocimanager.repository.TrafficLimitRepository;
@@ -10,7 +9,6 @@ import com.oci.ocimanager.service.OciCloudService;
 import com.oci.ocimanager.service.ScheduledTasksService;
 import com.oci.ocimanager.service.TelegramBotService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.jdbc.core.JdbcTemplate;
 import jakarta.annotation.PreDestroy;
 import org.springframework.web.bind.annotation.*;
 
@@ -29,8 +27,6 @@ public class AdminDashboardController {
     @Autowired private TelegramBotService telegramBotService;
     @Autowired private OciCloudService ociCloudService;
     @Autowired private OciProperties ociProperties;
-    @Autowired private JdbcTemplate jdbcTemplate;
-    @Autowired private ObjectMapper objectMapper;
     @Autowired private AccountYamlService accountYamlService;
     @Autowired private AdminAuthService adminAuthService;
 
