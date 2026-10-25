@@ -78,11 +78,11 @@ app:
   
 # OCI 个人多账号配置结构
 oci:
-  accounts:
-    # 示例配置：
-    # "[my-oracle-1]":
-    #   user: "ocid1.user.oc1..example"
-    #   fingerprint: "xx:xx:xx:xx:11"
-    #   tenancy: "ocid1.tenancy.oc1..example"
-    #   region: "ap-tokyo-1"
-    #   key-file: "/root/oci-personal/keys/my_oracle_1.pem"
+  accounts: {}
+  # 示例配置：
+  #   "[my-oracle-1]":
+  #     user: "ocid1.user.oc1..example"
+  #     fingerprint: "xx:xx:xx:xx:11"
+  #     tenancy: "ocid1.tenancy.oc1..example"
+  #     region: "ap-tokyo-1"
+  #     key-file: "/root/oci-personal/keys/my_oracle_1.pem"

@@ -178,9 +178,14 @@ echo -e "\n${CYAN}------------------- [ 配置文件生成 ] -------------------
 # 提取并保留已存在的 oci 账号配置段（防止重新拉取代码安装时抹除已添加的 OCI 账号）
 OCI_SECTION=$'oci:\n  accounts: {}'
 if [[ -f "${EXISTING_CONFIG}" ]] && grep -q "^oci:" "${EXISTING_CONFIG}"; then
-    OCI_SECTION=$(sed -n '/^oci:/,$p' "${EXISTING_CONFIG}")
+    RAW_OCI=$(sed -n '/^oci:/,$p' "${EXISTING_CONFIG}")
+    if echo "${RAW_OCI}" | grep -qE "user:|fingerprint:"; then
+        OCI_SECTION="${RAW_OCI}"
+        echo -e "  ${GREEN}✅ 已自动保留原有 OCI 云账号配置与本地密钥映射！${PLAIN}"
+    else
+        OCI_SECTION=$'oci:\n  accounts: {}'
+    fi
     cp -f "${EXISTING_CONFIG}" "${EXISTING_CONFIG}.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
-    echo -e "  ${GREEN}✅ 已自动保留原有 OCI 云账号配置与本地密钥映射！${PLAIN}"
 fi
 
 cat << YAML > "${INSTALL_DIR}/application.yml"
