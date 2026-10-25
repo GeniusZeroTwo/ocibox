@@ -61,7 +61,19 @@ systemctl restart oci-personal
 
 sleep 2
 if systemctl is-active --quiet oci-personal; then
-    echo -e "${GREEN}🎉 OCI Personal 面板更新成功并已恢复运行！${PLAIN}"
+    echo -e "\n${GREEN}🎉 OCI Personal 面板更新成功并已恢复运行！${PLAIN}"
+    
+    # 自动读取并提示当前 Telegram 绑定状态
+    if [[ -f "${INSTALL_DIR}/application.yml" ]]; then
+        CURR_BOT=$(grep -E '^[[:space:]]*bot-token:' "${INSTALL_DIR}/application.yml" | head -n 1 | sed -E 's/^[[:space:]]*bot-token:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+        CURR_ADMIN=$(grep -E '^[[:space:]]*admin-id:' "${INSTALL_DIR}/application.yml" | head -n 1 | sed -E 's/^[[:space:]]*admin-id:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+        if [[ -n "${CURR_BOT}" && ! "${CURR_BOT}" =~ ^\$\{ && -n "${CURR_ADMIN}" && ! "${CURR_ADMIN}" =~ ^\$\{ ]]; then
+            echo -e "🤖 ${CYAN}Telegram 机器人状态${PLAIN}: ${GREEN}已绑定 (Admin ID: ${CURR_ADMIN})${PLAIN} [配置已完好保留]"
+        else
+            echo -e "🤖 ${CYAN}Telegram 机器人状态${PLAIN}: ${YELLOW}未绑定${PLAIN}"
+        fi
+    fi
+    echo -e "----------------------------------------------------------------"
     systemctl status oci-personal --no-pager | head -n 10
 else
     echo -e "${YELLOW}⚠️ 服务启动中或存在异常，请使用 journalctl -u oci-personal -n 50 查看详细启动日志。${PLAIN}"
