@@ -1,4 +1,4 @@
-# ☁️ OCI Personal - 甲骨文云个人自用轻量管理面板
+# ☁️ ocibox - 甲骨文云个人自用轻量管理面板
 
 > **完全面向客户自用自建 · 零商业租户与配额依赖 · 纯轻量化 SQLite 架构 (免 Redis) · 一键脚本自动部署**
 
@@ -33,7 +33,7 @@
 登录您的 VPS（推荐系统：Ubuntu 20.04/22.04/24.04、Debian 11/12、CentOS 8+/Rocky Linux），以 `root` 用户执行：
 
 ```bash
-curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/OCI-Personal/main/install.sh && chmod +x install.sh && ./install.sh
+curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.sh && chmod +x install.sh && ./install.sh
 ```
 
 > **脚本交互过程示例：**
@@ -146,7 +146,7 @@ systemctl enable --now oci-personal
 当项目有新版本时，执行以下更新脚本，自动保留现有 SQLite 数据库、各账号 API 私钥及自定义配置：
 
 ```bash
-curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/OCI-Personal/main/update.sh && chmod +x update.sh && ./update.sh
+curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/update.sh && chmod +x update.sh && ./update.sh
 ```
 
 ---
