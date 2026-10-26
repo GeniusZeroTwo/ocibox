@@ -36,7 +36,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 个人专属 Telegram 运维机器人（零商业租户/无配额限制/独占管理）
+ * 个人专属 Telegram 运维机器人（独占式个人运维管理）
  */
 @Service
 public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer {
