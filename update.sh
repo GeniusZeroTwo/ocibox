@@ -268,6 +268,24 @@ read_admin_password() {
     printf '%s' "$val"
 }
 
+resolve_admin_password() {
+    local pwd="$1"
+    local conf="$2"
+    local plain_file plain
+    if [[ "$pwd" == pbkdf2sha256\$* && -n "$conf" ]]; then
+        plain_file="$(dirname "$conf")/.admin-password"
+        if [[ -f "$plain_file" ]]; then
+            IFS= read -r plain < "$plain_file" || true
+            plain="${plain//$'\r'/}"
+            if [[ -n "$plain" && "$plain" != pbkdf2sha256\$* ]]; then
+                printf '%s' "$plain"
+                return
+            fi
+        fi
+    fi
+    printf '%s' "$pwd"
+}
+
 show_admin_password() {
     local pwd="$1"
     if [[ "$pwd" == pbkdf2sha256\$* ]]; then
@@ -289,7 +307,7 @@ ocibox_info() {
     fi
     local base_dir=$(dirname "$conf")
     local user=$(grep -E '^[[:space:]]*admin-username:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-username:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
-    local pwd=$(read_admin_password "$conf")
+    local pwd=$(resolve_admin_password "$(read_admin_password "$conf")" "$conf")
     local bot=$(grep -E '^[[:space:]]*bot-token:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*bot-token:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local admin_id=$(grep -E '^[[:space:]]*admin-id:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-id:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local port=$(grep -E '^[[:space:]]*port:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')

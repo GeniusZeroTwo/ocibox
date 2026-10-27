@@ -12,6 +12,9 @@ import java.io.FileInputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -242,6 +245,31 @@ public class AccountYamlService {
         Matcher m = Pattern.compile("(?i)^\\s*" + key + "\\s*=\\s*(.+)$", Pattern.MULTILINE).matcher(text);
         if (m.find()) return m.group(1).trim();
         return null;
+    }
+
+    /**
+     * 把还能登录的明文记到配置同目录的 .admin-password，供 oci 信息卡直接显示。
+     * 只给所有者读写。哈希和占位符不写进去。
+     */
+    public void rememberPlaintextAdminPassword(String plaintext) {
+        if (plaintext == null || plaintext.isBlank() || PasswordHasher.isHashed(plaintext.trim())) return;
+        if (plaintext.trim().matches("\\$\\{[^}]*}")) return;
+        synchronized (YAML_FILE_LOCK) {
+            try {
+                File ymlFile = getConfigFile();
+                if (ymlFile == null || ymlFile.getParentFile() == null) return;
+                Path path = ymlFile.getParentFile().toPath().resolve(".admin-password");
+                Files.writeString(path, plaintext.trim() + "\n", StandardCharsets.UTF_8,
+                        StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE);
+                try {
+                    Files.setPosixFilePermissions(path, EnumSet.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE));
+                } catch (UnsupportedOperationException ignored) {
+                    // 非 POSIX 文件系统没有这组权限位。
+                }
+            } catch (Exception e) {
+                System.err.println("记下管理员登录密码失败: " + e.getMessage());
+            }
+        }
     }
 
     /**

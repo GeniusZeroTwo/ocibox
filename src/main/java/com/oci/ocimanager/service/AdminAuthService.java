@@ -328,8 +328,10 @@ public class AdminAuthService {
         if (adminPassword == null || adminPassword.isBlank()) return;
         String current = adminPassword.trim();
         if (current.matches("\\$\\{[^}]*}") || PasswordHasher.isHashed(current)) return;
+        if (accountYamlService == null) return;
+        accountYamlService.rememberPlaintextAdminPassword(current);
         String hashed = PasswordHasher.hash(current);
-        if (accountYamlService != null && accountYamlService.replacePlaintextAdminPassword(current, hashed)) {
+        if (accountYamlService.replacePlaintextAdminPassword(current, hashed)) {
             this.adminPassword = hashed;
         }
     }

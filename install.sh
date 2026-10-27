@@ -117,6 +117,7 @@ yaml_single_quote() {
 }
 
 # 哈希不是登录密码。明文用 %s 打印，避免 echo -e 把密码里的反斜杠转义掉。
+# 配置被换成哈希后，登录明文在同目录 .admin-password，权限 600。
 show_admin_password() {
     local pwd="$1"
     if [[ "$pwd" == pbkdf2sha256\$* ]]; then
@@ -126,6 +127,36 @@ show_admin_password() {
     else
         printf '🔑 %b管理登录密码%b : %b%s%b\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$pwd" "${PLAIN}"
     fi
+}
+
+save_admin_password_plain() {
+    local pwd="$1"
+    local conf="$2"
+    local file
+    if [[ -z "$pwd" || -z "$conf" || "$pwd" == pbkdf2sha256\$* || "$pwd" == \$\{* ]]; then
+        return 0
+    fi
+    file="$(dirname "$conf")/.admin-password"
+    printf '%s\n' "$pwd" > "$file"
+    chmod 600 "$file" 2>/dev/null || true
+}
+
+resolve_admin_password() {
+    local pwd="$1"
+    local conf="$2"
+    local plain_file plain
+    if [[ "$pwd" == pbkdf2sha256\$* && -n "$conf" ]]; then
+        plain_file="$(dirname "$conf")/.admin-password"
+        if [[ -f "$plain_file" ]]; then
+            IFS= read -r plain < "$plain_file" || true
+            plain="${plain//$'\r'/}"
+            if [[ -n "$plain" && "$plain" != pbkdf2sha256\$* ]]; then
+                printf '%s' "$plain"
+                return
+            fi
+        fi
+    fi
+    printf '%s' "$pwd"
 }
 
 is_configured() {
@@ -597,6 +628,7 @@ if [[ "${WRITTEN_ADMIN_PWD}" != "${ADMIN_PWD}" ]]; then
     echo -e "${RED}❌ 管理员密码写入后读回不一致，已恢复原配置并中止。请换一个不含异常控制字符的密码后重试。${PLAIN}"
     exit 1
 fi
+save_admin_password_plain "${ADMIN_PWD}" "${INSTALL_DIR}/application.yml"
 echo -e "${GREEN}✅ 配置文件已安全生成至 ${INSTALL_DIR}/application.yml${PLAIN}"
 
 # 5. 安装核心程序 JAR 包
@@ -884,6 +916,24 @@ read_admin_password() {
     printf '%s' "$val"
 }
 
+resolve_admin_password() {
+    local pwd="$1"
+    local conf="$2"
+    local plain_file plain
+    if [[ "$pwd" == pbkdf2sha256\$* && -n "$conf" ]]; then
+        plain_file="$(dirname "$conf")/.admin-password"
+        if [[ -f "$plain_file" ]]; then
+            IFS= read -r plain < "$plain_file" || true
+            plain="${plain//$'\r'/}"
+            if [[ -n "$plain" && "$plain" != pbkdf2sha256\$* ]]; then
+                printf '%s' "$plain"
+                return
+            fi
+        fi
+    fi
+    printf '%s' "$pwd"
+}
+
 show_admin_password() {
     local pwd="$1"
     if [[ "$pwd" == pbkdf2sha256\$* ]]; then
@@ -905,7 +955,7 @@ ocibox_info() {
     fi
     local base_dir=$(dirname "$conf")
     local user=$(grep -E '^[[:space:]]*admin-username:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-username:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
-    local pwd=$(read_admin_password "$conf")
+    local pwd=$(resolve_admin_password "$(read_admin_password "$conf")" "$conf")
     local bot=$(grep -E '^[[:space:]]*bot-token:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*bot-token:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local admin_id=$(grep -E '^[[:space:]]*admin-id:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-id:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local port=$(grep -E '^[[:space:]]*port:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
@@ -1290,7 +1340,7 @@ else
     echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${SERVER_IP}:${PORT}${PLAIN}"
 fi
 echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${ADMIN_USER}${PLAIN}"
-show_admin_password "${ADMIN_PWD}"
+show_admin_password "$(resolve_admin_password "${ADMIN_PWD}" "${INSTALL_DIR}/application.yml")"
 if ! systemctl is-active --quiet ocibox; then
     echo -e "${RED}⚠️ 面板服务当前没有在运行，上面的密码要等服务启动成功后才会生效。请执行 systemctl status ocibox 查看原因。${PLAIN}"
 fi
