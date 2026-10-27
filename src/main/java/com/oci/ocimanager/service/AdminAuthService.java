@@ -6,6 +6,9 @@ import jakarta.annotation.PostConstruct;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.ConfigurableEnvironment;
+import org.springframework.core.env.Environment;
+import org.springframework.core.env.PropertySource;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
@@ -40,12 +43,13 @@ public class AdminAuthService {
     @Autowired private LocalCacheService redisTemplate;
     @Autowired private SystemConfigRepository systemConfigRepo;
     @Autowired private AccountYamlService accountYamlService;
+    @Autowired private Environment environment;
 
     @Value("${app.admin-username:admin}")
     private String adminUsername;
 
-    @Value("${app.admin-password:}")
-    private String adminPassword;
+    // 不用 @Value 读取密码：@Value 会再解析值里面的 ${}，含 $ 或 ${ 的口令会被改掉或让启动失败。
+    private String adminPassword = "";
 
     @Value("${app.admin-id}")
     private String adminId;
@@ -56,7 +60,13 @@ public class AdminAuthService {
     @PostConstruct
     public void upgradePlaintextAdminPasswords() {
         try {
-            upgradeDatabasePassword();
+            reloadAdminPasswordFromEnvironment();
+            // 配置文件里的口令是安装脚本写入的那一份。库里的旧口令不能再并列生效，否则改密后旧密码仍能登录。
+            if (adminPassword != null && !adminPassword.isBlank()) {
+                clearLegacyDatabasePassword();
+            } else {
+                upgradeDatabasePassword();
+            }
             upgradeYamlPassword();
         } catch (Exception e) {
             System.err.println("管理员密码哈希升级失败: " + e.getMessage());
@@ -254,13 +264,54 @@ public class AdminAuthService {
 
     private boolean passwordMatches(String presented) {
         if (presented == null || presented.isEmpty()) return false;
-        if (adminPassword != null && !adminPassword.isBlank() && PasswordHasher.matches(presented, adminPassword.trim())) {
-            return true;
+        if (adminPassword != null && !adminPassword.isBlank()) {
+            return PasswordHasher.matches(presented, adminPassword.trim());
         }
         if (systemConfigRepo == null) return false;
         var opt = systemConfigRepo.findById("ADMIN_WEB_PASSWORD");
         if (opt.isEmpty() || opt.get().getConfigValue() == null || opt.get().getConfigValue().isBlank()) return false;
         return PasswordHasher.matches(presented, opt.get().getConfigValue().trim());
+    }
+
+    /**
+     * 取属性源里的原始口令，不走嵌套占位符替换。整段值恰好是 {@code ${...}} 时才交给 Environment，
+     * 以兼容包内默认的 {@code ${ADMIN_PASSWORD:}}。
+     */
+    private void reloadAdminPasswordFromEnvironment() {
+        String raw = readRawAdminPassword();
+        if (raw.matches("\\$\\{[^}]*}")) {
+            try {
+                String resolved = environment == null ? "" : environment.getProperty("app.admin-password", "");
+                if (resolved != null && !resolved.isBlank() && !resolved.trim().matches("\\$\\{[^}]*}")) {
+                    raw = resolved.trim();
+                } else {
+                    raw = "";
+                }
+            } catch (Exception ignored) {
+                // 解析失败就保留字面量，避免把真正的密码清空。
+            }
+        }
+        this.adminPassword = raw == null ? "" : raw.trim();
+    }
+
+    private String readRawAdminPassword() {
+        if (!(environment instanceof ConfigurableEnvironment configurable)) return "";
+        for (PropertySource<?> source : configurable.getPropertySources()) {
+            if (source == null || "configurationProperties".equals(source.getName())) continue;
+            if (!source.containsProperty("app.admin-password")) continue;
+            Object value = source.getProperty("app.admin-password");
+            if (value == null) continue;
+            String text = String.valueOf(value).trim();
+            if (!text.isEmpty()) return text;
+        }
+        return "";
+    }
+
+    private void clearLegacyDatabasePassword() {
+        if (systemConfigRepo == null) return;
+        if (systemConfigRepo.existsById("ADMIN_WEB_PASSWORD")) {
+            systemConfigRepo.deleteById("ADMIN_WEB_PASSWORD");
+        }
     }
 
     private void upgradeDatabasePassword() {
@@ -276,7 +327,7 @@ public class AdminAuthService {
     private void upgradeYamlPassword() {
         if (adminPassword == null || adminPassword.isBlank()) return;
         String current = adminPassword.trim();
-        if (current.contains("${") || PasswordHasher.isHashed(current)) return;
+        if (current.matches("\\$\\{[^}]*}") || PasswordHasher.isHashed(current)) return;
         String hashed = PasswordHasher.hash(current);
         if (accountYamlService != null && accountYamlService.replacePlaintextAdminPassword(current, hashed)) {
             this.adminPassword = hashed;

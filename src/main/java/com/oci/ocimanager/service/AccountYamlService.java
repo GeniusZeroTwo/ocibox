@@ -249,27 +249,21 @@ public class AccountYamlService {
      */
     public boolean replacePlaintextAdminPassword(String plaintext, String hashed) {
         if (plaintext == null || plaintext.isBlank() || hashed == null || hashed.isBlank()) return false;
-        if (hashed.indexOf('"') >= 0 || hashed.indexOf('\n') >= 0 || hashed.indexOf('\r') >= 0) return false;
+        if (hashed.indexOf('\'') >= 0 || hashed.indexOf('"') >= 0 || hashed.indexOf('\n') >= 0 || hashed.indexOf('\r') >= 0) return false;
         synchronized (YAML_FILE_LOCK) {
             try {
                 File ymlFile = getConfigFile();
                 if (ymlFile == null || !ymlFile.exists()) return false;
-                List<String> lines = Files.readAllLines(ymlFile.toPath());
-                boolean changed = false;
-                Pattern pattern = Pattern.compile("^(\\s*)admin-password\\s*:\\s*(.*)$");
-                for (int i = 0; i < lines.size(); i++) {
-                    Matcher matcher = pattern.matcher(lines.get(i));
-                    if (!matcher.matches()) continue;
-                    String raw = matcher.group(2).trim();
-                    if (raw.contains("${")) return false;
-                    String value = unquoteYaml(raw);
-                    if (!value.equals(plaintext) || PasswordHasher.isHashed(value)) return false;
-                    lines.set(i, matcher.group(1) + "admin-password: \"" + hashed + "\"");
-                    changed = true;
-                    break;
-                }
-                if (!changed) return false;
-                Files.write(ymlFile.toPath(), lines, StandardCharsets.UTF_8);
+                List<String> lines = Files.readAllLines(ymlFile.toPath(), StandardCharsets.UTF_8);
+                int target = findPlaintextAdminPasswordLine(lines, plaintext);
+                if (target < 0) return false;
+                // 再读一次。安装脚本若已写入新口令，不能把启动时读到的旧明文哈希覆盖回去。
+                List<String> fresh = Files.readAllLines(ymlFile.toPath(), StandardCharsets.UTF_8);
+                if (target >= fresh.size() || !fresh.get(target).equals(lines.get(target))) return false;
+                if (findPlaintextAdminPasswordLine(fresh, plaintext) != target) return false;
+                String indent = leadingWhitespace(fresh.get(target));
+                fresh.set(target, indent + "admin-password: '" + hashed + "'");
+                Files.write(ymlFile.toPath(), fresh, StandardCharsets.UTF_8);
                 return true;
             } catch (Exception e) {
                 System.err.println("升级管理员密码哈希失败: " + e.getMessage());
@@ -278,14 +272,52 @@ public class AccountYamlService {
         }
     }
 
+    private static int findPlaintextAdminPasswordLine(List<String> lines, String plaintext) {
+        Pattern pattern = Pattern.compile("^(\\s*)admin-password\\s*:\\s*(.*)$");
+        for (int i = 0; i < lines.size(); i++) {
+            Matcher matcher = pattern.matcher(lines.get(i));
+            if (!matcher.matches()) continue;
+            String raw = matcher.group(2).trim();
+            String value = unquoteYaml(raw);
+            if (PasswordHasher.isHashed(value)) return -1;
+            if (!value.equals(plaintext)) return -1;
+            if (value.matches("\\$\\{[^}]*}")) return -1;
+            return i;
+        }
+        return -1;
+    }
+
+    private static String leadingWhitespace(String line) {
+        int i = 0;
+        while (i < line.length() && (line.charAt(i) == ' ' || line.charAt(i) == '\t')) i++;
+        return line.substring(0, i);
+    }
+
     private static String unquoteYaml(String raw) {
-        if (raw.length() >= 2) {
-            char quote = raw.charAt(0);
-            if ((quote == '"' || quote == '\'') && raw.charAt(raw.length() - 1) == quote) {
-                return raw.substring(1, raw.length() - 1);
+        if (raw == null) return "";
+        String value = raw.trim();
+        if (value.length() >= 2) {
+            char quote = value.charAt(0);
+            if ((quote == '"' || quote == '\'') && value.charAt(value.length() - 1) == quote) {
+                String body = value.substring(1, value.length() - 1);
+                if (quote == '\'') return body.replace("''", "'");
+                StringBuilder out = new StringBuilder(body.length());
+                for (int i = 0; i < body.length(); i++) {
+                    char c = body.charAt(i);
+                    if (c == '\\' && i + 1 < body.length()) {
+                        char next = body.charAt(i + 1);
+                        if (next == '\\' || next == '"') {
+                            out.append(next);
+                            i++;
+                            continue;
+                        }
+                    }
+                    out.append(c);
+                }
+                return out.toString();
             }
         }
-        return raw;
+        return value;
     }
 
     // 🔒 账号别名将被写成 YAML 键 "[name]"，禁止会破坏 YAML 结构的元字符与控制字符。

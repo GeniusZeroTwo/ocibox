@@ -23,11 +23,28 @@ BANNER
 echo -e "${PLAIN}"
 echo -e "${GREEN}>>> 正在启动 OCIBox 个人专属管理面板一键部署向导...${PLAIN}\n"
 
-# 1. 检查 root 权限
+# 1. 检查 root 权限与参数处理
 if [[ $EUID -ne 0 ]]; then
     echo -e "${RED}❌ 错误: 本安装脚本必须以 root 用户权限运行！请使用 sudo -i 或 su root 切换后重试。${PLAIN}"
     exit 1
 fi
+
+# 解析命令行参数 (支持快捷非交互静默更新，直接保持客户默认配置)
+AUTO_UPDATE=false
+for arg in "${@:-}"; do
+    case "$arg" in
+        -y|--yes|-u|--update|update|upgrade)
+            AUTO_UPDATE=true
+            ;;
+        -h|--help|help)
+            echo "用法: ./install.sh [选项]"
+            echo "选项:"
+            echo "  -y, -u, update    一键保持现有全部配置与默认选项，免交互极速更新"
+            echo "  -h, --help        显示帮助信息"
+            exit 0
+            ;;
+    esac
+done
 
 INSTALL_DIR="/root/ocibox"
 # 自动检测并平滑迁移旧版目录 /root/oci-personal
@@ -41,13 +58,73 @@ cd "${INSTALL_DIR}" || exit 1
 # 2. 自动检测历史配置与交互式收集
 echo -e "${CYAN}------------------- [ 基础配置向导 ] -------------------${PLAIN}"
 
+# 去掉 YAML 标量外层的一对引号。双引号里的 \" 和 \\ 会还原，单引号里的 '' 会还原成一个 '。
+unwrap_yaml_scalar() {
+    local val="$1"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    local len=${#val}
+    if (( len >= 2 )); then
+        local first=${val:0:1}
+        local last=${val:len-1:1}
+        if [[ "$first" == "'" && "$last" == "'" ]]; then
+            val="${val:1:len-2}"
+            local sq="'"
+            val=${val//$sq$sq/$sq}
+        elif [[ "$first" == '"' && "$last" == '"' ]]; then
+            val="${val:1:len-2}"
+            local out="" i=0 n=${#val}
+            while (( i < n )); do
+                local c=${val:i:1}
+                if [[ "$c" == '\' && $((i + 1)) -lt n ]]; then
+                    local nch=${val:i+1:1}
+                    case "$nch" in
+                        '\'|'"') out+="$nch"; i=$((i + 2)); continue ;;
+                        n) out+=$'\n'; i=$((i + 2)); continue ;;
+                        t) out+=$'\t'; i=$((i + 2)); continue ;;
+                    esac
+                fi
+                out+="$c"
+                i=$((i + 1))
+            done
+            val="$out"
+        fi
+    fi
+    printf '%s' "$val"
+}
+
 get_yaml_val() {
     local key="$1"
     local file="$2"
-    if [[ -f "${file}" ]]; then
-        grep -E "^[[:space:]]*${key}:" "${file}" | head -n 1 | sed -E "s/^[[:space:]]*${key}:[[:space:]]*\"?(.*)\"?[[:space:]]*$/\1/" | sed 's/"//g' | tr -d '\r'
+    if [[ ! -f "${file}" ]]; then
+        printf ''
+        return
+    fi
+    local line
+    line=$(grep -E "^[[:space:]]*${key}:" "${file}" | head -n 1 | tr -d '\r' || true)
+    if [[ -z "$line" ]]; then
+        printf ''
+        return
+    fi
+    unwrap_yaml_scalar "${line#*:}"
+}
+
+# 写成 YAML 单引号标量。$、\、#、" 都按字面保存，避免被 shell 或 YAML 吃掉。
+yaml_single_quote() {
+    local s=$1
+    s=${s//\'/\'\'}
+    printf "'%s'" "$s"
+}
+
+# 哈希不是登录密码。明文用 %s 打印，避免 echo -e 把密码里的反斜杠转义掉。
+show_admin_password() {
+    local pwd="$1"
+    if [[ "$pwd" == pbkdf2sha256\$* ]]; then
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已加密保存。请使用设置时的明文密码登录，不要把 pbkdf2 哈希当作密码。${PLAIN}"
+    elif [[ -z "$pwd" || "$pwd" == \$\{* ]]; then
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}未设置${PLAIN}"
     else
-        echo ""
+        printf '🔑 %b管理登录密码%b : %b%s%b\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$pwd" "${PLAIN}"
     fi
 }
 
@@ -128,137 +205,208 @@ elif [[ -f "/root/oci-personal/domain.conf" ]]; then
     EXISTING_DOMAIN=$(grep -E '^[[:space:]]*DOMAIN=' "/root/oci-personal/domain.conf" 2>/dev/null | head -n 1 | cut -d '=' -f 2 | tr -d ' "\r')
 fi
 
+HAS_EXISTING=false
 if [[ -f "${EXISTING_CONFIG}" ]]; then
     EXISTING_PORT=$(get_yaml_val "port" "${EXISTING_CONFIG}")
     EXISTING_ADMIN_USER=$(get_yaml_val "admin-username" "${EXISTING_CONFIG}")
     EXISTING_ADMIN_PWD=$(get_yaml_val "admin-password" "${EXISTING_CONFIG}")
     EXISTING_BOT_TOKEN=$(get_yaml_val "bot-token" "${EXISTING_CONFIG}")
     EXISTING_ADMIN_ID=$(get_yaml_val "admin-id" "${EXISTING_CONFIG}")
-    echo -e "${GREEN}🔍 检测到本地已存在历史配置 (${EXISTING_CONFIG})，支持一键无损沿用！${PLAIN}\n"
+    HAS_EXISTING=true
 fi
 
-# 端口配置
-while true; do
-    if is_configured "${EXISTING_PORT}"; then
-        read -rp "👉 请输入管理后台服务端口 [检测到原配置: ${EXISTING_PORT}, 回车直接沿用]: " INPUT_PORT
-        PORT="${INPUT_PORT:-${EXISTING_PORT}}"
+SKIP_INTERACTIVE=false
+if [[ "${HAS_EXISTING}" == "true" ]]; then
+    if [[ "${AUTO_UPDATE}" == "true" ]]; then
+        echo -e "${GREEN}⚡ 检测到更新参数，已自动启用【直接保持客户默认选项更新】模式！${PLAIN}"
+        echo -e "${GREEN}   自动保留原有端口、管理员账户、密码、Telegram 与域名证书配置...${PLAIN}\n"
+        SKIP_INTERACTIVE=true
     else
-        read -rp "👉 请输入管理后台服务端口 [默认: 5000]: " INPUT_PORT
-        PORT="${INPUT_PORT:-5000}"
+        echo -e "${GREEN}🔍 检测到本地已存在 OCIBox 历史配置 (${EXISTING_CONFIG})！${PLAIN}"
+        echo -e "${CYAN}👉 请选择运行模式:${PLAIN}"
+        echo -e "   ${GREEN}[1] ⚡ 一键保持客户默认选项更新 (直接沿用现有端口、账户名、密码、Telegram、域名配置)${PLAIN}"
+        echo -e "   ${YELLOW}[2] 🛠️ 重新进入交互式向导配置 (修改端口/账户名/密码/TG/域名等)${PLAIN}"
+        read -rp "请输入选项编号 [默认: 1 (回车直接保持默认更新)]: " CHOICE_UPDATE
+        CHOICE_UPDATE="${CHOICE_UPDATE:-1}"
+        if [[ "${CHOICE_UPDATE}" == "1" ]]; then
+            echo -e "${GREEN}✅ 已选择一键保持客户默认选项更新！${PLAIN}\n"
+            SKIP_INTERACTIVE=true
+        else
+            SKIP_INTERACTIVE=false
+        fi
     fi
-
-    if [[ "${PORT}" =~ ^[0-9]+$ ]] && [ "${PORT}" -ge 1 ] && [ "${PORT}" -le 65535 ]; then
-        break
-    else
-        echo -e "${RED}❌ 端口格式无效，请输入 1-65535 之间的有效端口号！${PLAIN}"
-    fi
-done
-
-# 🛡️ 自动放行设置的服务端口
-open_port "${PORT}"
-
-# 管理员账户名配置
-if is_configured "${EXISTING_ADMIN_USER}"; then
-    read -rp "👉 请输入管理员账户名 [检测到原配置: ${EXISTING_ADMIN_USER}, 回车直接沿用]: " INPUT_USER
-    ADMIN_USER="${INPUT_USER:-${EXISTING_ADMIN_USER}}"
-else
-    read -rp "👉 请输入管理员账户名 [默认: admin]: " INPUT_USER
-    ADMIN_USER="${INPUT_USER:-admin}"
 fi
 
-# 管理员密码配置 (自动生成32位带符号高强度密码)
-if is_configured "${EXISTING_ADMIN_PWD}"; then
-    read -rp "👉 请设置管理员登录密码 [检测到已有密码, 回车保留原密码不修改]: " INPUT_PWD
-    ADMIN_PWD="${INPUT_PWD:-${EXISTING_ADMIN_PWD}}"
-else
-    DEFAULT_PWD=$(LC_ALL=C tr -dc 'A-Za-z0-9@#$%&*!_=+' < /dev/urandom 2>/dev/null | head -c 32)
-    [[ -z "${DEFAULT_PWD}" || ${#DEFAULT_PWD} -lt 32 ]] && DEFAULT_PWD=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9@#$%&*!_=+' | head -c 32)
-    read -rp "👉 请设置管理员登录密码 [回车自动生成32位带符号密码: ${DEFAULT_PWD}]: " INPUT_PWD
-    ADMIN_PWD="${INPUT_PWD:-${DEFAULT_PWD}}"
-fi
+if [[ "${SKIP_INTERACTIVE}" == "true" ]]; then
+    PORT="${EXISTING_PORT:-5000}"
+    open_port "${PORT}"
 
-# Telegram 绑定选项
-echo -e "\n${CYAN}------------------- [ Telegram 机器人配置 ] -------------------${PLAIN}"
-BOT_TOKEN=""
-ADMIN_ID=""
-TG_STATUS="未绑定 (随时可在后台或配置文件中开启)"
+    ADMIN_USER="${EXISTING_ADMIN_USER:-admin}"
+    ADMIN_PWD="${EXISTING_ADMIN_PWD}"
 
-if is_configured "${EXISTING_BOT_TOKEN}" && is_configured "${EXISTING_ADMIN_ID}"; then
-    MASKED_TOKEN="${EXISTING_BOT_TOKEN:0:6}******${EXISTING_BOT_TOKEN: -4}"
-    echo -e "${GREEN}🔔 【检测到您此前已成功绑定过 Telegram 运维机器人】${PLAIN}"
-    echo -e "   - 👑 管理员 Chat ID : ${YELLOW}${EXISTING_ADMIN_ID}${PLAIN}"
-    echo -e "   - 🔑 Bot Token 凭据 : ${YELLOW}${MASKED_TOKEN}${PLAIN}"
-    read -rp "👉 是否直接保留现有 Telegram 机器人绑定？(Y/n, 默认 Y 沿用): " KEEP_TG
-    KEEP_TG="${KEEP_TG:-Y}"
-    if [[ "${KEEP_TG}" =~ ^[Yy]$ ]]; then
+    BOT_TOKEN=""
+    ADMIN_ID=""
+    TG_STATUS="未绑定 (随时可在后台或配置文件中开启)"
+    if is_configured "${EXISTING_BOT_TOKEN}" && is_configured "${EXISTING_ADMIN_ID}"; then
         BOT_TOKEN="${EXISTING_BOT_TOKEN}"
         ADMIN_ID="${EXISTING_ADMIN_ID}"
         TG_STATUS="已绑定 (Admin ID: ${ADMIN_ID}) [保留原配置]"
-        echo -e "  ${GREEN}✅ 已自动沿用此前绑定的 Telegram 机器人！${PLAIN}"
+    fi
+
+    BIND_DOMAIN=false
+    DOMAIN=""
+    DOMAIN_STATUS="未绑定 (直接 IP 访问)"
+    if [[ -n "${EXISTING_DOMAIN}" ]]; then
+        BIND_DOMAIN=true
+        DOMAIN="${EXISTING_DOMAIN}"
+        DOMAIN_STATUS="已绑定 (https://${DOMAIN}) [保留原配置]"
+    fi
+else
+    # 端口配置
+    while true; do
+        if is_configured "${EXISTING_PORT}"; then
+            read -rp "👉 请输入管理后台服务端口 [检测到原配置: ${EXISTING_PORT}, 回车直接沿用]: " INPUT_PORT
+            PORT="${INPUT_PORT:-${EXISTING_PORT}}"
+        else
+            read -rp "👉 请输入管理后台服务端口 [默认: 5000]: " INPUT_PORT
+            PORT="${INPUT_PORT:-5000}"
+        fi
+
+        if [[ "${PORT}" =~ ^[0-9]+$ ]] && [ "${PORT}" -ge 1 ] && [ "${PORT}" -le 65535 ]; then
+            break
+        else
+            echo -e "${RED}❌ 端口格式无效，请输入 1-65535 之间的有效端口号！${PLAIN}"
+        fi
+    done
+
+    # 🛡️ 自动放行设置的服务端口
+    open_port "${PORT}"
+
+    # 管理员账户名配置
+    if is_configured "${EXISTING_ADMIN_USER}"; then
+        read -rp "👉 请输入管理员账户名 [检测到原配置: ${EXISTING_ADMIN_USER}, 回车直接沿用]: " INPUT_USER
+        ADMIN_USER="${INPUT_USER:-${EXISTING_ADMIN_USER}}"
     else
-        echo -e "  ${YELLOW}ℹ️ 您选择了重新设置或解绑 Telegram 机器人。${PLAIN}"
-        read -rp "👉 是否需要绑定新的 Telegram 机器人？(y/N, 默认 N 解除绑定): " RE_BIND_TG
-        if [[ "${RE_BIND_TG}" =~ ^[Yy]$ ]]; then
+        read -rp "👉 请输入管理员账户名 [默认: admin]: " INPUT_USER
+        ADMIN_USER="${INPUT_USER:-admin}"
+    fi
+
+    # 管理员密码配置 (自动生成32位带符号高强度密码)
+    if is_configured "${EXISTING_ADMIN_PWD}"; then
+        read -rp "👉 请设置管理员登录密码 [检测到已有密码, 回车保留原密码不修改]: " INPUT_PWD
+        ADMIN_PWD="${INPUT_PWD:-${EXISTING_ADMIN_PWD}}"
+    else
+        DEFAULT_PWD=$(LC_ALL=C tr -dc 'A-Za-z0-9@#$%&*!_=+' < /dev/urandom 2>/dev/null | head -c 32)
+        [[ -z "${DEFAULT_PWD}" || ${#DEFAULT_PWD} -lt 32 ]] && DEFAULT_PWD=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9@#$%&*!_=+' | head -c 32)
+        read -rp "👉 请设置管理员登录密码 [回车自动生成32位带符号密码: ${DEFAULT_PWD}]: " INPUT_PWD
+        ADMIN_PWD="${INPUT_PWD:-${DEFAULT_PWD}}"
+    fi
+
+    # Telegram 绑定选项
+    echo -e "\n${CYAN}------------------- [ Telegram 机器人配置 ] -------------------${PLAIN}"
+    BOT_TOKEN=""
+    ADMIN_ID=""
+    TG_STATUS="未绑定 (随时可在后台或配置文件中开启)"
+
+    if is_configured "${EXISTING_BOT_TOKEN}" && is_configured "${EXISTING_ADMIN_ID}"; then
+        MASKED_TOKEN="${EXISTING_BOT_TOKEN:0:6}******${EXISTING_BOT_TOKEN: -4}"
+        echo -e "${GREEN}🔔 【检测到您此前已成功绑定过 Telegram 运维机器人】${PLAIN}"
+        echo -e "   - 👑 管理员 Chat ID : ${YELLOW}${EXISTING_ADMIN_ID}${PLAIN}"
+        echo -e "   - 🔑 Bot Token 凭据 : ${YELLOW}${MASKED_TOKEN}${PLAIN}"
+        read -rp "👉 是否直接保留现有 Telegram 机器人绑定？(Y/n, 默认 Y 沿用): " KEEP_TG
+        KEEP_TG="${KEEP_TG:-Y}"
+        if [[ "${KEEP_TG}" =~ ^[Yy]$ ]]; then
+            BOT_TOKEN="${EXISTING_BOT_TOKEN}"
+            ADMIN_ID="${EXISTING_ADMIN_ID}"
+            TG_STATUS="已绑定 (Admin ID: ${ADMIN_ID}) [保留原配置]"
+            echo -e "  ${GREEN}✅ 已自动沿用此前绑定的 Telegram 机器人！${PLAIN}"
+        else
+            echo -e "  ${YELLOW}ℹ️ 您选择了重新设置或解绑 Telegram 机器人。${PLAIN}"
+            read -rp "👉 是否需要绑定新的 Telegram 机器人？(y/N, 默认 N 解除绑定): " RE_BIND_TG
+            if [[ "${RE_BIND_TG}" =~ ^[Yy]$ ]]; then
+                read -rp "  请输入 Telegram Bot Token (从 @BotFather 获取): " INPUT_BOT_TOKEN
+                read -rp "  请输入管理员 Telegram Chat ID (从 @userinfobot 获取): " INPUT_ADMIN_ID
+                BOT_TOKEN="${INPUT_BOT_TOKEN:-}"
+                ADMIN_ID="${INPUT_ADMIN_ID:-}"
+                if is_configured "${BOT_TOKEN}" && is_configured "${ADMIN_ID}"; then
+                    TG_STATUS="已绑定 (Admin ID: ${ADMIN_ID})"
+                    echo -e "  ${GREEN}✅ 新的 Telegram 机器人信息已记录！${PLAIN}"
+                else
+                    BOT_TOKEN=""
+                    ADMIN_ID=""
+                    TG_STATUS="未绑定"
+                    echo -e "  ${YELLOW}⚠️ 输入不完整，已设置为未绑定状态。${PLAIN}"
+                fi
+            else
+                BOT_TOKEN=""
+                ADMIN_ID=""
+                TG_STATUS="未绑定"
+                echo -e "  ${YELLOW}ℹ️ 已解除 Telegram 机器人绑定。${PLAIN}"
+            fi
+        fi
+    else
+        echo -e "说明: 机器人供您个人独占远程运维（查看实例、一键换IP、开关机、重装系统、流量预警推送）"
+        read -rp "👉 是否需要绑定您的 Telegram 运维机器人？(y/N, 默认 N): " BIND_TG
+        if [[ "${BIND_TG}" =~ ^[Yy]$ ]]; then
             read -rp "  请输入 Telegram Bot Token (从 @BotFather 获取): " INPUT_BOT_TOKEN
             read -rp "  请输入管理员 Telegram Chat ID (从 @userinfobot 获取): " INPUT_ADMIN_ID
             BOT_TOKEN="${INPUT_BOT_TOKEN:-}"
             ADMIN_ID="${INPUT_ADMIN_ID:-}"
             if is_configured "${BOT_TOKEN}" && is_configured "${ADMIN_ID}"; then
                 TG_STATUS="已绑定 (Admin ID: ${ADMIN_ID})"
-                echo -e "  ${GREEN}✅ 新的 Telegram 机器人信息已记录！${PLAIN}"
+                echo -e "  ${GREEN}✅ Telegram 机器人信息已记录！${PLAIN}"
             else
-                BOT_TOKEN=""
-                ADMIN_ID=""
-                TG_STATUS="未绑定"
-                echo -e "  ${YELLOW}⚠️ 输入不完整，已设置为未绑定状态。${PLAIN}"
+                echo -e "  ${YELLOW}⚠️ 输入不完整，已跳过 Telegram 绑定。${PLAIN}"
             fi
-        else
-            BOT_TOKEN=""
-            ADMIN_ID=""
-            TG_STATUS="未绑定"
-            echo -e "  ${YELLOW}ℹ️ 已解除 Telegram 机器人绑定。${PLAIN}"
         fi
     fi
-else
-    echo -e "说明: 机器人供您个人独占远程运维（查看实例、一键换IP、开关机、重装系统、流量预警推送）"
-    read -rp "👉 是否需要绑定您的 Telegram 运维机器人？(y/N, 默认 N): " BIND_TG
-    if [[ "${BIND_TG}" =~ ^[Yy]$ ]]; then
-        read -rp "  请输入 Telegram Bot Token (从 @BotFather 获取): " INPUT_BOT_TOKEN
-        read -rp "  请输入管理员 Telegram Chat ID (从 @userinfobot 获取): " INPUT_ADMIN_ID
-        BOT_TOKEN="${INPUT_BOT_TOKEN:-}"
-        ADMIN_ID="${INPUT_ADMIN_ID:-}"
-        if is_configured "${BOT_TOKEN}" && is_configured "${ADMIN_ID}"; then
-            TG_STATUS="已绑定 (Admin ID: ${ADMIN_ID})"
-            echo -e "  ${GREEN}✅ Telegram 机器人信息已记录！${PLAIN}"
+
+    # 域名与 SSL 证书配置
+    echo -e "\n${CYAN}------------------- [ 域名与 SSL 证书配置 ] -------------------${PLAIN}"
+    BIND_DOMAIN=false
+    DOMAIN=""
+    DOMAIN_STATUS="未绑定 (直接 IP 访问)"
+
+    # 预先探测本机公网 IP 辅助校验
+    SERVER_IP=$(curl -s4 --max-time 3 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 3 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 3 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
+
+    if [[ -n "${EXISTING_DOMAIN}" ]]; then
+        echo -e "${GREEN}🔔 【检测到您此前已成功绑定过域名】: ${YELLOW}${EXISTING_DOMAIN}${PLAIN}"
+        read -rp "👉 是否直接沿用此域名并保持 SSL 反向代理？(Y/n, 默认 Y 沿用): " KEEP_DOMAIN
+        KEEP_DOMAIN="${KEEP_DOMAIN:-Y}"
+        if [[ "${KEEP_DOMAIN}" =~ ^[Yy]$ ]]; then
+            BIND_DOMAIN=true
+            DOMAIN="${EXISTING_DOMAIN}"
+            DOMAIN_STATUS="已绑定 (https://${DOMAIN})"
+            echo -e "  ${GREEN}✅ 已自动沿用此前绑定的域名: ${DOMAIN}${PLAIN}"
         else
-            echo -e "  ${YELLOW}⚠️ 输入不完整，已跳过 Telegram 绑定。${PLAIN}"
+            read -rp "👉 是否需要绑定新的域名？(y/N, 默认 N 解除域名绑定): " RE_BIND_DOMAIN
+            if [[ "${RE_BIND_DOMAIN}" =~ ^[Yy]$ ]]; then
+                while true; do
+                    read -rp "  请输入新的解析域名 (例如: oci.example.com): " INPUT_DOMAIN
+                    INPUT_DOMAIN=$(echo "${INPUT_DOMAIN}" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | tr -d '[:space:]')
+                    if [[ -n "${INPUT_DOMAIN}" && "${INPUT_DOMAIN}" =~ ^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
+                        DOMAIN="${INPUT_DOMAIN}"
+                        BIND_DOMAIN=true
+                        DOMAIN_STATUS="已绑定 (https://${DOMAIN})"
+                        break
+                    else
+                        echo -e "  ${RED}❌ 域名格式无效，请重新输入（例如: oci.example.com，请勿带 http/https）！${PLAIN}"
+                    fi
+                done
+            else
+                BIND_DOMAIN=false
+                DOMAIN=""
+                DOMAIN_STATUS="未绑定"
+                echo -e "  ${YELLOW}ℹ️ 已解除域名绑定，面板将恢复通过 IP+端口 直接访问。${PLAIN}"
+            fi
         fi
-    fi
-fi
-
-# 域名与 SSL 证书配置
-echo -e "\n${CYAN}------------------- [ 域名与 SSL 证书配置 ] -------------------${PLAIN}"
-BIND_DOMAIN=false
-DOMAIN=""
-DOMAIN_STATUS="未绑定 (直接 IP 访问)"
-
-# 预先探测本机公网 IP 辅助校验
-SERVER_IP=$(curl -s4 --max-time 3 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 3 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 3 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
-
-if [[ -n "${EXISTING_DOMAIN}" ]]; then
-    echo -e "${GREEN}🔔 【检测到您此前已成功绑定过域名】: ${YELLOW}${EXISTING_DOMAIN}${PLAIN}"
-    read -rp "👉 是否直接沿用此域名并保持 SSL 反向代理？(Y/n, 默认 Y 沿用): " KEEP_DOMAIN
-    KEEP_DOMAIN="${KEEP_DOMAIN:-Y}"
-    if [[ "${KEEP_DOMAIN}" =~ ^[Yy]$ ]]; then
-        BIND_DOMAIN=true
-        DOMAIN="${EXISTING_DOMAIN}"
-        DOMAIN_STATUS="已绑定 (https://${DOMAIN})"
-        echo -e "  ${GREEN}✅ 已自动沿用此前绑定的域名: ${DOMAIN}${PLAIN}"
     else
-        read -rp "👉 是否需要绑定新的域名？(y/N, 默认 N 解除域名绑定): " RE_BIND_DOMAIN
-        if [[ "${RE_BIND_DOMAIN}" =~ ^[Yy]$ ]]; then
+        echo -e "说明: 绑定域名可自动配置 Nginx 反向代理与免费 Let's Encrypt SSL 证书 (HTTPS 安全加密访问)"
+        read -rp "👉 是否需要为管理后台绑定自定义域名并配置 SSL 证书？(y/N, 默认 N 继续直接访问): " ASK_BIND_DOMAIN
+        if [[ "${ASK_BIND_DOMAIN}" =~ ^[Yy]$ ]]; then
             while true; do
-                read -rp "  请输入新的解析域名 (例如: oci.example.com): " INPUT_DOMAIN
+                read -rp "  👉 请输入已解析到本机 IP (${SERVER_IP}) 的域名 (例如: oci.example.com): " INPUT_DOMAIN
                 INPUT_DOMAIN=$(echo "${INPUT_DOMAIN}" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | tr -d '[:space:]')
                 if [[ -n "${INPUT_DOMAIN}" && "${INPUT_DOMAIN}" =~ ^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
                     DOMAIN="${INPUT_DOMAIN}"
@@ -269,49 +417,27 @@ if [[ -n "${EXISTING_DOMAIN}" ]]; then
                     echo -e "  ${RED}❌ 域名格式无效，请重新输入（例如: oci.example.com，请勿带 http/https）！${PLAIN}"
                 fi
             done
+
+            # DNS 解析检查与提示
+            echo -e "  🔍 正在检测 ${CYAN}${DOMAIN}${PLAIN} 的 DNS 解析状态..."
+            RESOLVED_IP=$(ping -c 1 -W 2 "${DOMAIN}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || getent ahosts "${DOMAIN}" 2>/dev/null | awk '{print $1}' | head -n 1 || true)
+            if [[ -n "${RESOLVED_IP}" ]]; then
+                if [[ "${RESOLVED_IP}" == "${SERVER_IP}" ]]; then
+                    echo -e "  ${GREEN}✅ DNS 解析校验通过！${DOMAIN} 已成功指向当前服务器 (${SERVER_IP})。${PLAIN}"
+                else
+                    echo -e "  ${YELLOW}⚠️ 提示: ${DOMAIN} 当前解析为 [${RESOLVED_IP}]，与本机公网 IP [${SERVER_IP}] 不一致。${PLAIN}"
+                    echo -e "  ${YELLOW}   (若为 CDN/Cloudflare 代理或新解析生效延迟，若官方证书签发受阻，将自动启用自签名证书保底)${PLAIN}"
+                fi
+            else
+                echo -e "  ${YELLOW}⚠️ 提示: 暂未检测到 ${DOMAIN} 的 DNS 解析记录，可能需要几分钟在全球 DNS 生效。${PLAIN}"
+                echo -e "  ${YELLOW}   (安装过程中若官方证书申请超时，将自动生成高强度自签名证书保底，确保顺利安装)${PLAIN}"
+            fi
         else
             BIND_DOMAIN=false
             DOMAIN=""
             DOMAIN_STATUS="未绑定"
-            echo -e "  ${YELLOW}ℹ️ 已解除域名绑定，面板将恢复通过 IP+端口 直接访问。${PLAIN}"
+            echo -e "  ${CYAN}ℹ️ 您选择了不绑定域名，将跳过证书申请，通过 http://${SERVER_IP}:${PORT} 直接访问。${PLAIN}"
         fi
-    fi
-else
-    echo -e "说明: 绑定域名可自动配置 Nginx 反向代理与免费 Let's Encrypt SSL 证书 (HTTPS 安全加密访问)"
-    read -rp "👉 是否需要为管理后台绑定自定义域名并配置 SSL 证书？(y/N, 默认 N 继续直接访问): " ASK_BIND_DOMAIN
-    if [[ "${ASK_BIND_DOMAIN}" =~ ^[Yy]$ ]]; then
-        while true; do
-            read -rp "  👉 请输入已解析到本机 IP (${SERVER_IP}) 的域名 (例如: oci.example.com): " INPUT_DOMAIN
-            INPUT_DOMAIN=$(echo "${INPUT_DOMAIN}" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | tr -d '[:space:]')
-            if [[ -n "${INPUT_DOMAIN}" && "${INPUT_DOMAIN}" =~ ^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
-                DOMAIN="${INPUT_DOMAIN}"
-                BIND_DOMAIN=true
-                DOMAIN_STATUS="已绑定 (https://${DOMAIN})"
-                break
-            else
-                echo -e "  ${RED}❌ 域名格式无效，请重新输入（例如: oci.example.com，请勿带 http/https）！${PLAIN}"
-            fi
-        done
-
-        # DNS 解析检查与提示
-        echo -e "  🔍 正在检测 ${CYAN}${DOMAIN}${PLAIN} 的 DNS 解析状态..."
-        RESOLVED_IP=$(ping -c 1 -W 2 "${DOMAIN}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || getent ahosts "${DOMAIN}" 2>/dev/null | awk '{print $1}' | head -n 1 || true)
-        if [[ -n "${RESOLVED_IP}" ]]; then
-            if [[ "${RESOLVED_IP}" == "${SERVER_IP}" ]]; then
-                echo -e "  ${GREEN}✅ DNS 解析校验通过！${DOMAIN} 已成功指向当前服务器 (${SERVER_IP})。${PLAIN}"
-            else
-                echo -e "  ${YELLOW}⚠️ 提示: ${DOMAIN} 当前解析为 [${RESOLVED_IP}]，与本机公网 IP [${SERVER_IP}] 不一致。${PLAIN}"
-                echo -e "  ${YELLOW}   (若为 CDN/Cloudflare 代理或新解析生效延迟，若官方证书签发受阻，将自动启用自签名证书保底)${PLAIN}"
-            fi
-        else
-            echo -e "  ${YELLOW}⚠️ 提示: 暂未检测到 ${DOMAIN} 的 DNS 解析记录，可能需要几分钟在全球 DNS 生效。${PLAIN}"
-            echo -e "  ${YELLOW}   (安装过程中若官方证书申请超时，将自动生成高强度自签名证书保底，确保顺利安装)${PLAIN}"
-        fi
-    else
-        BIND_DOMAIN=false
-        DOMAIN=""
-        DOMAIN_STATUS="未绑定"
-        echo -e "  ${CYAN}ℹ️ 您选择了不绑定域名，将跳过证书申请，通过 http://${SERVER_IP}:${PORT} 直接访问。${PLAIN}"
     fi
 fi
 
@@ -385,6 +511,21 @@ if [[ -f "${EXISTING_CONFIG}" ]] && grep -q "^oci:" "${EXISTING_CONFIG}"; then
     cp -f "${EXISTING_CONFIG}" "${EXISTING_CONFIG}.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
 fi
 
+# 先停服务再写口令。旧进程内存里仍是旧密码，启动阶段的哈希升级也可能把旧哈希写回刚改过的文件。
+systemctl stop ocibox >/dev/null 2>&1 || true
+systemctl stop oci-personal >/dev/null 2>&1 || true
+PASSWORD_BACKUP=""
+if [[ -f "${INSTALL_DIR}/application.yml" ]]; then
+    PASSWORD_BACKUP="${INSTALL_DIR}/application.yml.bak.password"
+    cp -f "${INSTALL_DIR}/application.yml" "${PASSWORD_BACKUP}" 2>/dev/null || true
+    chmod 600 "${PASSWORD_BACKUP}" 2>/dev/null || true
+fi
+
+ADMIN_USER_YAML=$(yaml_single_quote "${ADMIN_USER}")
+ADMIN_PWD_YAML=$(yaml_single_quote "${ADMIN_PWD}")
+BOT_TOKEN_YAML=$(yaml_single_quote "${BOT_TOKEN}")
+ADMIN_ID_YAML=$(yaml_single_quote "${ADMIN_ID}")
+
 cat << YAML > "${INSTALL_DIR}/application.yml"
 server:
   port: ${PORT}
@@ -436,10 +577,10 @@ spring:
         size: 2
 
 app:
-  admin-username: "${ADMIN_USER}"
-  admin-password: "${ADMIN_PWD}"
-  bot-token: "${BOT_TOKEN}"
-  admin-id: "${ADMIN_ID}"
+  admin-username: ${ADMIN_USER_YAML}
+  admin-password: ${ADMIN_PWD_YAML}
+  bot-token: ${BOT_TOKEN_YAML}
+  admin-id: ${ADMIN_ID_YAML}
   trust-forwarded-for: ${TRUST_FORWARDED}
 
 ${OCI_SECTION}
@@ -447,11 +588,31 @@ YAML
 
 chmod 600 "${INSTALL_DIR}/application.yml"
 chmod 700 "${INSTALL_DIR}/keys" "${INSTALL_DIR}/data"
+WRITTEN_ADMIN_PWD="$(get_yaml_val "admin-password" "${INSTALL_DIR}/application.yml")"
+if [[ "${WRITTEN_ADMIN_PWD}" != "${ADMIN_PWD}" ]]; then
+    if [[ -n "${PASSWORD_BACKUP}" && -f "${PASSWORD_BACKUP}" ]]; then
+        cp -f "${PASSWORD_BACKUP}" "${INSTALL_DIR}/application.yml" 2>/dev/null || true
+        chmod 600 "${INSTALL_DIR}/application.yml" 2>/dev/null || true
+    fi
+    echo -e "${RED}❌ 管理员密码写入后读回不一致，已恢复原配置并中止。请换一个不含异常控制字符的密码后重试。${PLAIN}"
+    exit 1
+fi
 echo -e "${GREEN}✅ 配置文件已安全生成至 ${INSTALL_DIR}/application.yml${PLAIN}"
 
 # 5. 安装核心程序 JAR 包
-# 如果当前执行目录下存在编译好的 target/*.jar，优先复制
+# 若现有服务正在运行，先优雅暂停以安全替换文件 (防止 Text file busy)
+systemctl stop ocibox >/dev/null 2>&1 || true
+systemctl stop oci-personal >/dev/null 2>&1 || true
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 同步保存 update.sh 脚本到安装目录
+if [[ -f "${SCRIPT_DIR}/update.sh" ]]; then
+    cp -f "${SCRIPT_DIR}/update.sh" "${INSTALL_DIR}/update.sh"
+    chmod +x "${INSTALL_DIR}/update.sh" 2>/dev/null || true
+fi
+
+# 如果当前执行目录下存在编译好的 target/*.jar，优先复制
 if [[ -f "${SCRIPT_DIR}/target/ocibox.jar" ]]; then
     cp -f "${SCRIPT_DIR}/target/ocibox.jar" "${INSTALL_DIR}/app.jar"
 elif [[ -f "${SCRIPT_DIR}/target/oci-personal.jar" ]]; then
@@ -694,11 +855,43 @@ ocibox_logs() {
 }
 
 ocibox_update() {
-    echo -e "${CYAN}正在检查并更新 OCIBox 核心版本...${PLAIN}"
+    echo -e "${CYAN}⚡ 正在检查并更新 OCIBox 核心版本 (保持原有全部客户默认配置)...${PLAIN}"
     if [[ -f "${INSTALL_DIR}/update.sh" ]]; then
-        bash "${INSTALL_DIR}/update.sh"
+        bash "${INSTALL_DIR}/update.sh" "$@"
     else
-        bash <(curl -fsSL https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/update.sh)
+        bash <(curl -fsSL https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/update.sh) "$@"
+    fi
+}
+
+read_admin_password() {
+    local line val len first last
+    line=$(grep -E '^[[:space:]]*admin-password:' "$1" | head -n 1 | tr -d '\r' || true)
+    val="${line#*:}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    len=${#val}
+    if (( len >= 2 )); then
+        first=${val:0:1}
+        last=${val:len-1:1}
+        if [[ "$first" == "$last" && ( "$first" == "'" || "$first" == '"' ) ]]; then
+            val="${val:1:len-2}"
+            if [[ "$first" == "'" ]]; then
+                local sq="'"
+                val=${val//$sq$sq/$sq}
+            fi
+        fi
+    fi
+    printf '%s' "$val"
+}
+
+show_admin_password() {
+    local pwd="$1"
+    if [[ "$pwd" == pbkdf2sha256\$* ]]; then
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已加密保存。请使用设置时的明文密码登录，不要把 pbkdf2 哈希当作密码。${PLAIN}"
+    elif [[ -z "$pwd" || "$pwd" == \$\{* ]]; then
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}未设置${PLAIN}"
+    else
+        printf '🔑 %b管理登录密码%b : %b%s%b\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$pwd" "${PLAIN}"
     fi
 }
 
@@ -712,7 +905,7 @@ ocibox_info() {
     fi
     local base_dir=$(dirname "$conf")
     local user=$(grep -E '^[[:space:]]*admin-username:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-username:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
-    local pwd=$(grep -E '^[[:space:]]*admin-password:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-password:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    local pwd=$(read_admin_password "$conf")
     local bot=$(grep -E '^[[:space:]]*bot-token:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*bot-token:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local admin_id=$(grep -E '^[[:space:]]*admin-id:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-id:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local port=$(grep -E '^[[:space:]]*port:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
@@ -744,7 +937,7 @@ ocibox_info() {
     if [[ -n "$user" && ! "$user" =~ ^\$\{ ]]; then
         echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${user}${PLAIN}"
     fi
-    echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}${pwd}${PLAIN}"
+    show_admin_password "$pwd"
     echo -e "🤖 ${CYAN}Telegram 状态${PLAIN}: ${tg_status}"
     if [[ "$bind_domain" == "true" && -n "$domain" ]]; then
         echo -e "🔒 ${CYAN}域名与证书${PLAIN}  : ${GREEN}已绑定 (${domain})${PLAIN}"
@@ -1052,12 +1245,13 @@ case "${1:-}" in
     start) ocibox_start ;;
     stop) ocibox_stop ;;
     log|logs) ocibox_logs ;;
-    update) ocibox_update ;;
+    update|upgrade) shift; ocibox_update "$@" ;;
     port) ocibox_port "${2:-}" ;;
     cert|ssl|domain) ocibox_cert "${2:-}" ;;
     info) ocibox_info ;;
     help|--help|-h)
         echo "用法: oci [status|restart|start|stop|logs|update|port|cert|info]"
+        echo "   - oci update : 一键保持客户默认选项更新"
         ;;
     *)
         ocibox_info
@@ -1096,7 +1290,10 @@ else
     echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${SERVER_IP}:${PORT}${PLAIN}"
 fi
 echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${ADMIN_USER}${PLAIN}"
-echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}${ADMIN_PWD}${PLAIN}"
+show_admin_password "${ADMIN_PWD}"
+if ! systemctl is-active --quiet ocibox; then
+    echo -e "${RED}⚠️ 面板服务当前没有在运行，上面的密码要等服务启动成功后才会生效。请执行 systemctl status ocibox 查看原因。${PLAIN}"
+fi
 echo -e "🤖 ${CYAN}Telegram 状态${PLAIN}: ${TG_STATUS}"
 echo -e "🔒 ${CYAN}域名与证书${PLAIN}  : ${DOMAIN_STATUS}"
 echo -e "📂 ${CYAN}数据持久目录${PLAIN} : ${INSTALL_DIR}/data/"

@@ -12,7 +12,7 @@ YELLOW='\033[0;33m'
 CYAN='\033[0;36m'
 PLAIN='\033[0m'
 
-echo -e "${GREEN}>>> 正在执行 OCIBox 面板安全更新...${PLAIN}"
+echo -e "${GREEN}>>> 正在执行 OCIBox 面板安全更新 (直接保持客户默认选项)...${PLAIN}"
 
 # 智能识别现有安装目录（兼容 /root/ocibox 与 /root/oci-personal）
 if [[ -d "/root/ocibox" ]]; then
@@ -21,6 +21,12 @@ elif [[ -d "/root/oci-personal" ]]; then
     INSTALL_DIR="/root/oci-personal"
 else
     INSTALL_DIR="/root/ocibox"
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/update.sh" ]]; then
+    cp -f "${SCRIPT_DIR}/update.sh" "${INSTALL_DIR}/update.sh" 2>/dev/null || true
+    chmod +x "${INSTALL_DIR}/update.sh" 2>/dev/null || true
 fi
 
 if [[ ! -d "${INSTALL_DIR}" ]]; then
@@ -233,11 +239,43 @@ ocibox_logs() {
 }
 
 ocibox_update() {
-    echo -e "${CYAN}正在检查并更新 OCIBox 核心版本...${PLAIN}"
+    echo -e "${CYAN}⚡ 正在检查并更新 OCIBox 核心版本 (直接保持全部客户默认配置)...${PLAIN}"
     if [[ -f "${INSTALL_DIR}/update.sh" ]]; then
-        bash "${INSTALL_DIR}/update.sh"
+        bash "${INSTALL_DIR}/update.sh" "$@"
     else
-        bash <(curl -fsSL https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/update.sh)
+        bash <(curl -fsSL https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/update.sh) "$@"
+    fi
+}
+
+read_admin_password() {
+    local line val len first last
+    line=$(grep -E '^[[:space:]]*admin-password:' "$1" | head -n 1 | tr -d '\r' || true)
+    val="${line#*:}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    val="${val%"${val##*[![:space:]]}"}"
+    len=${#val}
+    if (( len >= 2 )); then
+        first=${val:0:1}
+        last=${val:len-1:1}
+        if [[ "$first" == "$last" && ( "$first" == "'" || "$first" == '"' ) ]]; then
+            val="${val:1:len-2}"
+            if [[ "$first" == "'" ]]; then
+                local sq="'"
+                val=${val//$sq$sq/$sq}
+            fi
+        fi
+    fi
+    printf '%s' "$val"
+}
+
+show_admin_password() {
+    local pwd="$1"
+    if [[ "$pwd" == pbkdf2sha256\$* ]]; then
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已加密保存。请使用设置时的明文密码登录，不要把 pbkdf2 哈希当作密码。${PLAIN}"
+    elif [[ -z "$pwd" || "$pwd" == \$\{* ]]; then
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}未设置${PLAIN}"
+    else
+        printf '🔑 %b管理登录密码%b : %b%s%b\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$pwd" "${PLAIN}"
     fi
 }
 
@@ -251,7 +289,7 @@ ocibox_info() {
     fi
     local base_dir=$(dirname "$conf")
     local user=$(grep -E '^[[:space:]]*admin-username:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-username:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
-    local pwd=$(grep -E '^[[:space:]]*admin-password:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-password:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    local pwd=$(read_admin_password "$conf")
     local bot=$(grep -E '^[[:space:]]*bot-token:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*bot-token:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local admin_id=$(grep -E '^[[:space:]]*admin-id:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-id:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local port=$(grep -E '^[[:space:]]*port:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
@@ -283,7 +321,7 @@ ocibox_info() {
     if [[ -n "$user" && ! "$user" =~ ^\$\{ ]]; then
         echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${user}${PLAIN}"
     fi
-    echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}${pwd}${PLAIN}"
+    show_admin_password "$pwd"
     echo -e "🤖 ${CYAN}Telegram 状态${PLAIN}: ${tg_status}"
     if [[ "$bind_domain" == "true" && -n "$domain" ]]; then
         echo -e "🔒 ${CYAN}域名与证书${PLAIN}  : ${GREEN}已绑定 (${domain})${PLAIN}"
@@ -591,12 +629,13 @@ case "${1:-}" in
     start) ocibox_start ;;
     stop) ocibox_stop ;;
     log|logs) ocibox_logs ;;
-    update) ocibox_update ;;
+    update|upgrade) shift; ocibox_update "$@" ;;
     port) ocibox_port "${2:-}" ;;
     cert|ssl|domain) ocibox_cert "${2:-}" ;;
     info) ocibox_info ;;
     help|--help|-h)
         echo "用法: oci [status|restart|start|stop|logs|update|port|cert|info]"
+        echo "   - oci update : 一键保持客户默认选项更新"
         ;;
     *)
         ocibox_info

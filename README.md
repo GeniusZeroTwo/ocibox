@@ -213,8 +213,20 @@ systemctl enable --now ocibox
 
 ## 🔄 快速安全更新
 
-当项目有新版本时，执行以下更新脚本，自动保留现有 SQLite 数据库、各账号 API 私钥及自定义配置：
+当项目有新版本时，支持以下几种极速更新方式，**自动直接保持客户全部现有配置与默认选项（端口、账号名、密码、TG机器人、域名SSL证书、SQLite 数据库及各账号 API 密钥）**，无需重复配置：
 
+### 方式一：终端快捷更新命令（已部署机器推荐，秒级升级）
+在终端任意目录直接输入：
+```bash
+oci update
+```
+
+### 方式二：一键脚本保持客户默认选项更新
+以 `root` 用户执行：
+```bash
+curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.sh && chmod +x install.sh && ./install.sh -y
+```
+或使用专用更新脚本：
 ```bash
 curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/update.sh && chmod +x update.sh && ./update.sh
 ```
