@@ -10,9 +10,7 @@ import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.CreationTaskService;
 import com.oci.ocimanager.service.OciCloudService;
 import com.oci.ocimanager.service.ScheduledTasksService;
-import com.oci.ocimanager.service.TelegramBotService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
@@ -34,15 +32,12 @@ public class AdminAccountController {
     @Autowired private TrafficLimitRepository trafficLimitRepository;
     @Autowired private CreationTaskRepository creationTaskRepository;
     @Autowired private CreationTaskService creationTaskService;
-    @Autowired private TelegramBotService telegramBotService;
     @Autowired private OciCloudService ociCloudService;
     @Autowired private OciProperties ociProperties;
     @Autowired private AccountYamlService accountYamlService;
     @Autowired private AdminAuthService adminAuthService;
     @Autowired private com.oci.ocimanager.service.OciClientFingerprintService fingerprintService;
-
-    @Value("${app.admin-id}")
-    private String adminId;
+    @Autowired private com.oci.ocimanager.service.NotificationService notificationService;
 
     private static final java.util.logging.Logger LOG = java.util.logging.Logger.getLogger(AdminAccountController.class.getName());
 
@@ -586,7 +581,7 @@ public class AdminAccountController {
                 }
             });
 
-            telegramBotService.sendText(Long.parseLong(adminId), "🌟 **[后台配置更新]**\n管理员刚刚通过网页控制台导入了新账号: `" + cleanAccountName + "` 并在后台完成预热！");
+            notificationService.send("导入新账号", "🌟 **[后台配置更新]**\n管理员刚刚通过网页控制台导入了新账号: `" + cleanAccountName + "` 并在后台完成预热！", "INFO", "SYSTEM");
 
             return Map.of("success", true, "msg", "账号导入成功，已在后台自动建立预热缓存！");
         } catch (Exception e) {
@@ -615,9 +610,7 @@ public class AdminAccountController {
         String homeRegion = (String) payload.get("homeRegion");
         Map<String, Object> res = ociCloudService.subscribeRegion(account, region, homeRegion);
         if (Boolean.TRUE.equals(res.get("success"))) {
-            try {
-                telegramBotService.sendText(Long.parseLong(adminId), "🌍 **[OCI 区域扩充通知]**\n管理员为账号 `" + account + "` 成功提交了新区域订阅: `" + res.get("regionName") + " (" + res.get("regionKey") + ")`！");
-            } catch (Exception ignored) {}
+            notificationService.send("OCI 区域扩充通知", "🌍 **[OCI 区域扩充通知]**\n管理员为账号 `" + account + "` 成功提交了新区域订阅: `" + res.get("regionName") + " (" + res.get("regionKey") + ")`！", "INFO", "SYSTEM");
         }
         return res;
     }

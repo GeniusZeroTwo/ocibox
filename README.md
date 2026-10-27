@@ -43,6 +43,9 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.
 > 4. `是否需要绑定您的 Telegram 运维机器人？(y/N, 默认 N):`
 >    - 若输入 `y`：进一步输入从 `@BotFather` 获取的 Bot Token 与个人 Telegram ID。
 >    - 若输入 `N`：直接跳过 Telegram 绑定，纯网页后台模式运行。
+> 5. `是否需要为管理后台绑定自定义域名并配置 SSL 证书？(y/N, 默认 N 继续直接访问):`
+>    - 若输入 `y`：输入解析到本机的域名，脚本将自动安装并配置 Nginx 反向代理、放通 80/443 端口，向 Let's Encrypt 申请官方免费 SSL 证书（并附带自签名证书兜底保障）。
+>    - 若输入 `N`：跳过域名与证书配置，继续通过 `http://<服务器IP>:<端口>` 直接访问。
 
 安装脚本执行完成后，控制台将输出如下精美汇总卡片：
 
@@ -50,23 +53,24 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.
 ================================================================
              🎉 OCIBox 个人专属管理面板 部署成功！
 ================================================================
-🌐 管理后台地址 : http://123.45.67.89:5000
+🌐 管理后台地址 : https://oci.yourdomain.com  (或直连 http://123.45.67.89:5000)
 👤 管理登录账号 : admin
 🔑 管理登录密码 : xK9#mQ!2$vLp&8*rT_5+wE=1oY0zAn7B
 🤖 Telegram 状态: 已绑定 (Admin ID: 123456789)
+🔒 域名与证书  : 已绑定 (https://oci.yourdomain.com)
 📂 数据持久目录 : /root/ocibox/data/
 🔑 密钥保存目录 : /root/ocibox/keys/
 📄 配置文件路径 : /root/ocibox/application.yml
 ----------------------------------------------------------------
-💡 系统管理快捷指令 (终端直接输入 ocibox 即可呼出管理菜单):
-   - 快捷控制菜单 : ocibox
-   - 查看服务状态 : ocibox status (或 systemctl status ocibox)
-   - 重启管理面板 : ocibox restart (或 systemctl restart ocibox)
-   - 停止管理面板 : ocibox stop (或 systemctl stop ocibox)
-   - 修改服务端口 : ocibox port [新端口] (自动放行防火墙并重启)
-   - 查看实时日志 : ocibox logs (或 journalctl -u ocibox -f -n 50)
-   - 在线版本更新 : ocibox update
-   - 查看面板信息 : ocibox info
+💡 服务日常维护指令 (终端直接输入 oci 即可呼出状态卡片与操作菜单):
+   - 快捷运维指令 : oci (或 ocibox)
+   - 查看服务状态 : oci status (或 systemctl status ocibox)
+   - 重启管理面板 : oci restart (或 systemctl restart ocibox)
+   - 停止管理面板 : oci stop (或 systemctl stop ocibox)
+   - 修改服务端口 : oci port [新端口] (自动放行防火墙并重启)
+   - 域名证书管理 : oci cert (申请/重新绑定/维护证书)
+   - 查看实时日志 : oci logs (或 journalctl -u ocibox -f -n 50)
+   - 在线版本更新 : oci update
 ================================================================
 ```
 

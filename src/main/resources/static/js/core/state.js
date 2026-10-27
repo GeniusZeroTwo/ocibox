@@ -401,3 +401,13 @@ export const sortedTrafficData = computed(() => {
     }
     return list;
 });
+
+// 🔔 站内消息与通知中心响应式状态
+export const unreadNoticeCount = ref(0);
+export const notificationDrawerOpen = ref(false);
+export const notificationsList = ref([]);
+export const notificationFilterCategory = ref('ALL');
+export const notificationUnreadOnly = ref(false);
+export const notificationTotalCount = ref(0);
+export const notificationLoading = ref(false);
+export const toastNotifications = ref([]);

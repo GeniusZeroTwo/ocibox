@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCIBox - 甲骨文云轻量管理面板</title>
     <!-- 外部样式表：现代规范，支持浏览器强缓存，通过版本号破除陈旧缓存 -->
-    <link rel="stylesheet" href="css/main.css?v=20261016_02">
+    <link rel="stylesheet" href="css/main.css?v=20261027_01">
     <!-- 🛡️ 彻底杜绝首屏模板插值花括号与未渲染内容闪烁乱码 (Anti-FOUC) -->
     <style>
         [v-cloak] {
@@ -632,8 +632,13 @@
                 <div class="brandbar-right">
                     <span class="pill" :class="isEditing ? 'pill-amber' : 'pill-cyan'" title="系统刷新状态">{{ isEditing ?
                         '⏸ 暂停刷新' : '⚡ 极速同步' }}</span>
-                    <span class="pill pill-green" v-if="tgBotRunning" title="Telegram Bot 运行状态">● TG 在线</span>
-                    <span class="pill pill-red" v-else title="Telegram Bot 运行状态">● TG 异常</span>
+                    <!-- 🔔 站内消息中心按钮 -->
+                    <button type="button" class="pill pill-notice" :class="{ 'has-unread': unreadNoticeCount > 0 }" @click="toggleNotificationDrawer" title="系统消息与通知中心">
+                        🔔 消息<span class="notice-badge-pill" v-if="unreadNoticeCount > 0">{{ unreadNoticeCount > 99 ? '99+' : unreadNoticeCount }}</span>
+                    </button>
+                    <!-- TG 状态 -->
+                    <span class="pill pill-green" v-if="tgBotRunning" title="Telegram Bot 专属机器人在线运行中">● TG 在线</span>
+                    <span class="pill pill-slate" v-else title="未绑定 Telegram 机器人，所有自动化任务与运维消息已转存至网页后台消息中心">● 网页模式 (TG未绑定)</span>
                     <span class="pill pill-cyan">{{ kpiStats.accounts }} 账号</span>
                     <button type="button" class="pill pill-logout" @click="logout">退出</button>
                 </div>
@@ -2349,6 +2354,88 @@
 
 
 
+        <!-- 🔔 悬浮实时通知 Toast 容器 -->
+        <div class="toast-container" v-if="toastNotifications.length > 0">
+            <div class="toast-card" v-for="toast in toastNotifications" :key="toast.id" :class="'toast-' + (toast.level || 'info').toLowerCase()" @click="toggleNotificationDrawer">
+                <div class="toast-header">
+                    <span class="toast-icon">
+                        {{ toast.level === 'DANGER' ? '🛑' : (toast.level === 'WARNING' ? '⚠️' : (toast.level === 'SUCCESS' ? '🚀' : 'ℹ️')) }}
+                    </span>
+                    <strong class="toast-title">{{ toast.title }}</strong>
+                    <button type="button" class="toast-close" @click.stop="closeToastNotification(toast.id)">&times;</button>
+                </div>
+                <div class="toast-body" v-html="formatNotificationContent(toast.content)"></div>
+                <div class="toast-footer">
+                    <span class="toast-time">{{ toast.createdAt }}</span>
+                    <span class="toast-tip">点击查看详情 →</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- 🔔 站内消息中心抽屉遮罩 -->
+        <div class="notice-drawer-overlay" v-if="notificationDrawerOpen" @click="closeNotificationDrawer"></div>
+        <!-- 🔔 站内消息中心侧边抽屉 -->
+        <div class="notice-drawer" :class="{ 'open': notificationDrawerOpen }">
+            <div class="notice-drawer-header">
+                <div class="notice-drawer-title">
+                    <span style="font-size: 20px;">🔔</span>
+                    <span style="font-weight: 700; font-size: 16px;">系统消息中心</span>
+                    <span class="notice-badge-count" v-if="unreadNoticeCount > 0">{{ unreadNoticeCount }} 未读</span>
+                </div>
+                <div class="notice-drawer-actions">
+                    <button type="button" class="btn-text-action" @click="markAllNoticesRead" :disabled="unreadNoticeCount === 0" title="全部标为已读">✓ 全部已读</button>
+                    <button type="button" class="btn-text-action danger-text" @click="clearNotices('read')" title="清理所有已读消息">🗑️ 清理已读</button>
+                    <button type="button" class="notice-drawer-close" @click="closeNotificationDrawer">&times;</button>
+                </div>
+            </div>
+
+            <!-- 分类与未读过滤器 -->
+            <div class="notice-drawer-filters">
+                <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'ALL' }" @click="setNotificationCategory('ALL')">全部</button>
+                <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'TRAFFIC' }" @click="setNotificationCategory('TRAFFIC')">🌐 流量</button>
+                <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'INSTANCE' }" @click="setNotificationCategory('INSTANCE')">⚡ 实例</button>
+                <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'SNIPER' }" @click="setNotificationCategory('SNIPER')">🚀 抢机</button>
+                <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'SYSTEM' }" @click="setNotificationCategory('SYSTEM')">⚙️ 系统</button>
+                <button type="button" class="filter-chip chip-unread" :class="{ active: notificationUnreadOnly }" @click="toggleNotificationUnreadOnly">
+                    {{ notificationUnreadOnly ? '● 仅看未读' : '○ 包含已读' }}
+                </button>
+            </div>
+
+            <!-- 消息列表主体 -->
+            <div class="notice-drawer-body">
+                <div class="notice-loading" v-if="notificationLoading">
+                    <span class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></span>
+                    <span>正在加载消息...</span>
+                </div>
+
+                <div class="notice-empty" v-else-if="notificationsList.length === 0">
+                    <div style="font-size: 36px; margin-bottom: 8px;">📭</div>
+                    <div style="font-weight: 600; color: var(--text-main);">暂无相关消息</div>
+                    <div style="font-size: 12px; color: var(--text-dim); margin-top: 4px;">
+                        {{ tgBotRunning ? '机器人与后台正在实时监控中' : '未绑定 TG 时，所有自动化任务与告警均在此沉淀' }}
+                    </div>
+                </div>
+
+                <div class="notice-card" v-for="notice in notificationsList" :key="notice.id" :class="['notice-card-' + (notice.level || 'info').toLowerCase(), { 'notice-read': notice.isRead }]" @click="markNoticeRead(notice)">
+                    <div class="notice-card-top">
+                        <div class="notice-card-tag" :class="'tag-' + (notice.level || 'info').toLowerCase()">
+                            {{ notice.level === 'DANGER' ? '🛑 紧急' : (notice.level === 'WARNING' ? '⚠️ 告警' : (notice.level === 'SUCCESS' ? '🟢 成功' : 'ℹ️ 通知')) }}
+                        </div>
+                        <div class="notice-card-category">{{ notice.category }}</div>
+                        <div class="notice-card-time">{{ notice.createdAt }}</div>
+                        <span class="notice-unread-dot" v-if="!notice.isRead" title="未读消息"></span>
+                    </div>
+                    <div class="notice-card-title">{{ notice.title }}</div>
+                    <div class="notice-card-content" v-html="formatNotificationContent(notice.content)"></div>
+                </div>
+            </div>
+
+            <div class="notice-drawer-footer">
+                <span>共 {{ notificationTotalCount }} 条记录（自动循环保留最新 300 条）</span>
+                <button type="button" class="btn-text-action" @click="fetchNotifications(0)" title="刷新列表">🔄 刷新</button>
+            </div>
+        </div>
+
         <!-- 🛒 租户弹窗：上架/编辑可出租机器 (个人版已移除) -->
         </div>
     </div>
@@ -2367,7 +2454,7 @@
     <script src="js/loader-guard.js?v=20261026_02"></script>
 
     <!-- 现代原生 ESM 入口，0 构建依赖，模块化加载 -->
-    <script type="module" src="js/app.js?v=20261026_02"></script>
+    <script type="module" src="js/app.js?v=20261027_01"></script>
 </body>
 
 </html>

@@ -120,6 +120,13 @@ EXISTING_ADMIN_USER=""
 EXISTING_ADMIN_PWD=""
 EXISTING_BOT_TOKEN=""
 EXISTING_ADMIN_ID=""
+EXISTING_DOMAIN=""
+
+if [[ -f "${INSTALL_DIR}/domain.conf" ]]; then
+    EXISTING_DOMAIN=$(grep -E '^[[:space:]]*DOMAIN=' "${INSTALL_DIR}/domain.conf" 2>/dev/null | head -n 1 | cut -d '=' -f 2 | tr -d ' "\r')
+elif [[ -f "/root/oci-personal/domain.conf" ]]; then
+    EXISTING_DOMAIN=$(grep -E '^[[:space:]]*DOMAIN=' "/root/oci-personal/domain.conf" 2>/dev/null | head -n 1 | cut -d '=' -f 2 | tr -d ' "\r')
+fi
 
 if [[ -f "${EXISTING_CONFIG}" ]]; then
     EXISTING_PORT=$(get_yaml_val "port" "${EXISTING_CONFIG}")
@@ -229,6 +236,85 @@ else
     fi
 fi
 
+# 域名与 SSL 证书配置
+echo -e "\n${CYAN}------------------- [ 域名与 SSL 证书配置 ] -------------------${PLAIN}"
+BIND_DOMAIN=false
+DOMAIN=""
+DOMAIN_STATUS="未绑定 (直接 IP 访问)"
+
+# 预先探测本机公网 IP 辅助校验
+SERVER_IP=$(curl -s4 --max-time 3 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 3 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 3 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
+
+if [[ -n "${EXISTING_DOMAIN}" ]]; then
+    echo -e "${GREEN}🔔 【检测到您此前已成功绑定过域名】: ${YELLOW}${EXISTING_DOMAIN}${PLAIN}"
+    read -rp "👉 是否直接沿用此域名并保持 SSL 反向代理？(Y/n, 默认 Y 沿用): " KEEP_DOMAIN
+    KEEP_DOMAIN="${KEEP_DOMAIN:-Y}"
+    if [[ "${KEEP_DOMAIN}" =~ ^[Yy]$ ]]; then
+        BIND_DOMAIN=true
+        DOMAIN="${EXISTING_DOMAIN}"
+        DOMAIN_STATUS="已绑定 (https://${DOMAIN})"
+        echo -e "  ${GREEN}✅ 已自动沿用此前绑定的域名: ${DOMAIN}${PLAIN}"
+    else
+        read -rp "👉 是否需要绑定新的域名？(y/N, 默认 N 解除域名绑定): " RE_BIND_DOMAIN
+        if [[ "${RE_BIND_DOMAIN}" =~ ^[Yy]$ ]]; then
+            while true; do
+                read -rp "  请输入新的解析域名 (例如: oci.example.com): " INPUT_DOMAIN
+                INPUT_DOMAIN=$(echo "${INPUT_DOMAIN}" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | tr -d '[:space:]')
+                if [[ -n "${INPUT_DOMAIN}" && "${INPUT_DOMAIN}" =~ ^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
+                    DOMAIN="${INPUT_DOMAIN}"
+                    BIND_DOMAIN=true
+                    DOMAIN_STATUS="已绑定 (https://${DOMAIN})"
+                    break
+                else
+                    echo -e "  ${RED}❌ 域名格式无效，请重新输入（例如: oci.example.com，请勿带 http/https）！${PLAIN}"
+                fi
+            done
+        else
+            BIND_DOMAIN=false
+            DOMAIN=""
+            DOMAIN_STATUS="未绑定"
+            echo -e "  ${YELLOW}ℹ️ 已解除域名绑定，面板将恢复通过 IP+端口 直接访问。${PLAIN}"
+        fi
+    fi
+else
+    echo -e "说明: 绑定域名可自动配置 Nginx 反向代理与免费 Let's Encrypt SSL 证书 (HTTPS 安全加密访问)"
+    read -rp "👉 是否需要为管理后台绑定自定义域名并配置 SSL 证书？(y/N, 默认 N 继续直接访问): " ASK_BIND_DOMAIN
+    if [[ "${ASK_BIND_DOMAIN}" =~ ^[Yy]$ ]]; then
+        while true; do
+            read -rp "  👉 请输入已解析到本机 IP (${SERVER_IP}) 的域名 (例如: oci.example.com): " INPUT_DOMAIN
+            INPUT_DOMAIN=$(echo "${INPUT_DOMAIN}" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | tr -d '[:space:]')
+            if [[ -n "${INPUT_DOMAIN}" && "${INPUT_DOMAIN}" =~ ^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
+                DOMAIN="${INPUT_DOMAIN}"
+                BIND_DOMAIN=true
+                DOMAIN_STATUS="已绑定 (https://${DOMAIN})"
+                break
+            else
+                echo -e "  ${RED}❌ 域名格式无效，请重新输入（例如: oci.example.com，请勿带 http/https）！${PLAIN}"
+            fi
+        done
+
+        # DNS 解析检查与提示
+        echo -e "  🔍 正在检测 ${CYAN}${DOMAIN}${PLAIN} 的 DNS 解析状态..."
+        RESOLVED_IP=$(ping -c 1 -W 2 "${DOMAIN}" 2>/dev/null | grep -oE '[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || getent ahosts "${DOMAIN}" 2>/dev/null | awk '{print $1}' | head -n 1 || true)
+        if [[ -n "${RESOLVED_IP}" ]]; then
+            if [[ "${RESOLVED_IP}" == "${SERVER_IP}" ]]; then
+                echo -e "  ${GREEN}✅ DNS 解析校验通过！${DOMAIN} 已成功指向当前服务器 (${SERVER_IP})。${PLAIN}"
+            else
+                echo -e "  ${YELLOW}⚠️ 提示: ${DOMAIN} 当前解析为 [${RESOLVED_IP}]，与本机公网 IP [${SERVER_IP}] 不一致。${PLAIN}"
+                echo -e "  ${YELLOW}   (若为 CDN/Cloudflare 代理或新解析生效延迟，若官方证书签发受阻，将自动启用自签名证书保底)${PLAIN}"
+            fi
+        else
+            echo -e "  ${YELLOW}⚠️ 提示: 暂未检测到 ${DOMAIN} 的 DNS 解析记录，可能需要几分钟在全球 DNS 生效。${PLAIN}"
+            echo -e "  ${YELLOW}   (安装过程中若官方证书申请超时，将自动生成高强度自签名证书保底，确保顺利安装)${PLAIN}"
+        fi
+    else
+        BIND_DOMAIN=false
+        DOMAIN=""
+        DOMAIN_STATUS="未绑定"
+        echo -e "  ${CYAN}ℹ️ 您选择了不绑定域名，将跳过证书申请，通过 http://${SERVER_IP}:${PORT} 直接访问。${PLAIN}"
+    fi
+fi
+
 # 3. 安装依赖运行环境 (纯轻量化，免 Redis)
 echo -e "\n${CYAN}------------------- [ 环境依赖安装 ] -------------------${PLAIN}"
 echo -e "📦 正在安装 Java 21, SQLite3, curl, jq (无 Redis 依赖)..."
@@ -245,6 +331,20 @@ elif command -v yum >/dev/null 2>&1; then
     yum install -y java-17-openjdk-headless sqlite3 curl jq tar gzip openssl
 fi
 
+# 若用户选择绑定域名，安装 Nginx 与 Certbot 并放通 80 / 443 端口
+if [[ "${BIND_DOMAIN}" == "true" ]]; then
+    echo -e "📦 正在安装 Nginx, Certbot 与 SSL 证书管理工具..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get install -y nginx certbot python3-certbot-nginx || apt-get install -y nginx certbot || true
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y nginx certbot python3-certbot-nginx || dnf install -y epel-release nginx certbot || true
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y epel-release nginx certbot python3-certbot-nginx || yum install -y nginx certbot || true
+    fi
+    open_port 80
+    open_port 443
+fi
+
 # 验证 Java 环境
 if ! command -v java >/dev/null 2>&1; then
     echo -e "${RED}❌ Java 环境安装失败，请手动安装 OpenJDK 21 或 17 后重试。${PLAIN}"
@@ -254,6 +354,22 @@ echo -e "${GREEN}✅ Java 运行环境就绪: $(java -version 2>&1 | head -n 1)$
 
 # 4. 生成 application.yml (保留已有 OCI 账号与高阶配置)
 echo -e "\n${CYAN}------------------- [ 配置文件生成 ] -------------------${PLAIN}"
+
+# 根据是否绑定域名确定监听地址与反代信任配置
+if [[ "${BIND_DOMAIN}" == "true" ]]; then
+    SERVER_ADDRESS="127.0.0.1"
+    TRUST_FORWARDED="true"
+else
+    SERVER_ADDRESS="0.0.0.0"
+    TRUST_FORWARDED="false"
+fi
+
+# 保存域名绑定状态至 domain.conf 供全局快捷指令及后续维护
+cat << DOMAIN_CONF > "${INSTALL_DIR}/domain.conf"
+BIND_DOMAIN=${BIND_DOMAIN}
+DOMAIN="${DOMAIN}"
+DOMAIN_CONF
+chmod 600 "${INSTALL_DIR}/domain.conf" 2>/dev/null || true
 
 # 提取并保留已存在的 oci 账号配置段（防止重新拉取代码安装时抹除已添加的 OCI 账号）
 OCI_SECTION=$'oci:\n  accounts: {}'
@@ -272,7 +388,7 @@ fi
 cat << YAML > "${INSTALL_DIR}/application.yml"
 server:
   port: ${PORT}
-  address: 127.0.0.1
+  address: ${SERVER_ADDRESS}
   servlet:
     encoding:
       charset: UTF-8
@@ -324,7 +440,7 @@ app:
   admin-password: "${ADMIN_PWD}"
   bot-token: "${BOT_TOKEN}"
   admin-id: "${ADMIN_ID}"
-  trust-forwarded-for: false
+  trust-forwarded-for: ${TRUST_FORWARDED}
 
 ${OCI_SECTION}
 YAML
@@ -396,7 +512,119 @@ systemctl daemon-reload
 systemctl enable ocibox >/dev/null 2>&1
 systemctl restart ocibox >/dev/null 2>&1
 
-# 7. 安装全局管理命令 /usr/local/bin/ocibox
+# 7. 配置 Nginx 反向代理与申请 SSL 证书 (若选择了绑定域名)
+if [[ "${BIND_DOMAIN}" == "true" && -n "${DOMAIN}" ]]; then
+    echo -e "\n${CYAN}------------------- [ Nginx 反向代理与 SSL 证书配置 ] -------------------${PLAIN}"
+    mkdir -p "${INSTALL_DIR}/ssl" /var/www/html /etc/nginx/conf.d 2>/dev/null || true
+
+    # 1. 自动生成自签名临时保底证书，确保即使 DNS 延迟或 Let's Encrypt 频限，Nginx 也能立即平稳拉起 HTTPS
+    SELF_KEY="${INSTALL_DIR}/ssl/${DOMAIN}.key"
+    SELF_CRT="${INSTALL_DIR}/ssl/${DOMAIN}.crt"
+    if [[ ! -f "${SELF_KEY}" || ! -f "${SELF_CRT}" ]]; then
+        echo -e "🛡️ 正在生成自签名 SSL 临时安全证书以做兜底保障..."
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+            -keyout "${SELF_KEY}" \
+            -out "${SELF_CRT}" \
+            -subj "/C=CN/ST=Cloud/L=OCIBox/O=OCIBox/CN=${DOMAIN}" >/dev/null 2>&1 || true
+    fi
+
+    # 2. 检查系统是否已有现成的 Let's Encrypt 证书
+    CERT_FILE="${SELF_CRT}"
+    KEY_FILE="${SELF_KEY}"
+    if [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" && -f "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" ]]; then
+        CERT_FILE="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+        KEY_FILE="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+        echo -e "  ${GREEN}🔍 检测到已有 Let's Encrypt 官方证书，将优先挂载！${PLAIN}"
+    fi
+
+    # 3. 写入 Nginx 站点配置
+    cat << NGINX_CONF > /etc/nginx/conf.d/ocibox.conf
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+        try_files \$uri =404;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${DOMAIN};
+
+    ssl_certificate ${CERT_FILE};
+    ssl_certificate_key ${KEY_FILE};
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:${PORT};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        # WebSocket 代理支持
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+}
+NGINX_CONF
+
+    # 兼容 Ubuntu/Debian 的 sites-enabled 软链结构
+    if [[ -d "/etc/nginx/sites-enabled" ]]; then
+        ln -sf /etc/nginx/conf.d/ocibox.conf /etc/nginx/sites-enabled/ocibox.conf 2>/dev/null || true
+    fi
+
+    # 预先启动或重启 Nginx
+    systemctl restart nginx >/dev/null 2>&1 || systemctl start nginx >/dev/null 2>&1 || true
+
+    # 4. 若尚未获取官方证书，且系统安装了 certbot，则发起自动化 Let's Encrypt 申请
+    if [[ "${CERT_FILE}" == "${SELF_CRT}" ]] && command -v certbot >/dev/null 2>&1; then
+        echo -e "🔒 正在连接 Let's Encrypt CA 为 ${CYAN}${DOMAIN}${PLAIN} 申请免费正式 SSL 证书..."
+        CERT_APPLIED=false
+        # 优先尝试 webroot
+        if certbot certonly --webroot -w /var/www/html -d "${DOMAIN}" --non-interactive --agree-tos --register-unsafely-without-email --keep-until-expiring >/dev/null 2>&1; then
+            CERT_APPLIED=true
+        # 备选尝试 standalone
+        elif certbot certonly --standalone -d "${DOMAIN}" --non-interactive --agree-tos --register-unsafely-without-email --keep-until-expiring --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx" >/dev/null 2>&1; then
+            CERT_APPLIED=true
+        fi
+
+        if [[ "${CERT_APPLIED}" == "true" && -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
+            sed -i.bak -E "s|ssl_certificate .*;|ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;|g" /etc/nginx/conf.d/ocibox.conf
+            sed -i.bak -E "s|ssl_certificate_key .*;|ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;|g" /etc/nginx/conf.d/ocibox.conf
+            rm -f /etc/nginx/conf.d/ocibox.conf.bak 2>/dev/null || true
+            nginx -s reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || true
+            echo -e "  ${GREEN}✅ Let's Encrypt 官方 SSL 证书已成功签发并自动激活！${PLAIN}"
+        else
+            echo -e "  ${YELLOW}⚠️ Let's Encrypt 官方证书暂未签发成功（通常由于域名 DNS 解析在全球尚未完全同步或 80 端口验证受阻）。${PLAIN}"
+            echo -e "  ${GREEN}🛡️ 已自动为您启用自签名 SSL 证书兜底，管理面板 HTTPS 现已可正常加密访问！${PLAIN}"
+            echo -e "  ${CYAN}💡 待您的 DNS 解析全球生效后，随时可在终端输入 'oci cert' 重新一键申请官方证书。${PLAIN}"
+        fi
+    fi
+
+    systemctl enable nginx >/dev/null 2>&1 || true
+    echo -e "  ${GREEN}✅ Nginx 反向代理配置与 HTTPS 服务已就绪！${PLAIN}"
+fi
+
+# 8. 安装全局管理命令 /usr/local/bin/ocibox
 cat << 'CLI' > /usr/local/bin/ocibox
 #!/bin/bash
 # ================================================================
@@ -491,6 +719,14 @@ ocibox_info() {
     [[ -z "$port" || "$port" =~ ^\$\{ ]] && port="5000"
     local ip=$(curl -s4 --max-time 2 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 2 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 2 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
     local svc=$(get_service_name)
+
+    local domain_conf="${INSTALL_DIR}/domain.conf"
+    local domain=""
+    local bind_domain="false"
+    if [[ -f "$domain_conf" ]]; then
+        domain=$(grep -E '^[[:space:]]*DOMAIN=' "$domain_conf" 2>/dev/null | head -n 1 | cut -d '=' -f 2 | tr -d ' "\r')
+        bind_domain=$(grep -E '^[[:space:]]*BIND_DOMAIN=' "$domain_conf" 2>/dev/null | head -n 1 | cut -d '=' -f 2 | tr -d ' "\r')
+    fi
     
     local tg_status="未绑定"
     if [[ -n "$bot" && "$bot" != '""' && ! "$bot" =~ ^\$\{ && -n "$admin_id" && ! "$admin_id" =~ ^\$\{ ]]; then
@@ -499,12 +735,22 @@ ocibox_info() {
 
     echo -e "${GREEN}       🎉 OCIBox 个人专属管理面板 ${PLAIN}"
     echo -e "${GREEN}================================================================${PLAIN}"
-    echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${ip}:${port}${PLAIN}"
+    if [[ "$bind_domain" == "true" && -n "$domain" ]]; then
+        echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}https://${domain}${PLAIN}"
+        echo -e "🔗 ${CYAN}本地直连备用${PLAIN} : ${CYAN}http://${ip}:${port}${PLAIN}"
+    else
+        echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${ip}:${port}${PLAIN}"
+    fi
     if [[ -n "$user" && ! "$user" =~ ^\$\{ ]]; then
         echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${user}${PLAIN}"
     fi
     echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}${pwd}${PLAIN}"
     echo -e "🤖 ${CYAN}Telegram 状态${PLAIN}: ${tg_status}"
+    if [[ "$bind_domain" == "true" && -n "$domain" ]]; then
+        echo -e "🔒 ${CYAN}域名与证书${PLAIN}  : ${GREEN}已绑定 (${domain})${PLAIN}"
+    else
+        echo -e "🔒 ${CYAN}域名与证书${PLAIN}  : 未绑定 (随时可运行 'oci cert' 绑定)"
+    fi
     echo -e "📂 ${CYAN}数据持久目录${PLAIN} : ${base_dir}/data/"
     echo -e "🔑 ${CYAN}密钥保存目录${PLAIN} : ${base_dir}/keys/"
     echo -e "📄 ${CYAN}配置文件路径${PLAIN} : ${conf}"
@@ -514,6 +760,7 @@ ocibox_info() {
     echo -e "   - 重启管理面板 : systemctl restart ${svc}"
     echo -e "   - 停止管理面板 : systemctl stop ${svc}"
     echo -e "   - 修改服务端口 : oci port [新端口]"
+    echo -e "   - 域名证书管理 : oci cert [申请/更换/解除绑定]"
     echo -e "   - 查看实时日志 : journalctl -u ${svc} -f -n 50"
     echo -e "${GREEN}================================================================${PLAIN}"
 }
@@ -612,9 +859,191 @@ ocibox_port() {
     systemctl restart "$svc"
     sleep 2
 
+    # 如果配置了 Nginx 反向代理，同步更新 Nginx 配置
+    if [[ -f "/etc/nginx/conf.d/ocibox.conf" ]]; then
+        sed -i.bak -E "s|proxy_pass http://127.0.0.1:[0-9]+;|proxy_pass http://127.0.0.1:${new_port};|g" /etc/nginx/conf.d/ocibox.conf
+        rm -f /etc/nginx/conf.d/ocibox.conf.bak 2>/dev/null || true
+        nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || true
+    fi
+
     local ip=$(curl -s4 --max-time 2 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 2 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 2 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
     echo -e "\n${GREEN}🎉 端口已成功修改为 ${new_port}，防火墙已自动放行！${PLAIN}"
     echo -e "🌐 ${CYAN}管理后台新地址${PLAIN} : ${GREEN}http://${ip}:${new_port}${PLAIN}\n"
+}
+
+ocibox_cert() {
+    local domain_conf="${INSTALL_DIR}/domain.conf"
+    local conf="${INSTALL_DIR}/application.yml"
+    [[ ! -f "$conf" && -f "/root/oci-personal/application.yml" ]] && conf="/root/oci-personal/application.yml"
+    [[ ! -f "$conf" && -f "/root/ocibox/application.yml" ]] && conf="/root/ocibox/application.yml"
+    local current_domain=""
+    if [[ -f "$domain_conf" ]]; then
+        current_domain=$(grep -E '^[[:space:]]*DOMAIN=' "$domain_conf" 2>/dev/null | head -n 1 | cut -d '=' -f 2 | tr -d ' "\r')
+    fi
+    local port=$(grep -E '^[[:space:]]*port:' "$conf" 2>/dev/null | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    [[ -z "$port" || "$port" =~ ^\$\{ ]] && port="5000"
+    local server_ip=$(curl -s4 --max-time 2 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 2 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 2 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
+
+    local target_domain="${1:-}"
+    if [[ -z "$target_domain" ]]; then
+        if [[ -n "$current_domain" ]]; then
+            echo -e "${CYAN}当前绑定的域名为: ${GREEN}${current_domain}${PLAIN}"
+            read -rp "👉 请选择: [1] 重新为 ${current_domain} 申请证书  [2] 绑定新域名  [3] 解除域名绑定  [0] 取消: " choice
+            case "$choice" in
+                1) target_domain="${current_domain}" ;;
+                2)
+                    read -rp "👉 请输入新域名 (例如: oci.example.com): " target_domain
+                    ;;
+                3)
+                    echo -e "${YELLOW}正在解除域名绑定并恢复 IP:端口 直连模式...${PLAIN}"
+                    rm -f /etc/nginx/conf.d/ocibox.conf /etc/nginx/sites-enabled/ocibox.conf 2>/dev/null || true
+                    nginx -s reload 2>/dev/null || systemctl reload nginx 2>/dev/null || true
+                    sed -i.bak -E 's/^[[:space:]]*address:[[:space:]].*$/  address: 0.0.0.0/' "$conf" 2>/dev/null || true
+                    sed -i.bak -E 's/^[[:space:]]*trust-forwarded-for:[[:space:]].*$/  trust-forwarded-for: false/' "$conf" 2>/dev/null || true
+                    rm -f "${conf}.bak" 2>/dev/null || true
+                    echo 'BIND_DOMAIN=false' > "$domain_conf"
+                    echo 'DOMAIN=""' >> "$domain_conf"
+                    local svc=$(get_service_name)
+                    systemctl restart "$svc" 2>/dev/null || true
+                    echo -e "${GREEN}✅ 已成功解除域名绑定！管理后台已恢复直接访问: http://${server_ip}:${port}${PLAIN}"
+                    return 0
+                    ;;
+                *) return 0 ;;
+            esac
+        else
+            echo -e "${CYAN}当前管理面板尚未绑定域名。${PLAIN}"
+            read -rp "👉 请输入要绑定的域名 (例如: oci.example.com): " target_domain
+        fi
+    fi
+
+    target_domain=$(echo "${target_domain}" | sed -E 's|^https?://||' | sed -E 's|/.*$||' | tr -d '[:space:]')
+    if [[ ! "$target_domain" =~ ^([a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$ ]]; then
+        echo -e "${RED}❌ 域名格式无效，请检查后重试！${PLAIN}"
+        return 1
+    fi
+
+    echo -e "🚀 正在为 ${CYAN}${target_domain}${PLAIN} 配置 Nginx 反向代理与申请 SSL 证书..."
+
+    # 依赖与端口
+    if ! command -v nginx >/dev/null 2>&1 || ! command -v certbot >/dev/null 2>&1; then
+        echo -e "📦 正在安装 Nginx 与 Certbot..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -y >/dev/null 2>&1 && apt-get install -y nginx certbot python3-certbot-nginx >/dev/null 2>&1 || true
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y nginx certbot python3-certbot-nginx >/dev/null 2>&1 || true
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y epel-release nginx certbot >/dev/null 2>&1 || true
+        fi
+    fi
+    open_port 80
+    open_port 443
+
+    mkdir -p "${INSTALL_DIR}/ssl" /var/www/html /etc/nginx/conf.d 2>/dev/null || true
+    local self_key="${INSTALL_DIR}/ssl/${target_domain}.key"
+    local self_crt="${INSTALL_DIR}/ssl/${target_domain}.crt"
+    if [[ ! -f "$self_key" || ! -f "$self_crt" ]]; then
+        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+            -keyout "$self_key" -out "$self_crt" \
+            -subj "/C=CN/ST=Cloud/L=OCIBox/O=OCIBox/CN=${target_domain}" >/dev/null 2>&1 || true
+    fi
+
+    local cert_file="$self_crt"
+    local key_file="$self_key"
+    if [[ -f "/etc/letsencrypt/live/${target_domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${target_domain}/privkey.pem" ]]; then
+        cert_file="/etc/letsencrypt/live/${target_domain}/fullchain.pem"
+        key_file="/etc/letsencrypt/live/${target_domain}/privkey.pem"
+    fi
+
+    cat << NGINX_CONF > /etc/nginx/conf.d/ocibox.conf
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${target_domain};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+        try_files \$uri =404;
+    }
+
+    location / {
+        return 301 https://\$host\$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name ${target_domain};
+
+    ssl_certificate ${cert_file};
+    ssl_certificate_key ${key_file};
+
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers HIGH:!aNULL:!MD5;
+    ssl_prefer_server_ciphers on;
+    ssl_session_cache shared:SSL:10m;
+    ssl_session_timeout 1d;
+
+    client_max_body_size 50M;
+
+    location / {
+        proxy_pass http://127.0.0.1:${port};
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+    }
+}
+NGINX_CONF
+
+    if [[ -d "/etc/nginx/sites-enabled" ]]; then
+        ln -sf /etc/nginx/conf.d/ocibox.conf /etc/nginx/sites-enabled/ocibox.conf 2>/dev/null || true
+    fi
+
+    systemctl restart nginx >/dev/null 2>&1 || systemctl start nginx >/dev/null 2>&1 || true
+
+    if command -v certbot >/dev/null 2>&1; then
+        echo -e "🔒 正在为 ${CYAN}${target_domain}${PLAIN} 向 Let's Encrypt 申请官方免费 SSL 证书..."
+        local cert_ok=false
+        if certbot certonly --webroot -w /var/www/html -d "${target_domain}" --non-interactive --agree-tos --register-unsafely-without-email --keep-until-expiring >/dev/null 2>&1; then
+            cert_ok=true
+        elif certbot certonly --standalone -d "${target_domain}" --non-interactive --agree-tos --register-unsafely-without-email --keep-until-expiring --pre-hook "systemctl stop nginx" --post-hook "systemctl start nginx" >/dev/null 2>&1; then
+            cert_ok=true
+        fi
+
+        if [[ "$cert_ok" == "true" && -f "/etc/letsencrypt/live/${target_domain}/fullchain.pem" ]]; then
+            sed -i.bak -E "s|ssl_certificate .*;|ssl_certificate /etc/letsencrypt/live/${target_domain}/fullchain.pem;|g" /etc/nginx/conf.d/ocibox.conf
+            sed -i.bak -E "s|ssl_certificate_key .*;|ssl_certificate_key /etc/letsencrypt/live/${target_domain}/privkey.pem;|g" /etc/nginx/conf.d/ocibox.conf
+            rm -f /etc/nginx/conf.d/ocibox.conf.bak 2>/dev/null || true
+            nginx -s reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || true
+            echo -e "  ${GREEN}✅ Let's Encrypt 官方证书申请并部署成功！${PLAIN}"
+        else
+            echo -e "  ${YELLOW}⚠️ Let's Encrypt 证书签发暂未完成，已自动挂载自签名 SSL 证书保障 HTTPS 运行。${PLAIN}"
+        fi
+    fi
+
+    # 调整 application.yml
+    sed -i.bak -E 's/^[[:space:]]*address:[[:space:]].*$/  address: 127.0.0.1/' "$conf" 2>/dev/null || true
+    sed -i.bak -E 's/^[[:space:]]*trust-forwarded-for:[[:space:]].*$/  trust-forwarded-for: true/' "$conf" 2>/dev/null || true
+    rm -f "${conf}.bak" 2>/dev/null || true
+
+    echo "BIND_DOMAIN=true" > "$domain_conf"
+    echo "DOMAIN=\"${target_domain}\"" >> "$domain_conf"
+    chmod 600 "$domain_conf" 2>/dev/null || true
+
+    local svc=$(get_service_name)
+    systemctl restart "$svc" >/dev/null 2>&1 || true
+    systemctl enable nginx >/dev/null 2>&1 || true
+
+    echo -e "\n${GREEN}🎉 域名与 SSL 证书配置已完成！${PLAIN}"
+    echo -e "🌐 ${CYAN}管理后台新地址${PLAIN} : ${GREEN}https://${target_domain}${PLAIN}"
+    echo -e "🔗 ${CYAN}本地备用地址${PLAIN}   : ${CYAN}http://${server_ip}:${port}${PLAIN}\n"
 }
 
 case "${1:-}" in
@@ -625,14 +1054,15 @@ case "${1:-}" in
     log|logs) ocibox_logs ;;
     update) ocibox_update ;;
     port) ocibox_port "${2:-}" ;;
+    cert|ssl|domain) ocibox_cert "${2:-}" ;;
     info) ocibox_info ;;
     help|--help|-h)
-        echo "用法: oci [status|restart|start|stop|logs|update|port|info]"
+        echo "用法: oci [status|restart|start|stop|logs|update|port|cert|info]"
         ;;
     *)
         ocibox_info
         if [[ -t 0 ]]; then
-            echo -e "\n${CYAN}💡 快捷操作: [1] 重启面板  [2] 查看状态  [3] 实时日志  [4] 在线更新  [5] 修改端口  [0/回车] 退出${PLAIN}"
+            echo -e "\n${CYAN}💡 快捷操作: [1] 重启面板  [2] 查看状态  [3] 实时日志  [4] 在线更新  [5] 修改端口  [6] 域名证书  [0/回车] 退出${PLAIN}"
             read -rp "👉 请输入选项编号 [默认回车退出]: " opt
             case "$opt" in
                 1) ocibox_restart ;;
@@ -640,6 +1070,7 @@ case "${1:-}" in
                 3) ocibox_logs ;;
                 4) ocibox_update ;;
                 5) ocibox_port ;;
+                6) ocibox_cert ;;
                 *) exit 0 ;;
             esac
         fi
@@ -652,16 +1083,22 @@ ln -sf /usr/local/bin/ocibox /usr/bin/oci 2>/dev/null || true
 ln -sf /usr/local/bin/ocibox /usr/bin/ocibox 2>/dev/null || true
 ln -sf /usr/local/bin/ocibox /usr/local/bin/oci-personal 2>/dev/null || true
 
-# 8. 获取公网 IP 与展示最终面板地址
+# 9. 获取公网 IP 与展示最终面板地址
 SERVER_IP=$(curl -s4 --max-time 3 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 3 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 3 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
 
 echo -e "\n${GREEN}================================================================${PLAIN}"
 echo -e "${GREEN}       🎉 OCIBox 个人专属管理面板 部署成功！${PLAIN}"
 echo -e "${GREEN}================================================================${PLAIN}"
-echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${SERVER_IP}:${PORT}${PLAIN}"
+if [[ "${BIND_DOMAIN}" == "true" && -n "${DOMAIN}" ]]; then
+    echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}https://${DOMAIN}${PLAIN}"
+    echo -e "🔗 ${CYAN}本地直连备用${PLAIN} : ${CYAN}http://${SERVER_IP}:${PORT}${PLAIN}"
+else
+    echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${SERVER_IP}:${PORT}${PLAIN}"
+fi
 echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${ADMIN_USER}${PLAIN}"
 echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}${ADMIN_PWD}${PLAIN}"
 echo -e "🤖 ${CYAN}Telegram 状态${PLAIN}: ${TG_STATUS}"
+echo -e "🔒 ${CYAN}域名与证书${PLAIN}  : ${DOMAIN_STATUS}"
 echo -e "📂 ${CYAN}数据持久目录${PLAIN} : ${INSTALL_DIR}/data/"
 echo -e "🔑 ${CYAN}密钥保存目录${PLAIN} : ${INSTALL_DIR}/keys/"
 echo -e "📄 ${CYAN}配置文件路径${PLAIN} : ${INSTALL_DIR}/application.yml"
@@ -672,6 +1109,7 @@ echo -e "   - 查看服务状态 : ${YELLOW}oci status${PLAIN} (或 systemctl st
 echo -e "   - 重启管理面板 : ${YELLOW}oci restart${PLAIN} (或 systemctl restart ocibox)"
 echo -e "   - 停止管理面板 : ${YELLOW}oci stop${PLAIN} (或 systemctl stop ocibox)"
 echo -e "   - 修改服务端口 : ${YELLOW}oci port${PLAIN} (自动放行防火墙并重启)"
+echo -e "   - 域名证书管理 : ${YELLOW}oci cert${PLAIN} (申请/重新绑定/维护证书)"
 echo -e "   - 查看实时日志 : ${YELLOW}oci logs${PLAIN} (或 journalctl -u ocibox -f -n 50)"
 echo -e "   - 在线版本更新 : ${YELLOW}oci update${PLAIN}"
 echo -e "${GREEN}================================================================${PLAIN}\n"

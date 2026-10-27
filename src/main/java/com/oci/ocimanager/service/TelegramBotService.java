@@ -65,6 +65,7 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
     @Autowired private TrafficLimitRepository trafficLimitRepo;
     @Autowired private OciProperties ociProperties;
     @Autowired private LocalCacheService redisTemplate;
+    @Autowired(required = false) @org.springframework.context.annotation.Lazy private NotificationService notificationService;
 
     private TelegramClient telegramClient;
     private TelegramBotsLongPollingApplication botsApplication;
@@ -790,7 +791,9 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
     }
 
     public void sendMessage(String text) {
-        if (adminId != null && !adminId.isBlank()) {
+        if (notificationService != null) {
+            notificationService.sendAuto(text);
+        } else if (adminId != null && !adminId.isBlank()) {
             try {
                 sendText(Long.parseLong(adminId.trim()), text);
             } catch (Exception ignored) {}
@@ -798,7 +801,9 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
     }
 
     public void sendHtmlMessage(String text) {
-        if (adminId != null && !adminId.isBlank()) {
+        if (notificationService != null) {
+            notificationService.sendAuto(text);
+        } else if (adminId != null && !adminId.isBlank()) {
             try {
                 sendHtmlText(Long.parseLong(adminId.trim()), text);
             } catch (Exception ignored) {}

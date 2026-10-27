@@ -29,6 +29,7 @@ public class AdminDashboardController {
     @Autowired private OciProperties ociProperties;
     @Autowired private AccountYamlService accountYamlService;
     @Autowired private AdminAuthService adminAuthService;
+    @Autowired private com.oci.ocimanager.service.NotificationService notificationService;
 
     private final ExecutorService ipFetchExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -155,7 +156,8 @@ public class AdminDashboardController {
             "instances", getEnrichedInstances(), 
             "accounts", orderedAccounts.keySet(),
             "accountDetails", accountList,
-            "tgBotRunning", telegramBotService.isBotRunning()
+            "tgBotRunning", telegramBotService.isBotRunning(),
+            "unreadNoticeCount", notificationService.getUnreadCount()
         );
     }
 
@@ -238,7 +240,9 @@ public class AdminDashboardController {
             "instances", getEnrichedInstances(),
             "accountDetails", accountList,
             "accounts", orderedAccounts.keySet(),
-            "traffic", trafficData
+            "traffic", trafficData,
+            "unreadNoticeCount", notificationService.getUnreadCount(),
+            "latestNotices", notificationService.getLatestUnreadNotices(3)
         );
     }
 

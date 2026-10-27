@@ -2,8 +2,12 @@
 import {
     sessionToken, isEditing, currentTab, globalInstances,
     accountDetails, globalAccounts, trafficData, isSyncingAccounts,
-    syncingOcids, sysMsg, bootVolumes, manageAccountSelect
+    syncingOcids, sysMsg, bootVolumes, manageAccountSelect,
+    unreadNoticeCount, toastNotifications
 } from './state.js';
+
+const seenNoticeIds = new Set();
+let initialPollDone = false;
 import { apiCall } from './api.js';
 import { formatAccountDetails, showMessage } from '../utils/helpers.js';
 
@@ -202,6 +206,23 @@ export function startGlobalPolling() {
                     ensureChangingInstanceWatcher();
                     if (currentTab.value === 'manage') {
                         ensureBootVolumeWatcher();
+                    }
+                    if (data.unreadNoticeCount !== undefined) {
+                        unreadNoticeCount.value = data.unreadNoticeCount;
+                    }
+                    if (data.latestNotices && Array.isArray(data.latestNotices)) {
+                        data.latestNotices.forEach(n => {
+                            if (!seenNoticeIds.has(n.id)) {
+                                seenNoticeIds.add(n.id);
+                                if (initialPollDone) {
+                                    toastNotifications.value.unshift(n);
+                                    setTimeout(() => {
+                                        toastNotifications.value = toastNotifications.value.filter(t => t.id !== n.id);
+                                    }, 6000);
+                                }
+                            }
+                        });
+                        initialPollDone = true;
                     }
                 }
             } else if (currentTab.value === 'create') {

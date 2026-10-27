@@ -3,10 +3,8 @@ package com.oci.ocimanager.controller.admin;
 import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.OciCloudService;
 import com.oci.ocimanager.service.ScheduledTasksService;
-import com.oci.ocimanager.service.TelegramBotService;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -28,11 +26,8 @@ import java.util.concurrent.TimeUnit;
 public class AdminInstanceController {
 
     @Autowired private OciCloudService ociCloudService;
-    @Autowired private TelegramBotService telegramBotService;
     @Autowired private AdminAuthService adminAuthService;
-
-    @Value("${app.admin-id}")
-    private String adminId;
+    @Autowired private com.oci.ocimanager.service.NotificationService notificationService;
 
     private static final java.util.logging.Logger LOG = java.util.logging.Logger.getLogger(AdminInstanceController.class.getName());
 
@@ -307,7 +302,7 @@ public class AdminInstanceController {
         String safeAcc = (account != null) ? account.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") : "";
 
         String pwdInfo = (rootPwd != null && !rootPwd.isEmpty()) ? "🔑 临时密码: <tg-spoiler><code>" + safePwd + "</code></tg-spoiler>" : "🔑 登录方式: SSH 密钥";
-        telegramBotService.sendHtmlText(Long.parseLong(adminId), "⏳ <b>系统重装任务开始</b>\n\n实例: <code>" + safeInstance + "</code>\n账号: <code>" + safeAcc + "</code>\n" + pwdInfo + "\n\n正在替换引导卷，将在后台自动跟进开机状态...");
+        notificationService.send("系统重装任务开始", "⏳ <b>系统重装任务开始</b>\n\n实例: <code>" + safeInstance + "</code>\n账号: <code>" + safeAcc + "</code>\n" + pwdInfo + "\n\n正在替换引导卷，将在后台自动跟进开机状态...", "INFO", "INSTANCE");
         scheduleMonitorTask(ocid, account, instanceName, rootPwd, oldBootVolumeId, 0);
     }
 
@@ -316,7 +311,7 @@ public class AdminInstanceController {
         String safeInstance = (instanceName != null) ? instanceName.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") : "";
 
         if (attempt >= 40) { 
-            telegramBotService.sendHtmlText(Long.parseLong(adminId), "💿 ⚠️ <b>系统重装监控超时</b>\n\n实例: <code>" + safeInstance + "</code>\n状态: 超过20分钟未能启动，请前往 OCI 控制台检查机器是否卡住。");
+            notificationService.send("系统重装监控超时", "💿 ⚠️ <b>系统重装监控超时</b>\n\n实例: <code>" + safeInstance + "</code>\n状态: 超过20分钟未能启动，请前往 OCI 控制台检查机器是否卡住。", "WARNING", "INSTANCE");
             return;
         }
 
@@ -343,14 +338,14 @@ public class AdminInstanceController {
                         }
                     }
 
-                    telegramBotService.sendHtmlText(Long.parseLong(adminId), "💿 ✅ <b>系统重装成功</b>\n\n实例: <code>" + safeInstance + "</code>\n🌐 公网 IP: <code>" + safeIp + "</code>\n状态: 引导卷替换完成，<b>已成功开机运行！</b>\n" + successPwdInfo + "\n系统已更新。" + volumeCleanupInfo);
+                    notificationService.send("系统重装成功", "💿 ✅ <b>系统重装成功</b>\n\n实例: <code>" + safeInstance + "</code>\n🌐 公网 IP: <code>" + safeIp + "</code>\n状态: 引导卷替换完成，<b>已成功开机运行！</b>\n" + successPwdInfo + "\n系统已更新。" + volumeCleanupInfo, "SUCCESS", "INSTANCE");
                 } else {
                     if ("STOPPED".equalsIgnoreCase(state)) ociCloudService.instanceAction(ocid, "START", account);
                     scheduleMonitorTask(ocid, account, instanceName, rootPwd, oldBootVolumeId, attempt + 1);
                 }
             } catch (Exception e) {
                 LOG.warning("系统重装监控异常: " + e.getMessage());
-                telegramBotService.sendHtmlText(Long.parseLong(adminId), "💿 ❌ <b>系统重装监控异常</b>\n\n实例: <code>" + safeInstance + "</code>\n请到网页后台或服务日志查看详情。");
+                notificationService.send("系统重装监控异常", "💿 ❌ <b>系统重装监控异常</b>\n\n实例: <code>" + safeInstance + "</code>\n请到网页后台或服务日志查看详情。", "DANGER", "INSTANCE");
             }
         }, 30, TimeUnit.SECONDS);
     }

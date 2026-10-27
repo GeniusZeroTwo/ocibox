@@ -14,7 +14,10 @@ import {
     createImages, reinstallImages, createForm, modals, isDragging,
     availableRegionsForSelectedAccount, isRegionDropdownOpen, kpiStats,
     sortedTrafficData, trafficStats, isUpgradedAccount, groupedInstances,
-    serverSearchKeyword, isBootVolumeCollapsed, persistSessionToken
+    serverSearchKeyword, isBootVolumeCollapsed, persistSessionToken,
+    unreadNoticeCount, notificationDrawerOpen, notificationsList,
+    notificationFilterCategory, notificationUnreadOnly, notificationTotalCount,
+    notificationLoading, toastNotifications
 } from './core/state.js';
 
 import { apiCall } from './core/api.js';
@@ -42,6 +45,9 @@ const app = createApp({
 
         function applyServerData(data) {
             tgBotRunning.value = !!data.tgBotRunning;
+            if (data.unreadNoticeCount !== undefined) {
+                unreadNoticeCount.value = data.unreadNoticeCount;
+            }
             globalInstances.value = data.instances || {};
             globalAccounts.value = data.accounts || [];
             accountDetails.value = formatAccountDetails(data.accountDetails, globalInstances.value);
@@ -1308,6 +1314,98 @@ const app = createApp({
 
 
         // ==========================================
+        // 🔔 站内消息与通知中心业务逻辑
+        // ==========================================
+        async function fetchNotifications(page = 0) {
+            notificationLoading.value = true;
+            try {
+                const res = await apiCall('notifications/list', {
+                    page: page,
+                    size: 40,
+                    category: notificationFilterCategory.value,
+                    unreadOnly: notificationUnreadOnly.value
+                });
+                if (res && res.success) {
+                    notificationsList.value = res.list || [];
+                    unreadNoticeCount.value = res.unreadCount || 0;
+                    notificationTotalCount.value = res.totalCount || 0;
+                }
+            } catch (e) {
+            } finally {
+                notificationLoading.value = false;
+            }
+        }
+
+        function toggleNotificationDrawer() {
+            notificationDrawerOpen.value = !notificationDrawerOpen.value;
+            if (notificationDrawerOpen.value) {
+                fetchNotifications(0);
+            }
+        }
+
+        function closeNotificationDrawer() {
+            notificationDrawerOpen.value = false;
+        }
+
+        async function markNoticeRead(notice) {
+            if (!notice || notice.isRead) return;
+            const res = await apiCall('notifications/read', { id: notice.id });
+            if (res && res.success) {
+                notice.isRead = true;
+                if (res.unreadCount !== undefined) {
+                    unreadNoticeCount.value = res.unreadCount;
+                } else if (unreadNoticeCount.value > 0) {
+                    unreadNoticeCount.value--;
+                }
+            }
+        }
+
+        async function markAllNoticesRead() {
+            const res = await apiCall('notifications/read', { id: null });
+            if (res && res.success) {
+                (notificationsList.value || []).forEach(n => n.isRead = true);
+                unreadNoticeCount.value = 0;
+            }
+        }
+
+        async function clearNotices(type = 'read') {
+            const res = await apiCall('notifications/clear', { type });
+            if (res && res.success) {
+                fetchNotifications(0);
+            }
+        }
+
+        function setNotificationCategory(cat) {
+            notificationFilterCategory.value = cat;
+            fetchNotifications(0);
+        }
+
+        function toggleNotificationUnreadOnly() {
+            notificationUnreadOnly.value = !notificationUnreadOnly.value;
+            fetchNotifications(0);
+        }
+
+        function closeToastNotification(id) {
+            toastNotifications.value = toastNotifications.value.filter(t => t.id !== id);
+        }
+
+        function formatNotificationContent(content) {
+            if (!content) return '';
+            let safe = content
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+            safe = safe
+                .replace(/&lt;code&gt;(.*?)&lt;\/code&gt;/gi, '<code class="notice-inline-code">$1</code>')
+                .replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/gi, '<b>$1</b>')
+                .replace(/&lt;tg-spoiler&gt;(.*?)&lt;\/tg-spoiler&gt;/gi, '<span class="notice-spoiler">$1</span>')
+                .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+                .replace(/`([^`]+)`/g, '<code class="notice-inline-code">$1</code>')
+                .replace(/\n/g, '<br>');
+            return safe;
+        }
+
+        // ==========================================
         // 🚀 生命周期钩子与定时器注册
         // ==========================================
 
@@ -1368,7 +1466,13 @@ const app = createApp({
             handleFileChange, handleFileDrop, triggerFileInput, submitImport, deleteAccount,
             onShapeChange, renameAccountPrompt, closeRenameAccountModal, executeRenameAccount,
             tagAccountPrompt, closeTagAccountModal, setPresetTag, executeTagAccount, availableTagIcons,
-            getAccountTags, formatTagDisplay, addTagToModal, removeTagFromModal, clearAllTagsFromModal, addCustomTagFromModal
+            getAccountTags, formatTagDisplay, addTagToModal, removeTagFromModal, clearAllTagsFromModal, addCustomTagFromModal,
+            unreadNoticeCount, notificationDrawerOpen, notificationsList,
+            notificationFilterCategory, notificationUnreadOnly, notificationTotalCount,
+            notificationLoading, toastNotifications,
+            toggleNotificationDrawer, closeNotificationDrawer, fetchNotifications,
+            markNoticeRead, markAllNoticesRead, clearNotices, setNotificationCategory,
+            toggleNotificationUnreadOnly, closeToastNotification, formatNotificationContent
         };
     }
 });

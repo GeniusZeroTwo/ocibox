@@ -6,7 +6,6 @@ import com.oci.ocimanager.config.OciProperties;
 import com.oci.ocimanager.entity.TrafficLimit;
 import com.oci.ocimanager.repository.TrafficLimitRepository;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import com.oci.ocimanager.entity.SystemConfig;
 import com.oci.ocimanager.repository.SystemConfigRepository;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -41,7 +40,6 @@ public class ScheduledTasksService {
     public static final Map<String, String> WARNING_SENT_RECORD = new ConcurrentHashMap<>();
 
     @Autowired private OciCloudService ociCloudService;
-    @Autowired private TelegramBotService telegramBotService;
     @Autowired private TrafficLimitRepository limitRepo;
     @Autowired private OciProperties ociProperties;
     @Autowired private JdbcTemplate jdbcTemplate;
@@ -51,8 +49,7 @@ public class ScheduledTasksService {
     @Autowired private LocalCacheService redisTemplate;
     @Autowired private SystemConfigRepository systemConfigRepository;
     @Autowired private ObjectMapper objectMapper;
-
-    @Value("${app.admin-id}") private String adminId;
+    @Autowired private com.oci.ocimanager.service.NotificationService notificationService;
 
     private static ScheduledTasksService instance;
 
@@ -189,7 +186,7 @@ public class ScheduledTasksService {
                     if (limit != null && limit.getLimitGb() > 0 && usage >= limit.getLimitGb()) {
                         String meltdownKey = accName + "_meltdown";
                         if (!currentMonth.equals(WARNING_SENT_RECORD.get(meltdownKey))) {
-                            telegramBotService.sendText(Long.parseLong(adminId), "🛑 **【最高警报】账号流量熔断**\n账号 `" + accName + "` 流量超标 (" + String.format(Locale.US, "%.2f", usage) + "GB)，正在错峰执行账号断网保护！");
+                            notificationService.send("账号流量熔断告警", "🛑 **【最高警报】账号流量熔断**\n账号 `" + accName + "` 流量超标 (" + String.format(Locale.US, "%.2f", usage) + "GB)，正在错峰执行账号断网保护！", "DANGER", "TRAFFIC");
                             WARNING_SENT_RECORD.put(meltdownKey, currentMonth);
                             saveSystemCache();
                         }
@@ -204,7 +201,7 @@ public class ScheduledTasksService {
                                 if (!success) {
                                     success = ociCloudService.instanceAction(ocid, "STOP", accName);
                                 }
-                                if (success) telegramBotService.sendText(Long.parseLong(adminId), "🔌 成功切断: " + info.get("name"));
+                                if (success) notificationService.send("流量熔断切断实例", "🔌 成功切断: " + info.get("name"), "WARNING", "TRAFFIC");
 
                                 try { Thread.sleep(5000); } catch (InterruptedException ignored) {}
                             }
@@ -229,7 +226,7 @@ public class ScheduledTasksService {
                             if (isMonthRollover || isLimitRaisedLegitimately) {
                                 WARNING_SENT_RECORD.remove(meltdownKey);
                                 saveSystemCache();
-                                telegramBotService.sendText(Long.parseLong(adminId), "🟢 **【流量恢复自动开机】**\n账号 `" + accName + "` 流量已恢复正常 (" + String.format(Locale.US, "%.2f", usage) + "GB)，已自动解除熔断锁定，正在自动拉起关机节点...");
+                                notificationService.send("流量恢复自动开机", "🟢 **【流量恢复自动开机】**\n账号 `" + accName + "` 流量已恢复正常 (" + String.format(Locale.US, "%.2f", usage) + "GB)，已自动解除熔断锁定，正在自动拉起关机节点...", "SUCCESS", "TRAFFIC");
                                 autoReviveAccountInstances(accName);
                             } else {
                                 System.out.println("🛡️ [熔断锁定保护] 账号 [" + accName + "] 仍处于本月 (" + recordedMonth + ") 熔断保护期内，当前流量读取为 " + usage + "GB，未达到解除熔断标准，拒绝误开机！");
@@ -280,17 +277,13 @@ public class ScheduledTasksService {
             }
 
             String affectedStr = allAffectedMachines.isEmpty() ? "未找到该账号的实例" : String.join("`\n`", allAffectedMachines);
-            if (adminId != null && !adminId.isBlank()) {
-                try {
-                    String adminMsg = "⚠️ *[超流量严重预警]* ⚠️\n\n" +
-                            "您的甲骨文账号：`" + account + "`\n" +
-                            "本月出站流量已达到设定限额的 **98%**！\n" +
-                            "当前已用: `" + String.format(Locale.US, "%.2f", usage) + " GB` / `" + limit + " GB`\n\n" +
-                            "**该账号下的实例：**\n`" + affectedStr + "`\n\n" +
-                            "请注意排查流量消耗，避免停机或扣费风险！";
-                    telegramBotService.sendText(Long.parseLong(adminId), adminMsg);
-                } catch (Exception ignored) {}
-            }
+            String adminMsg = "⚠️ *[超流量严重预警]* ⚠️\n\n" +
+                    "您的甲骨文账号：`" + account + "`\n" +
+                    "本月出站流量已达到设定限额的 **98%**！\n" +
+                    "当前已用: `" + String.format(Locale.US, "%.2f", usage) + " GB` / `" + limit + " GB`\n\n" +
+                    "**该账号下的实例：**\n`" + affectedStr + "`\n\n" +
+                    "请注意排查流量消耗，避免停机或扣费风险！";
+            notificationService.send("超流量严重预警 (98%)", adminMsg, "WARNING", "TRAFFIC");
             WARNING_SENT_RECORD.put(account, currentMonth);
             // 立即保存到 Redis
             saveSystemCache();
@@ -302,7 +295,6 @@ public class ScheduledTasksService {
 
     @Scheduled(cron = "0 30 0 * * ?", zone = "UTC")
     public void dailyTrafficPush() {
-        if (adminId == null || adminId.isBlank()) return;
         System.out.println("📢 [每日推送] 开始向管理员推送区域流量报告...");
         Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
 
@@ -346,7 +338,7 @@ public class ScheduledTasksService {
                 }
             }
             try {
-                telegramBotService.sendText(Long.parseLong(adminId), msg.toString());
+                notificationService.send("每日全量流量播报", msg.toString(), "INFO", "TRAFFIC");
             } catch (Exception e) {
                 System.err.println("❌ 向管理员推送每日流量失败: " + e.getMessage());
             }
@@ -396,8 +388,8 @@ public class ScheduledTasksService {
             return Map.of("success", false, "message", "今天并非 1 号 (UTC: " + nowUtc + ", CST: " + nowCst + ")，如需强制开启请传入 force=true");
         }
 
-        telegramBotService.sendText(Long.parseLong(adminId), 
-            "🗓️ **【月初自动复活】**\n触发来源: `" + triggerSource + "`\n新月开始，甲骨文免费流量已重置！正在扫描并错峰开启所有已关机节点...");
+        notificationService.send("月初自动复活启动", 
+            "🗓️ **【月初自动复活】**\n触发来源: `" + triggerSource + "`\n新月开始，甲骨文免费流量已重置！正在扫描并错峰开启所有已关机节点...", "INFO", "INSTANCE");
 
         int successCount = 0;
         int failedCount = 0;
@@ -466,7 +458,7 @@ public class ScheduledTasksService {
                         successCount++;
                         startedNames.add(name);
                         String cleanName = cleanInstanceDisplayName(name, account);
-                        telegramBotService.sendText(Long.parseLong(adminId), "🚀 **【自动开机成功】** `" + cleanName + "` (" + account + ")");
+                        notificationService.send("自动开机成功", "🚀 **【自动开机成功】** `" + cleanName + "` (" + account + ")", "SUCCESS", "INSTANCE");
                     } else {
                         failedCount++;
                         failedNames.add(name);
@@ -492,7 +484,7 @@ public class ScheduledTasksService {
                     (skippedRentals > 0 ? "，跳过超期租户: " + skippedRentals : "") + 
                     ")，所有健康节点均在运行中。";
             }
-            telegramBotService.sendText(Long.parseLong(adminId), resultMsg);
+            notificationService.send("月初复活完毕", resultMsg, "SUCCESS", "INSTANCE");
 
             // 更新缓存并持久化
             ociCloudService.updateInstancesCache(true);
@@ -518,7 +510,7 @@ public class ScheduledTasksService {
             System.err.println("❌ 月初自动开机任务异常: " + e.getMessage());
             String errMsg = "❌ 月初自动开机任务异常，请到服务日志查看详情。";
             try {
-                telegramBotService.sendText(Long.parseLong(adminId), errMsg);
+                notificationService.send("月初自动开机任务异常", errMsg, "DANGER", "INSTANCE");
             } catch (Exception ignored) {}
             return Map.of("success", false, "error", errMsg);
         }
@@ -610,7 +602,7 @@ public class ScheduledTasksService {
                         if (ok) {
                             revived++;
                             String cleanName = cleanInstanceDisplayName(info.get("name"), accName);
-                            telegramBotService.sendText(Long.parseLong(adminId), "🚀 **【自动开机恢复】**\n已唤醒节点: `" + cleanName + "` (" + accName + ")");
+                            notificationService.send("自动开机恢复", "🚀 **【自动开机恢复】**\n已唤醒节点: `" + cleanName + "` (" + accName + ")", "SUCCESS", "INSTANCE");
                         }
                         try { Thread.sleep(5000L); } catch (InterruptedException ignored) {}
                     }
@@ -693,8 +685,8 @@ public class ScheduledTasksService {
                 if (eligibleStoppedList.isEmpty()) {
                     System.out.println("🎉 [1号自愈巡检] 确认所有客户与业务节点均已正常运行 (" + runningCount + "/" + totalEligible + ")！今日自愈任务达成，自动休眠停止后续检查。");
                     markDayOneRevivalCompleted(todayKey);
-                    telegramBotService.sendText(Long.parseLong(adminId), 
-                        "🎉 **【1号开机自愈达成】**\n已检测确认所有客户及业务机器全部处于正常运行状态 (运行中: `" + runningCount + "` 台)！\n今日自愈巡检已功成身退，已自动停止后续检查。");
+                    notificationService.send("1号开机自愈达成", 
+                        "🎉 **【1号开机自愈达成】**\n已检测确认所有客户及业务机器全部处于正常运行状态 (运行中: `" + runningCount + "` 台)！\n今日自愈巡检已功成身退，已自动停止后续检查。", "SUCCESS", "INSTANCE");
                     return;
                 }
 
@@ -718,8 +710,8 @@ public class ScheduledTasksService {
                     if (allExhausted) {
                         System.out.println("⚠️ [1号自愈巡检] 剩余 " + eligibleStoppedList.size() + " 台关机节点均已达 3 次重试上限，自动停止今日检查，避免频繁调用。");
                         markDayOneRevivalCompleted(todayKey);
-                        telegramBotService.sendText(Long.parseLong(adminId), 
-                            "⚠️ **【1号自愈巡检暂停】**\n检测到有 `" + eligibleStoppedList.size() + "` 台关机机器已连续重试 3 次均未能拉起 (通常为甲骨文官方区域缺货 Out of Host Capacity 或已被封禁)。\n为保护账号与 API 安全，今日已自动停止轮询。");
+                        notificationService.send("1号自愈巡检暂停", 
+                            "⚠️ **【1号自愈巡检暂停】**\n检测到有 `" + eligibleStoppedList.size() + "` 台关机机器已连续重试 3 次均未能拉起 (通常为甲骨文官方区域缺货 Out of Host Capacity 或已被封禁)。\n为保护账号与 API 安全，今日已自动停止轮询。", "WARNING", "INSTANCE");
                     }
                     return;
                 }
@@ -743,7 +735,7 @@ public class ScheduledTasksService {
                         successCount++;
                         AUTO_START_FAIL_COUNTS.remove(ocid);
                         String cleanName = cleanInstanceDisplayName(name, account);
-                        telegramBotService.sendText(Long.parseLong(adminId), "🤖 **【全自动开机自愈】**\n来源: `" + source + "`\n已成功唤醒关机节点: `" + cleanName + "` (" + account + ")");
+                        notificationService.send("全自动开机自愈", "🤖 **【全自动开机自愈】**\n来源: `" + source + "`\n已成功唤醒关机节点: `" + cleanName + "` (" + account + ")", "SUCCESS", "INSTANCE");
                     } else {
                         int f = AUTO_START_FAIL_COUNTS.getOrDefault(ocid, 0) + 1;
                         AUTO_START_FAIL_COUNTS.put(ocid, f);
@@ -772,8 +764,8 @@ public class ScheduledTasksService {
                     if (!stillHasStopped) {
                         // 全部合规节点已开机完毕！立即标记完成，终止今日后续所有检查！
                         markDayOneRevivalCompleted(todayKey);
-                        telegramBotService.sendText(Long.parseLong(adminId), 
-                            "🎉 **【1号开机自愈达成】**\n全部关机节点均已成功唤醒！今日自愈巡检任务已完成，已停止后续检查。");
+                        notificationService.send("1号开机自愈达成", 
+                            "🎉 **【1号开机自愈达成】**\n全部关机节点均已成功唤醒！今日自愈巡检任务已完成，已停止后续检查。", "SUCCESS", "INSTANCE");
                     }
                 }
             } catch (Exception e) {
