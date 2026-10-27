@@ -76,6 +76,65 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.
 
 ---
 
+## 🔑 甲骨文云 (OCI) API 密钥与配置文件获取指南
+
+OCIBox 通过甲骨文官方提供的标准 API 密钥与 SDK 与您的云资源进行安全交互。导入新账号前，需获取**「标准配置内容」**与**「.pem 私钥文件」**：
+
+### 📌 步骤一：登录甲骨文云控制台并进入 API 密钥页面
+
+> 甲骨文云控制台入口：[https://cloud.oracle.com](https://cloud.oracle.com)
+
+- **主流新版租户（包含身份域 Identity Domains）：**
+  1. 登录后，点击网页右上角 **头像个人资料 (Profile)** 图标 👤。
+  2. 点击下拉菜单中的 **「我的个人资料」(My profile)**（若为传统租户则显示为 **「用户设置」(User Settings)**）。
+  3. 进入个人详情页后，向下滚动或在左侧/底部 **「资源」(Resources)** 列表中，点击 **「API 密钥」(API Keys)**。
+
+- **经典/传统 IAM 租户（无身份域）：**
+  1. 点击控制台左上角导航菜单 `☰` ➔ **「身份和安全性」(Identity & Security)** ➔ **「用户」(Users)**。
+  2. 点击您当前登录的管理员用户名，进入用户详情页。
+  3. 在左侧 **「资源」** 列表中点击 **「API 密钥」(API Keys)**。
+
+---
+
+### 📌 步骤二：生成并下载 API 密钥
+
+1. 在 API 密钥列表上方，点击 **「添加 API 密钥」(Add API Key)** 按钮。
+2. 弹出的对话框中，保持默认选择 **「生成 API 密钥对」(Generate API Key Pair)**。
+3. ⚠️ **核心必做操作**：点击 **「下载私有密钥」(Download Private Key)** 按钮！
+   - 浏览器将下载一个名为 `xxxx-xx-xx-xx-xx.pem` 的私钥文件，请妥善保存该文件。
+4. 点击对话框底部的 **「添加」(Add)** 按钮。
+
+---
+
+### 📌 步骤三：复制 OCI CLI 标准配置
+
+添加成功后，控制台会自动弹出一个 **「配置文件预览」(Configuration File Preview)** 窗口，内容示例如下：
+
+```ini
+[DEFAULT]
+user=ocid1.user.oc1..aaaaaaaaxxxxxxx...
+fingerprint=xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx:xx
+tenancy=ocid1.tenancy.oc1..aaaaaaaaxxxxxxx...
+region=ap-singapore-1
+key_file=<path to your private keyfile> # TODO
+```
+
+点击窗口右下角的 **「复制」(Copy)** 按钮，将整段内容完整复制。
+
+---
+
+### 📌 步骤四：在 OCIBox 面板中导入账号
+
+1. 登录 OCIBox 管理后台，在主界面点击 **「➕ 导入新 OCI 账号」**。
+2. **账号别名**：输入便于您记忆的名称（如 `新加坡主号`、`法兰克福-AMD`）。
+3. **OCI CLI 标准配置**：将步骤三复制的全部内容完整粘贴进文本框。
+4. **OCI 私钥 (.pem)**：
+   - 方式一：点击或拖拽刚才步骤二下载的 `.pem` 私钥文件到上传区域。
+   - 方式二：点击「✏️ 文本粘贴」，用记事本打开 `.pem` 文件，复制里面的完整内容（包含 `-----BEGIN RSA PRIVATE KEY-----` 和 `-----END RSA PRIVATE KEY-----`）粘贴进去。
+5. 点击 **「确定导入并预热」**。系统将自动校验凭据合法性、生成安全存储路径并即时预热实例与网络信息！
+
+---
+
 ## 🛠️ 手动部署与配置文件说明
 
 如果您希望完全手动管理服务或自定义配置，可参考以下步骤：

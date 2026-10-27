@@ -2023,21 +2023,21 @@
         }
 
         /* 5) 主按钮：实心强调 + 顶部内高光 + 柔和阴影；hover 微亮微浮、按下回弹缩放，无扫光 */
-        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled) {
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(.btn-text-action):not(.filter-chip):not(.notice-drawer-close):not(.pill-notice):not(.pill-logout):not(:disabled) {
             background: linear-gradient(135deg, #10b981, #059669);
             border-radius: 12px;
             box-shadow: 0 1px 2px rgba(6, 78, 59, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.18);
             transition: transform 0.18s cubic-bezier(0.32, 0.72, 0, 1), box-shadow 0.2s ease, filter 0.2s ease, background-color 0.2s ease;
         }
 
-        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled):hover {
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(.btn-text-action):not(.filter-chip):not(.notice-drawer-close):not(.pill-notice):not(.pill-logout):not(:disabled):hover {
             background: linear-gradient(135deg, #10b981, #059669);
             filter: brightness(1.08);
             transform: translateY(-1px);
             box-shadow: 0 6px 18px -6px rgba(6, 78, 59, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.22);
         }
 
-        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled):active {
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(.btn-text-action):not(.filter-chip):not(.notice-drawer-close):not(.pill-notice):not(.pill-logout):not(:disabled):active {
             transform: translateY(0) scale(0.975);
             filter: brightness(0.98);
             box-shadow: 0 1px 2px rgba(6, 78, 59, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.12);
@@ -2584,12 +2584,12 @@
         }
 
         /* 按钮微光:各色类同色系 glow,hover 增强(亮/暗通用,暗色更明显) */
-        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled) {
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(.btn-text-action):not(.filter-chip):not(.notice-drawer-close):not(.pill-notice):not(.pill-logout):not(:disabled) {
             box-shadow: 0 0 12px rgba(16, 185, 129, 0.45), 0 2px 8px rgba(6, 78, 59, 0.30), inset 0 1px 0 rgba(255, 255, 255, 0.18);
             text-shadow: 0 0 8px rgba(255, 255, 255, 0.35);
         }
 
-        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(:disabled):hover {
+        button:not(.btn-secondary):not(.btn-warning):not(.btn-danger):not(.btn-cyan):not(.btn-violet):not(.btn-indigo):not(.btn-teal):not(.btn-amber):not(.btn-liquid):not(.btn-apple):not(.theme-toggle-btn):not(.btn-passkey-login):not(.btn-del-passkey):not(.passkey-icon-btn):not(.passkey-card-close-btn):not(.passkey-nav-btn):not(.btn-add-passkey):not(.passkey-modal-close):not(.passkey-refresh-btn):not(.passkey-modal-footer-close):not(.hover-edit-btn):not(.tag-add-btn):not(.rent-btn):not(.rentable-toolbar-refresh-btn):not(.rentable-toolbar-add-btn):not(.rentable-top-btn):not(.rentable-filter-pill):not(.specs-fetch-btn):not(.rentable-modal-cancel-btn):not(.rentable-modal-submit-btn):not(.price-preset-chip):not(.copy-btn-component):not(.btn-text-action):not(.filter-chip):not(.notice-drawer-close):not(.pill-notice):not(.pill-logout):not(:disabled):hover {
             box-shadow: 0 0 20px rgba(16, 185, 129, 0.65), 0 6px 18px -6px rgba(6, 78, 59, 0.40), inset 0 1px 0 rgba(255, 255, 255, 0.22);
         }
 
@@ -2697,7 +2697,7 @@
             justify-content: space-between;
             align-items: center;
             margin-bottom: 18px;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
             gap: 10px;
         }
 
@@ -2718,8 +2718,17 @@
             display: flex;
             gap: 8px;
             align-items: center;
-            flex-wrap: wrap;
+            flex: 1 1 auto;
+            flex-wrap: nowrap;
+            justify-content: flex-end;
+            justify-content: safe flex-end;
+            margin-left: auto;
+            min-width: 0;
+            max-width: 100%;
+            overflow-x: auto;
+            scrollbar-width: none;
         }
+        .brandbar-right::-webkit-scrollbar { display: none; }
 
         .pill {
             font-size: 11px;
@@ -2729,7 +2738,40 @@
             border: 1px solid;
         }
 
+        .brandbar-right > .pill {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+            flex: 0 0 auto;
+            width: auto;
+            height: 28px;
+            margin: 0;
+            line-height: 1;
+            white-space: nowrap;
+            transform: none;
+        }
+
+        button.pill {
+            width: auto;
+            box-shadow: none;
+            text-shadow: none;
+            filter: none;
+        }
+
+        button.pill:hover,
+        button.pill:active {
+            text-shadow: none;
+            filter: none;
+        }
+
         .pill-green {
+            color: #065f46;
+            border-color: #047857;
+            background: #d1fae5;
+        }
+
+        [data-theme="dark"] .pill-green {
             color: #34d399;
             border-color: rgba(16, 185, 129, 0.45);
             background: rgba(16, 185, 129, 0.10);
@@ -2744,9 +2786,16 @@
         }
 
         .pill-cyan {
+            color: #155e75;
+            border-color: #0e7490;
+            background: #cffafe;
+        }
+
+        [data-theme="dark"] .pill-cyan {
             color: #22d3ee;
             border-color: rgba(34, 211, 238, 0.40);
             background: rgba(34, 211, 238, 0.08);
+            box-shadow: none;
         }
 
         .kpi-row {
@@ -3270,6 +3319,12 @@
 
         /* ===== 🌌 品牌栏状态胶囊(指示灯合并后唯一入口) ===== */
         .pill-amber {
+            color: #92400e;
+            border-color: #b45309;
+            background: #fef3c7;
+        }
+
+        [data-theme="dark"] .pill-amber {
             color: #fbbf24;
             border-color: rgba(245, 158, 11, 0.45);
             background: rgba(245, 158, 11, 0.10);
@@ -3278,9 +3333,9 @@
 
         button.pill-logout {
             width: auto;
-            background: transparent;
-            color: #fb7185;
-            border: 1px solid rgba(244, 63, 94, 0.45);
+            background: #ffe4e6;
+            color: #9f1239;
+            border: 1px solid #e11d48;
             padding: 4px 12px;
             font-size: 11px;
             font-weight: 700;
@@ -3288,9 +3343,24 @@
         }
 
         button.pill-logout:hover {
-            background: rgba(244, 63, 94, 0.12);
-            box-shadow: 0 0 10px rgba(244, 63, 94, 0.25);
+            background: #be123c;
+            color: #ffffff;
+            border-color: #9f1239;
+            box-shadow: none;
             transform: none;
+        }
+
+        [data-theme="dark"] button.pill-logout {
+            background: transparent;
+            color: #fb7185;
+            border-color: rgba(244, 63, 94, 0.45);
+        }
+
+        [data-theme="dark"] button.pill-logout:hover {
+            background: rgba(244, 63, 94, 0.12);
+            color: #fecdd3;
+            border-color: #fb7185;
+            box-shadow: 0 0 10px rgba(244, 63, 94, 0.25);
         }
 
         /* ===== 🌌 实例卡线性 SVG 图标(替换 ⚙️🌐📍📅 emoji) ===== */
@@ -3488,7 +3558,7 @@
             left: 0;
             width: 100vw;
             height: 100vh;
-            background-image: url('../bg.png?v=20261026_01');
+            background-image: url('../bg.png?v=20261027_04');
             background-size: cover;
             background-position: center center;
             background-repeat: no-repeat;
@@ -3499,19 +3569,18 @@
                 transform 0.7s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* 登录后控制台激活背景景深模糊（全屏透亮，清晰映衬原画） */
+        /* 登录后控制台保持壁纸原画高清透亮（移除重度模糊，完美展现背景人物细节） */
         .app-wallpaper.is-blurred {
-            filter: blur(18px) brightness(0.96) saturate(110%);
-            transform: scale(1.08);
-            will-change: filter, transform;
+            filter: none;
+            transform: none;
         }
 
         [data-theme="dark"] .app-wallpaper.is-blurred {
-            filter: blur(18px) brightness(0.85) saturate(115%);
-            transform: scale(1.08);
+            filter: brightness(0.92);
+            transform: none;
         }
 
-        /* 环境光影过渡与磨砂雾化扩散层：登录界面下完全透亮无遮罩，后台轻盈透光 */
+        /* 环境光影过渡层：保持通透无重度磨砂遮挡 */
         .app-wallpaper-overlay {
             position: fixed;
             top: 0;
@@ -3521,19 +3590,19 @@
             z-index: 1;
             pointer-events: none;
             background: transparent;
-            transition: background 0.7s ease, backdrop-filter 0.7s ease;
+            transition: background 0.7s ease;
         }
 
         .app-wallpaper-overlay.is-dashboard {
-            background: rgba(255, 255, 255, 0.18);
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
         }
 
         [data-theme="dark"] .app-wallpaper-overlay.is-dashboard {
-            background: rgba(8, 14, 26, 0.22);
-            backdrop-filter: blur(6px);
-            -webkit-backdrop-filter: blur(6px);
+            background: rgba(8, 14, 26, 0.15);
+            backdrop-filter: none;
+            -webkit-backdrop-filter: none;
         }
 
         /* 🔐 登录界面：全局居中容器 */
@@ -5411,26 +5480,53 @@
 
         /* 顶部品牌栏消息胶囊按钮 */
         .pill-notice {
-            background: rgba(59, 130, 246, 0.12) !important;
-            border: 1px solid rgba(59, 130, 246, 0.35) !important;
-            color: #60a5fa !important;
+            background: #dbeafe !important;
+            border: 1px solid #2563eb !important;
+            color: #1e3a8a !important;
             cursor: pointer;
             display: inline-flex !important;
             align-items: center !important;
             gap: 4px !important;
-            font-weight: 600 !important;
-            transition: all 0.2s ease !important;
+            font-weight: 700 !important;
+            width: auto !important;
+            transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease !important;
         }
         .pill-notice:hover {
-            background: rgba(59, 130, 246, 0.25) !important;
-            border-color: #3b82f6 !important;
-            transform: translateY(-1px);
+            background: #1d4ed8 !important;
+            border-color: #1e3a8a !important;
+            color: #ffffff !important;
+            transform: none;
         }
         .pill-notice.has-unread {
-            background: rgba(244, 63, 94, 0.15) !important;
-            border-color: rgba(244, 63, 94, 0.45) !important;
-            color: #fb7185 !important;
+            background: #ffe4e6 !important;
+            border-color: #e11d48 !important;
+            color: #9f1239 !important;
             animation: noticePulse 2.4s infinite ease-in-out;
+        }
+        .pill-notice.has-unread:hover {
+            background: #be123c !important;
+            border-color: #9f1239 !important;
+            color: #ffffff !important;
+        }
+        [data-theme="dark"] .pill-notice {
+            background: rgba(59, 130, 246, 0.16) !important;
+            border-color: rgba(96, 165, 250, 0.7) !important;
+            color: #dbeafe !important;
+        }
+        [data-theme="dark"] .pill-notice:hover {
+            background: #1d4ed8 !important;
+            border-color: #93c5fd !important;
+            color: #ffffff !important;
+        }
+        [data-theme="dark"] .pill-notice.has-unread {
+            background: rgba(244, 63, 94, 0.18) !important;
+            border-color: rgba(251, 113, 133, 0.75) !important;
+            color: #ffe4e6 !important;
+        }
+        [data-theme="dark"] .pill-notice.has-unread:hover {
+            background: #9f1239 !important;
+            border-color: #fecdd3 !important;
+            color: #ffffff !important;
         }
         @keyframes noticePulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(244, 63, 94, 0.4); }
@@ -5438,7 +5534,7 @@
         }
 
         .notice-badge-pill {
-            background: #ef4444;
+            background: #b91c1c;
             color: #ffffff;
             border-radius: 99px;
             padding: 1px 6px;
@@ -5449,9 +5545,14 @@
         }
 
         .pill-slate {
+            background: #f1f5f9 !important;
+            color: #1e293b !important;
+            border: 1px solid #64748b !important;
+        }
+        [data-theme="dark"] .pill-slate {
             background: rgba(148, 163, 184, 0.12) !important;
-            color: #94a3b8 !important;
-            border: 1px solid rgba(148, 163, 184, 0.25) !important;
+            color: #e2e8f0 !important;
+            border: 1px solid rgba(203, 213, 225, 0.45) !important;
         }
 
         /* 悬浮 Toast 容器与卡片 */
@@ -5581,19 +5682,28 @@
         }
 
         .notice-drawer-header {
-            padding: 16px 20px;
+            padding: 14px 16px;
             display: flex;
             justify-content: space-between;
             align-items: center;
+            flex-wrap: nowrap;
+            gap: 8px;
             border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-            background: rgba(0, 0, 0, 0.2);
+            background: var(--tabs-bg, #f3f4f6);
             flex-shrink: 0;
         }
         .notice-drawer-title {
             display: flex;
             align-items: center;
             gap: 8px;
+            min-width: 0;
+            flex: 1;
             color: var(--text-main, #f8fafc);
+        }
+        .notice-drawer-title > span:nth-child(2) {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
         .notice-badge-count {
             background: rgba(239, 68, 68, 0.2);
@@ -5607,44 +5717,145 @@
         .notice-drawer-actions {
             display: flex;
             align-items: center;
-            gap: 10px;
+            flex-wrap: nowrap;
+            flex-shrink: 0;
+            justify-content: flex-end;
+            margin-left: auto;
+            gap: 6px;
+        }
+        /* 脱离全局 button（白字绿底约 2.5:1，禁用态同色几乎不可见），并取消 width:100% */
+        .notice-drawer button.btn-text-action,
+        .notice-drawer button.filter-chip,
+        .notice-drawer button.notice-drawer-close {
+            box-shadow: none;
+            text-shadow: none;
+            filter: none;
+            transform: none;
+        }
+        .notice-drawer button.btn-text-action,
+        .notice-drawer button.filter-chip {
+            width: auto;
+        }
+        .notice-drawer button.notice-drawer-close {
+            width: 28px;
+            min-width: 28px;
+            height: 28px;
+            padding: 0;
+        }
+        .notice-drawer button.btn-text-action:hover,
+        .notice-drawer button.filter-chip:hover,
+        .notice-drawer button.notice-drawer-close:hover,
+        .notice-drawer button.btn-text-action:active,
+        .notice-drawer button.filter-chip:active,
+        .notice-drawer button.notice-drawer-close:active {
+            box-shadow: none;
+            text-shadow: none;
+            filter: none;
+            transform: none;
         }
         .btn-text-action {
-            background: transparent;
-            border: none;
-            color: var(--text-dim, #94a3b8);
+            background: #dbeafe;
+            border: 1px solid #60a5fa;
+            color: #1e3a8a;
             font-size: 12px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
-            padding: 4px 6px;
+            padding: 5px 10px;
             border-radius: 6px;
-            transition: all 0.15s ease;
+            line-height: 1.4;
+            white-space: nowrap;
+            transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
         }
         .btn-text-action:hover:not(:disabled) {
-            color: #38bdf8;
-            background: rgba(56, 189, 248, 0.1);
+            background: #1d4ed8;
+            border-color: #1e40af;
+            color: #ffffff;
         }
-        .btn-text-action:disabled {
-            opacity: 0.4;
+        button.btn-text-action:disabled,
+        .btn-text-action.danger-text:disabled {
+            background: #f3f4f6 !important;
+            background-color: #f3f4f6 !important;
+            border: 1px solid #d1d5db !important;
+            border-color: #d1d5db !important;
+            color: #374151 !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+            filter: none !important;
+            opacity: 1;
             cursor: not-allowed;
         }
-        .btn-text-action.danger-text:hover:not(:disabled) {
-            color: #f87171;
-            background: rgba(248, 113, 113, 0.1);
+        .btn-text-action.danger-text {
+            background: #fee2e2;
+            border-color: #f87171;
+            color: #7f1d1d;
         }
+        .btn-text-action.danger-text:hover:not(:disabled) {
+            background: #b91c1c;
+            border-color: #991b1b;
+            color: #ffffff;
+        }
+
+        [data-theme="dark"] .btn-text-action {
+            background: #0c4a6e;
+            border-color: #38bdf8;
+            color: #f0f9ff;
+        }
+        [data-theme="dark"] .btn-text-action:hover:not(:disabled) {
+            background: #075985;
+            border-color: #7dd3fc;
+            color: #ffffff;
+        }
+        [data-theme="dark"] button.btn-text-action:disabled,
+        [data-theme="dark"] .btn-text-action.danger-text:disabled {
+            background: #1e293b !important;
+            background-color: #1e293b !important;
+            border: 1px solid #94a3b8 !important;
+            border-color: #94a3b8 !important;
+            color: #f8fafc !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+        [data-theme="dark"] .btn-text-action.danger-text {
+            background: #7f1d1d;
+            border-color: #f87171;
+            color: #fff1f2;
+        }
+        [data-theme="dark"] .btn-text-action.danger-text:hover:not(:disabled) {
+            background: #991b1b;
+            border-color: #fecaca;
+            color: #ffffff;
+        }
+
         .notice-drawer-close {
-            background: transparent;
-            border: none;
-            color: var(--text-dim, #94a3b8);
-            font-size: 22px;
+            background: #e5e7eb;
+            border: 1px solid #9ca3af;
+            color: #111827;
+            font-size: 20px;
+            font-weight: 600;
             line-height: 1;
             cursor: pointer;
-            padding: 2px 6px;
+            width: 28px;
+            height: 28px;
+            padding: 0;
             border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
         .notice-drawer-close:hover {
+            color: #ffffff;
+            background: #374151;
+            border-color: #111827;
+        }
+        [data-theme="dark"] .notice-drawer-close {
+            background: #1e293b;
+            border-color: #94a3b8;
             color: #f8fafc;
-            background: rgba(255, 255, 255, 0.08);
+        }
+        [data-theme="dark"] .notice-drawer-close:hover {
+            background: #e2e8f0;
+            border-color: #f8fafc;
+            color: #0f172a;
         }
 
         /* 分类过滤器条 */
@@ -5654,38 +5865,59 @@
             gap: 6px;
             overflow-x: auto;
             border-bottom: 1px solid var(--border, rgba(255, 255, 255, 0.06));
-            background: rgba(0, 0, 0, 0.1);
+            background: var(--bg-card, #ffffff);
             flex-shrink: 0;
             scrollbar-width: none;
         }
         .notice-drawer-filters::-webkit-scrollbar { display: none; }
 
         .filter-chip {
-            background: rgba(255, 255, 255, 0.05);
-            border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
-            color: var(--text-dim, #94a3b8);
+            background: #ffffff;
+            border: 1px solid #9ca3af;
+            color: #111827;
             padding: 4px 10px;
             border-radius: 8px;
             font-size: 11px;
-            font-weight: 500;
+            font-weight: 600;
             cursor: pointer;
             white-space: nowrap;
-            transition: all 0.15s ease;
+            transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
         }
         .filter-chip:hover {
-            border-color: rgba(56, 189, 248, 0.35);
-            color: #f8fafc;
+            border-color: #1d4ed8;
+            color: #1e3a8a;
+            background: #dbeafe;
         }
         .filter-chip.active {
-            background: rgba(56, 189, 248, 0.15);
-            border-color: #38bdf8;
-            color: #38bdf8;
-            font-weight: 600;
+            background: #1d4ed8;
+            border-color: #1e3a8a;
+            color: #ffffff;
+            font-weight: 700;
         }
         .filter-chip.chip-unread.active {
-            background: rgba(239, 68, 68, 0.15);
-            border-color: #ef4444;
-            color: #f87171;
+            background: #b91c1c;
+            border-color: #7f1d1d;
+            color: #ffffff;
+        }
+        [data-theme="dark"] .filter-chip {
+            background: #0d1b27;
+            border-color: #94a3b8;
+            color: #f8fafc;
+        }
+        [data-theme="dark"] .filter-chip:hover {
+            border-color: #7dd3fc;
+            color: #f0f9ff;
+            background: #0c4a6e;
+        }
+        [data-theme="dark"] .filter-chip.active {
+            background: #0369a1;
+            border-color: #7dd3fc;
+            color: #f0f9ff;
+        }
+        [data-theme="dark"] .filter-chip.chip-unread.active {
+            background: #991b1b;
+            border-color: #fecaca;
+            color: #fff1f2;
         }
 
         /* 消息列表主体 */
@@ -5827,5 +6059,21 @@
             background: rgba(0, 0, 0, 0.2);
             flex-shrink: 0;
         }
+
+        /* 💡 导入账号弹窗中的 API 密钥获取指引 */
+        .oci-api-guide-details {
+            transition: all 0.2s ease;
+        }
+        .oci-api-guide-details[open] {
+            box-shadow: 0 4px 12px rgba(14, 165, 233, 0.12);
+        }
+        [data-theme="dark"] .oci-api-guide-details {
+            background: rgba(56, 189, 248, 0.1) !important;
+            border-color: rgba(56, 189, 248, 0.3) !important;
+        }
+        [data-theme="dark"] .oci-api-guide-details summary {
+            color: #38bdf8 !important;
+        }
+
 
 

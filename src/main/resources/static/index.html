@@ -6,7 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OCIBox - 甲骨文云轻量管理面板</title>
     <!-- 外部样式表：现代规范，支持浏览器强缓存，通过版本号破除陈旧缓存 -->
-    <link rel="stylesheet" href="css/main.css?v=20261027_01">
+    <link rel="stylesheet" href="css/main.css?v=20261027_06">
     <!-- 🛡️ 彻底杜绝首屏模板插值花括号与未渲染内容闪烁乱码 (Anti-FOUC) -->
     <style>
         [v-cloak] {
@@ -518,7 +518,7 @@
 
     <div id="app" v-cloak :class="{ 'is-logged-in': !!sessionToken, 'is-login': !sessionToken }">
         <!-- 🌸 背景壁纸与动态景深毛玻璃遮罩（内联直接相对寻址，彻底杜绝路径与缓存异常） -->
-        <div class="app-wallpaper" :class="{ 'is-blurred': sessionToken }" style="background-image: url('bg.png?v=20261026_01') !important;"></div>
+        <div class="app-wallpaper" :class="{ 'is-blurred': sessionToken }" style="background-image: url('bg.png?v=20261027_04') !important;"></div>
         <div class="app-wallpaper-overlay" :class="{ 'is-dashboard': sessionToken }"></div>
 
         <!-- 🌓 主题切换与通行密钥管理浮动组件 (竖向对齐，仅保留按钮与图标) -->
@@ -1944,6 +1944,17 @@
                 <h3 style="margin-top: 0; display: flex; align-items: center; gap: 8px;">
                     <span style="font-size: 20px;">➕</span> 导入新 OCI 账号
                 </h3>
+                <details class="oci-api-guide-details" style="margin-bottom: 14px; background: rgba(14, 165, 233, 0.08); border: 1px dashed rgba(14, 165, 233, 0.35); border-radius: 8px; padding: 8px 12px; font-size: 12px; color: var(--text-main);">
+                    <summary style="cursor: pointer; font-weight: 600; color: #0284c7; display: flex; align-items: center; gap: 6px; user-select: none;">
+                        <span>💡 甲骨文 API 密钥获取路径指引 (点击展开)</span>
+                    </summary>
+                    <div style="margin-top: 8px; line-height: 1.6; color: var(--text-muted); font-size: 11.5px;">
+                        <p style="margin: 4px 0;">1. 登录甲骨文云 <code>cloud.oracle.com</code>，点击右上角头像 👤 ➔ <b>「我的个人资料 (My Profile)」</b>（或「用户设置」）。</p>
+                        <p style="margin: 4px 0;">2. 页面下拉在左侧「资源」栏点击 <b>「API 密钥 (API Keys)」</b> ➔ 点击 <b>「添加 API 密钥 (Add API Key)」</b>。</p>
+                        <p style="margin: 4px 0;">3. 选择「生成 API 密钥对」，<b>务必点击「下载私有密钥」</b>保存 <code>.pem</code> 私钥文件，再点击「添加」。</p>
+                        <p style="margin: 4px 0;">4. 复制弹窗中生成的 <b>配置文件预览内容 [DEFAULT]...</b> 粘贴至下方，并上传/粘贴刚才下载的 <b>.pem 私钥</b> 即可！</p>
+                    </div>
+                </details>
                 <div class="group">
                     <label>🏷️ 账号别名</label>
                     <input type="text"
