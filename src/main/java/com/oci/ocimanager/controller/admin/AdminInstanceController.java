@@ -4,6 +4,7 @@ import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.OciCloudService;
 import com.oci.ocimanager.service.ScheduledTasksService;
 import jakarta.annotation.PreDestroy;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -11,7 +12,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -34,19 +37,26 @@ public class AdminInstanceController {
     // 重装监控调度器（随实例域从 AdminController 迁入）
     private final ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
+    // 合法电源动作白名单，阻断非预期或恶意参数注入
+    private static final Set<String> ALLOWED_POWER_ACTIONS = Set.of(
+            "START", "STOP", "SOFTSTOP", "RESET", "SOFTRESET"
+    );
+
     @PreDestroy
     public void destroy() {
         scheduler.shutdownNow();
     }
 
-    private boolean checkAuth(String token) {
-        return adminAuthService.checkAuth(token);
+    private boolean checkAuth(HttpServletRequest request, Map<String, String> payload) {
+        return adminAuthService.checkAuth(request, payload);
     }
 
     @PostMapping("/instance-enable-500mbps")
-    public Map<String, Object> enableAmd500Mbps(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> enableAmd500Mbps(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String ocid = payload.get("ocid");
+        if (ocid == null || ocid.isBlank()) return Map.of("success", false, "error", "缺少实例 OCID");
         Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
         if (!instances.containsKey(ocid)) return Map.of("success", false, "error", "未找到该机器，可能已删除");
         try {
@@ -65,9 +75,11 @@ public class AdminInstanceController {
     }
 
     @PostMapping({"/instance-disable-500mbps", "/instance-delete-500mbps"})
-    public Map<String, Object> disable500Mbps(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> disable500Mbps(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String ocid = payload.get("ocid");
+        if (ocid == null || ocid.isBlank()) return Map.of("success", false, "error", "缺少实例 OCID");
         Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
         if (!instances.containsKey(ocid)) return Map.of("success", false, "error", "未找到该机器，可能已删除");
         try {
@@ -86,9 +98,11 @@ public class AdminInstanceController {
     }
 
     @PostMapping("/instance-enable-ipv6")
-    public Map<String, Object> enableIpv6(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> enableIpv6(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String ocid = payload.get("ocid");
+        if (ocid == null || ocid.isBlank()) return Map.of("success", false, "error", "缺少实例 OCID");
         Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
         if (!instances.containsKey(ocid)) return Map.of("success", false, "error", "未找到该机器，可能已删除");
         try {
@@ -107,9 +121,11 @@ public class AdminInstanceController {
     }
 
     @PostMapping({"/instance-disable-ipv6", "/instance-delete-ipv6"})
-    public Map<String, Object> disableIpv6(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> disableIpv6(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String ocid = payload.get("ocid");
+        if (ocid == null || ocid.isBlank()) return Map.of("success", false, "error", "缺少实例 OCID");
         Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
         if (!instances.containsKey(ocid)) return Map.of("success", false, "error", "未找到该机器，可能已删除");
         try {
@@ -128,19 +144,25 @@ public class AdminInstanceController {
     }
 
     @PostMapping("/instance-action")
-    public Map<String, Object> instanceAction(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> instanceAction(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
+        String action = payload.get("action");
+        if (action == null || !ALLOWED_POWER_ACTIONS.contains(action.trim().toUpperCase(Locale.ROOT))) {
+            return Map.of("success", false, "error", "非法的实例电源操作指令");
+        }
+        String cleanAction = action.trim().toUpperCase(Locale.ROOT);
         String ocid = payload.get("ocid");
+        if (ocid == null || ocid.isBlank()) return Map.of("success", false, "error", "缺少实例 OCID");
         Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
         if (!instances.containsKey(ocid)) {
             instances = ociCloudService.updateInstancesCache();
         }
         if (!instances.containsKey(ocid)) return Map.of("success", false, "error", "未找到该机器，可能已删除");
-        String action = payload.get("action");
         String account = instances.get(ocid).get("account");
-        boolean ok = ociCloudService.instanceAction(ocid, action, account);
+        boolean ok = ociCloudService.instanceAction(ocid, cleanAction, account);
         if (ok) {
-            String targetState = "START".equalsIgnoreCase(action) ? "STARTING" : "STOPPING";
+            String targetState = "START".equalsIgnoreCase(cleanAction) ? "STARTING" : "STOPPING";
             Map<String, String> instInfo = instances.get(ocid);
             if (instInfo != null) {
                 instInfo.put("state", targetState);
@@ -174,9 +196,11 @@ public class AdminInstanceController {
     }
     
     @PostMapping("/instance-delete")
-    public Map<String, Object> deleteInstance(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> deleteInstance(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String ocid = payload.get("ocid");
+        if (ocid == null || ocid.isBlank()) return Map.of("success", false, "error", "缺少实例 OCID");
         Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
         if (!instances.containsKey(ocid)) return Map.of("success", false, "error", "未找到该机器，可能已删除");
         
@@ -191,20 +215,32 @@ public class AdminInstanceController {
     }
 
     @PostMapping("/instance-rename")
-    public Map<String, Object> renameInstance(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> renameInstance(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String ocid = payload.get("ocid");
+        if (ocid == null || ocid.isBlank()) return Map.of("success", false, "error", "缺少实例 OCID");
         String newName = payload.get("newName");
 
         if (newName == null || newName.trim().isEmpty()) {
             return Map.of("success", false, "error", "新实例名称不能为空");
+        }
+        String cleanNewName = newName.trim();
+        if (cleanNewName.length() > 255) {
+            return Map.of("success", false, "error", "实例名称长度不能超过 255 个字符");
+        }
+        for (int i = 0; i < cleanNewName.length(); i++) {
+            char c = cleanNewName.charAt(i);
+            if (c < 0x20 || c == 0x7F) {
+                return Map.of("success", false, "error", "实例名称包含非法控制字符");
+            }
         }
 
         Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
         if (!instances.containsKey(ocid)) return Map.of("success", false, "error", "未找到该机器，可能已删除");
 
         String account = instances.get(ocid).get("account");
-        boolean ok = ociCloudService.renameInstance(ocid, newName.trim(), account);
+        boolean ok = ociCloudService.renameInstance(ocid, cleanNewName, account);
 
         if (ok) {
             CompletableFuture.runAsync(() -> { ociCloudService.updateInstancesCache(true); });
@@ -215,10 +251,12 @@ public class AdminInstanceController {
     }
 
     @PostMapping("/instance-reinstall")
-    public Map<String, Object> reinstallInstance(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> reinstallInstance(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         try {
             String ocid = payload.get("ocid");
+            if (ocid == null || ocid.isBlank()) return Map.of("success", false, "error", "缺少实例 OCID");
             String customImageOcid = payload.get("imageOcid");
             String osName = payload.get("osName");
             String osVersion = payload.get("osVersion");

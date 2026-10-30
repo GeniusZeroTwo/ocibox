@@ -620,8 +620,8 @@ public class OciNetworkService {
             java.util.regex.Matcher mCountry = IPLOC_COUNTRY_PATTERN.matcher(body);
             java.util.regex.Matcher mCity = IPLOC_CITY_PATTERN.matcher(body);
 
-            String country = mCountry.find() ? mCountry.group(1) : "";
-            String city = mCity.find() ? mCity.group(1) : "";
+            String country = mCountry.find() ? sanitizeGeoText(mCountry.group(1)) : "";
+            String city = mCity.find() ? sanitizeGeoText(mCity.group(1)) : "";
             String loc = country + (city.isEmpty() ? "" : " " + city);
 
             if (loc.trim().isEmpty()) {
@@ -637,6 +637,16 @@ public class OciNetworkService {
             return "未知地区";
         }
     }
+
+    private static String sanitizeGeoText(String raw) {
+        if (raw == null || raw.isBlank()) return "";
+        String cleaned = raw.replaceAll("[<>\"'`&\\r\\n\\t\\p{Cntrl}]", "").trim();
+        if (cleaned.length() > 32) {
+            cleaned = cleaned.substring(0, 32);
+        }
+        return cleaned;
+    }
+
     public String enableAmd500Mbps(String ocid, String account) throws Exception {
         var clients = clientManager.getOciClients(account);
         String region = OciRegionUtil.getRegionForResource(ocid);

@@ -36,7 +36,7 @@ public class AdminPasskeyController {
      * 2. 校验登录凭证签名并签发 Token、推送 TG 通知 (无需登录态，公开接口)
      */
     @PostMapping("/login/verify")
-    public Map<String, Object> verifyLogin(@RequestBody Map<String, Object> payload, HttpServletRequest request) {
+    public Map<String, Object> verifyLogin(@RequestBody(required = false) Map<String, Object> payload, HttpServletRequest request) {
         return adminPasskeyService.verifyLogin(payload, request);
     }
 
@@ -45,15 +45,15 @@ public class AdminPasskeyController {
      */
     @PostMapping("/register/options")
     public Map<String, Object> getRegisterOptions(
-            @RequestHeader(value = "X-Admin-Token", required = false) String headerToken,
             @RequestBody(required = false) Map<String, Object> payload,
             HttpServletRequest request) {
-        String token = resolveToken(headerToken, payload);
+        String token = adminAuthService.resolveToken(request, payload);
         if (!checkAuth(token)) {
             return Map.of("success", false, "error", "请先登录后再绑定通行密钥");
         }
         String rpId = resolveSafeRpId(request, payload);
-        String username = payload != null && payload.get("username") != null ? payload.get("username").toString() : null;
+        String username = payload != null && payload.get("username") != null && !payload.get("username").toString().isBlank()
+                ? payload.get("username").toString().trim() : adminAuthService.getConfiguredAdminUsername();
         String stepUpSecret = null;
         if (payload != null) {
             Object secret = payload.get("stepUpSecret");
@@ -68,10 +68,9 @@ public class AdminPasskeyController {
      */
     @PostMapping("/register/verify")
     public Map<String, Object> verifyRegister(
-            @RequestHeader(value = "X-Admin-Token", required = false) String headerToken,
-            @RequestBody Map<String, Object> payload,
+            @RequestBody(required = false) Map<String, Object> payload,
             HttpServletRequest request) {
-        String token = resolveToken(headerToken, payload);
+        String token = adminAuthService.resolveToken(request, payload);
         if (!checkAuth(token)) {
             return Map.of("success", false, "error", "未授权访问：请先登录管理员后台！");
         }
@@ -83,9 +82,9 @@ public class AdminPasskeyController {
      */
     @PostMapping("/list")
     public Map<String, Object> listPasskeys(
-            @RequestHeader(value = "X-Admin-Token", required = false) String headerToken,
-            @RequestBody(required = false) Map<String, Object> payload) {
-        String token = resolveToken(headerToken, payload);
+            @RequestBody(required = false) Map<String, Object> payload,
+            HttpServletRequest request) {
+        String token = adminAuthService.resolveToken(request, payload);
         if (!checkAuth(token)) {
             return Map.of("success", false, "error", "会话已过期或未登录，请重新登录！");
         }
@@ -97,17 +96,15 @@ public class AdminPasskeyController {
      */
     @PostMapping("/delete")
     public Map<String, Object> deletePasskey(
-            @RequestHeader(value = "X-Admin-Token", required = false) String headerToken,
-            @RequestBody Map<String, Object> payload) {
-        String token = resolveToken(headerToken, payload);
+            @RequestBody(required = false) Map<String, Object> payload,
+            HttpServletRequest request) {
+        String token = adminAuthService.resolveToken(request, payload);
         if (!checkAuth(token)) {
             return Map.of("success", false, "error", "会话已过期或未登录，请重新登录！");
         }
-        Long id = null;
-        if (payload != null && payload.get("id") != null) {
-            Object idObj = payload.get("id");
-            if (idObj instanceof Number n) id = n.longValue();
-            else id = Long.parseLong(idObj.toString());
+        Long id = parsePasskeyId(payload);
+        if (id == null) {
+            return Map.of("success", false, "error", "参数 id 无效或格式不合法");
         }
         return adminPasskeyService.deletePasskey(token, id);
     }
@@ -117,30 +114,29 @@ public class AdminPasskeyController {
      */
     @PostMapping("/update-name")
     public Map<String, Object> renamePasskey(
-            @RequestHeader(value = "X-Admin-Token", required = false) String headerToken,
-            @RequestBody Map<String, Object> payload) {
-        String token = resolveToken(headerToken, payload);
+            @RequestBody(required = false) Map<String, Object> payload,
+            HttpServletRequest request) {
+        String token = adminAuthService.resolveToken(request, payload);
         if (!checkAuth(token)) {
             return Map.of("success", false, "error", "会话已过期或未登录，请重新登录！");
         }
-        Long id = null;
-        if (payload != null && payload.get("id") != null) {
-            Object idObj = payload.get("id");
-            if (idObj instanceof Number n) id = n.longValue();
-            else id = Long.parseLong(idObj.toString());
+        Long id = parsePasskeyId(payload);
+        if (id == null) {
+            return Map.of("success", false, "error", "参数 id 无效或格式不合法");
         }
-        String name = payload != null ? (String) payload.get("name") : null;
+        String name = payload != null && payload.get("name") != null ? String.valueOf(payload.get("name")) : null;
         return adminPasskeyService.renamePasskey(token, id, name);
     }
 
-    private String resolveToken(String headerToken, Map<String, Object> payload) {
-        if (headerToken != null && !headerToken.isBlank()) {
-            return headerToken.trim();
+    private Long parsePasskeyId(Map<String, Object> payload) {
+        if (payload == null || payload.get("id") == null) return null;
+        Object idObj = payload.get("id");
+        if (idObj instanceof Number n) return n.longValue();
+        try {
+            return Long.parseLong(idObj.toString().trim());
+        } catch (NumberFormatException e) {
+            return null;
         }
-        if (payload != null && payload.get("token") != null) {
-            return payload.get("token").toString().trim();
-        }
-        return "";
     }
 
     /**

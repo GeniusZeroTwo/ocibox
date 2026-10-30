@@ -123,11 +123,34 @@ else
     echo -e "⬇️ 正在从 GitHub 下载最新版本核心程序包..."
     DOWNLOAD_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/ocibox.jar"
     ALT_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/oci-personal.jar"
-    if ! curl -fL --retry 3 --connect-timeout 10 "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/app.jar" 2>/dev/null && \
-       ! curl -fL --retry 3 --connect-timeout 10 "${ALT_URL}" -o "${INSTALL_DIR}/app.jar"; then
-        echo -e "${RED}❌ 下载最新核心程序包失败！${PLAIN}"
+    TMP_JAR="${INSTALL_DIR}/app.jar.download"
+    rm -f "${TMP_JAR}" "${TMP_JAR}.sha256" 2>/dev/null || true
+    USED_URL="${DOWNLOAD_URL}"
+    if ! curl -fL --retry 3 --connect-timeout 10 "${DOWNLOAD_URL}" -o "${TMP_JAR}" 2>/dev/null; then
+        USED_URL="${ALT_URL}"
+        if ! curl -fL --retry 3 --connect-timeout 10 "${ALT_URL}" -o "${TMP_JAR}"; then
+            echo -e "${RED}❌ 下载最新核心程序包失败！${PLAIN}"
+            rm -f "${TMP_JAR}" 2>/dev/null || true
+            exit 1
+        fi
+    fi
+    # 🔒 校验 JAR 归档结构完整性与可选 SHA-256 签名摘要，防止损坏或被篡改包覆盖原程序
+    if command -v unzip >/dev/null 2>&1 && ! unzip -tq "${TMP_JAR}" >/dev/null 2>&1; then
+        echo -e "${RED}❌ 下载的核心程序包完整性校验失败 (非合法 JAR 归档)！已保留原程序。${PLAIN}"
+        rm -f "${TMP_JAR}" 2>/dev/null || true
         exit 1
     fi
+    if command -v sha256sum >/dev/null 2>&1 && curl -fsSL --connect-timeout 5 "${USED_URL}.sha256" -o "${TMP_JAR}.sha256" 2>/dev/null; then
+        EXPECTED_SHA=$(awk '{print $1}' "${TMP_JAR}.sha256" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+        ACTUAL_SHA=$(sha256sum "${TMP_JAR}" | awk '{print $1}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+        rm -f "${TMP_JAR}.sha256" 2>/dev/null || true
+        if [[ -n "${EXPECTED_SHA}" && "${#EXPECTED_SHA}" -eq 64 && "${EXPECTED_SHA}" != "${ACTUAL_SHA}" ]]; then
+            echo -e "${RED}❌ 核心程序包 SHA-256 校验值不匹配！已拒绝更新并保留原程序。${PLAIN}"
+            rm -f "${TMP_JAR}" 2>/dev/null || true
+            exit 1
+        fi
+    fi
+    mv -f "${TMP_JAR}" "${INSTALL_DIR}/app.jar"
     echo -e "✅ 已成功下载并更新核心程序包！"
 fi
 

@@ -10,6 +10,7 @@ import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.CreationTaskService;
 import com.oci.ocimanager.service.OciCloudService;
 import com.oci.ocimanager.service.ScheduledTasksService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
@@ -41,13 +42,14 @@ public class AdminAccountController {
 
     private static final java.util.logging.Logger LOG = java.util.logging.Logger.getLogger(AdminAccountController.class.getName());
 
-    private boolean checkAuth(String token) {
-        return adminAuthService.checkAuth(token);
+    private boolean checkAuth(HttpServletRequest request, Map<String, ?> payload) {
+        return adminAuthService.checkAuth(request, payload);
     }
 
     @PostMapping("/account-client-identity")
-    public Map<String, Object> updateClientIdentity(@RequestBody Map<String, Object> payload) {
-        if (!checkAuth((String) payload.get("token"))) return Map.of("success", false, "error", "鉴权失败");
+    public Map<String, Object> updateClientIdentity(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "鉴权失败");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String account = (String) payload.get("account");
         if (account == null || account.trim().isEmpty()) {
             return Map.of("success", false, "error", "账号名不能为空");
@@ -136,8 +138,9 @@ public class AdminAccountController {
     }
 
     @PostMapping("/account-tag")
-    public Map<String, Object> setAccountTag(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "鉴权失败");
+    public Map<String, Object> setAccountTag(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "鉴权失败");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String account = payload.get("account");
         String tag = payload.get("tag");
         if (account == null || account.trim().isEmpty()) {
@@ -148,15 +151,16 @@ public class AdminAccountController {
     }
 
     @PostMapping("/account-payg")
-    public Map<String, Object> setAccountPayg(@RequestBody Map<String, Object> payload) {
-        if (!checkAuth((String) payload.get("token"))) return Map.of("success", false, "error", "鉴权失败");
+    public Map<String, Object> setAccountPayg(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "鉴权失败");
         return Map.of("success", false, "error", "手动切换功能已取消，系统已全面启用自动智能识别");
     }
 
     @PostMapping("/account-rename")
     @Transactional
-    public Map<String, Object> renameAccount(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> renameAccount(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String oldAccount = payload.get("oldAccount");
         String newAccount = payload.get("newAccount");
         if (oldAccount == null || oldAccount.trim().isEmpty()) return Map.of("success", false, "error", "原账号名不能为空");
@@ -270,8 +274,9 @@ public class AdminAccountController {
     // 🌟 物理抹杀版：无视所有标点、方括号和隐藏换行符陷阱的终极代码
     @PostMapping("/account-delete")
     @Transactional
-    public Map<String, Object> deleteAccount(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> deleteAccount(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String rawAccount = payload.get("account");
         if (rawAccount == null || rawAccount.trim().isEmpty()) return Map.of("success", false, "error", "账号名不能为空");
 
@@ -400,8 +405,9 @@ public class AdminAccountController {
     }
 
     @PostMapping("/import-account")
-    public Map<String, Object> importAccount(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> importAccount(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         
         try {
             String rawAccountName = payload.get("accountName");
@@ -448,11 +454,31 @@ public class AdminAccountController {
 
             String cleanPrivateKey = privateKeyText.trim().replace("\r\n", "\n");
             java.nio.file.Path keyPath = Paths.get(keyFilePath);
-            Files.write(keyPath, cleanPrivateKey.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            // 🔒 OCI 私钥文件权限收紧为 600（默认 umask 常为 0644，会导致私钥全局可读）。
+            // 🔒 原子创建 600 权限的 OCI 私钥文件，消除先写文件再改权限之间的默认 umask (0644) 全局可读竞态窗口
+            byte[] keyBytes = cleanPrivateKey.getBytes(java.nio.charset.StandardCharsets.UTF_8);
             try {
+                java.nio.file.attribute.FileAttribute<Set<java.nio.file.attribute.PosixFilePermission>> attr =
+                        java.nio.file.attribute.PosixFilePermissions.asFileAttribute(
+                                java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
+                try (java.nio.channels.SeekableByteChannel channel = Files.newByteChannel(
+                        keyPath,
+                        java.util.EnumSet.of(
+                                java.nio.file.StandardOpenOption.CREATE,
+                                java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                                java.nio.file.StandardOpenOption.WRITE),
+                        attr)) {
+                    channel.write(java.nio.ByteBuffer.wrap(keyBytes));
+                }
                 Files.setPosixFilePermissions(keyPath, java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"));
-            } catch (Exception ignored) {}
+            } catch (UnsupportedOperationException e) {
+                Files.write(keyPath, keyBytes);
+                File f = keyPath.toFile();
+                f.setReadable(false, false);
+                f.setWritable(false, false);
+                f.setExecutable(false, false);
+                f.setReadable(true, true);
+                f.setWritable(true, true);
+            }
 
             OciProperties.Account newAcc = new OciProperties.Account();
             newAcc.setUser(user);
@@ -590,8 +616,9 @@ public class AdminAccountController {
     }
 
     @PostMapping("/account/regions")
-    public Map<String, Object> getAccountRegions(@RequestBody Map<String, Object> payload) {
-        if (!checkAuth((String) payload.get("token"))) return Map.of("success", false, "error", "鉴权失败");
+    public Map<String, Object> getAccountRegions(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "鉴权失败");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String account = (String) payload.get("account");
         if (account == null || account.trim().isEmpty()) {
             return Map.of("success", false, "error", "缺少账号参数");
@@ -600,8 +627,9 @@ public class AdminAccountController {
     }
 
     @PostMapping("/account/subscribe-region")
-    public Map<String, Object> subscribeRegion(@RequestBody Map<String, Object> payload) {
-        if (!checkAuth((String) payload.get("token"))) return Map.of("success", false, "error", "鉴权失败");
+    public Map<String, Object> subscribeRegion(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "鉴权失败");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String account = (String) payload.get("account");
         String region = (String) payload.get("region");
         if (account == null || account.trim().isEmpty() || region == null || region.trim().isEmpty()) {

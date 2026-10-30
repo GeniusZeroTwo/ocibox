@@ -26,7 +26,6 @@ public class AdminAuthService {
 
     private static final SecureRandom SECURE_RANDOM = new SecureRandom();
     private static final int MAX_FAILED_ATTEMPTS = 5;
-    private static final int MAX_GLOBAL_SECRET_FAILS = 15;
     private static final int MAX_GLOBAL_CODE_FAIL_ATTEMPTS = 10;
     private static final long CODE_TTL_SECONDS = 180;
     private static final long SEND_COOLDOWN_SECONDS = 60;
@@ -35,8 +34,6 @@ public class AdminAuthService {
     private static final long SESSION_IDLE_SECONDS = 12 * 60 * 60;
     private static final long STEP_UP_SECONDS = 5 * 60;
     private static final String GLOBAL_CODE_FAIL_KEY = "oci:admin_login:global_code_fail";
-    private static final String GLOBAL_SECRET_FAIL_KEY = "oci:admin_login:global_secret_fail";
-    private static final String GLOBAL_LOCK_KEY = "oci:admin_login:global_lock";
     private static final String CODE_HINT = "若已绑定 Telegram，验证码已发送；否则请直接使用管理员密码登录";
 
     @Autowired private TelegramBotService telegramBotService;
@@ -119,10 +116,33 @@ public class AdminAuthService {
         return Map.of("success", true, "token", issueSession());
     }
 
+    public String getConfiguredAdminUsername() {
+        String configuredUser = (adminUsername != null && !adminUsername.isBlank()) ? adminUsername.trim() : "admin";
+        if (systemConfigRepo != null) {
+            var optUser = systemConfigRepo.findById("ADMIN_WEB_USERNAME");
+            if (optUser.isPresent() && optUser.get().getConfigValue() != null && !optUser.get().getConfigValue().isBlank()) {
+                configuredUser = optUser.get().getConfigValue().trim();
+            }
+        }
+        return configuredUser;
+    }
+
     /**
-     * 校验密码或仍有效的动态码，不签发会话。绑定通行密钥前用来做二次确认。
+     * 校验登录凭证（用户名+密码 或 动态码），不签发会话。
      */
     public Map<String, Object> confirmCredential(String username, String secret, String clientIp) {
+        return verifyCredentialInternal(username, secret, clientIp, true);
+    }
+
+    /**
+     * 已登录会话的二次确认（Step-Up）：已持有合法后台会话 Token 时，仅校验管理员密码或动态码，
+     * 解决通过 TG 动态码或 Passkey 登录后（前端未录入自定义用户名）绑定新 Passkey 必然失败的缺陷。
+     */
+    public Map<String, Object> confirmStepUpCredential(String secret, String clientIp) {
+        return verifyCredentialInternal(null, secret, clientIp, false);
+    }
+
+    private Map<String, Object> verifyCredentialInternal(String username, String secret, String clientIp, boolean requireUsernameForPassword) {
         String ip = normalizeIp(clientIp);
         if (isLocked(ip)) {
             return Map.of("success", false, "error", "错误次数过多，请 " + lockSecondsLeft(ip) + " 秒后重试");
@@ -137,15 +157,10 @@ public class AdminAuthService {
                         presented.getBytes(StandardCharsets.UTF_8),
                         current.getBytes(StandardCharsets.UTF_8));
 
-        String configuredUser = (adminUsername != null && !adminUsername.isBlank()) ? adminUsername.trim() : "admin";
-        if (systemConfigRepo != null) {
-            var optUser = systemConfigRepo.findById("ADMIN_WEB_USERNAME");
-            if (optUser.isPresent() && optUser.get().getConfigValue() != null && !optUser.get().getConfigValue().isBlank()) {
-                configuredUser = optUser.get().getConfigValue().trim();
-            }
-        }
-        boolean usernameValid = (username == null || username.isBlank())
-                || MessageDigest.isEqual(username.trim().getBytes(StandardCharsets.UTF_8), configuredUser.getBytes(StandardCharsets.UTF_8));
+        String configuredUser = getConfiguredAdminUsername();
+        // 🔒 当未登录态使用密码登录时，必须显式提供用户名并与配置的账号名严格匹配；已登录 Step-Up 态则直接校验密码
+        boolean usernameValid = !requireUsernameForPassword || ((username != null && !username.isBlank())
+                && MessageDigest.isEqual(username.trim().getBytes(StandardCharsets.UTF_8), configuredUser.getBytes(StandardCharsets.UTF_8)));
 
         boolean passwordValid = usernameValid && passwordMatches(presented);
 
@@ -173,7 +188,7 @@ public class AdminAuthService {
             redisTemplate.delete(codeKey(ip));
             return Map.of("success", false, "error", "错误次数过多，请 " + lockSecondsLeft(ip) + " 秒后重试");
         }
-        return Map.of("success", false, "error", "账户名、密码或动态码错误，请重新输入");
+        return Map.of("success", false, "error", requireUsernameForPassword ? "账户名、密码或动态码错误，请重新输入" : "管理员密码或动态码错误，请重新输入");
     }
 
     public void markStepUp(String token) {
@@ -211,25 +226,37 @@ public class AdminAuthService {
         if (ipLocked) {
             redisTemplate.opsForValue().set(lockKey(ip), "1", LOCKOUT_SECONDS, TimeUnit.SECONDS);
         }
-
-        Long globalFails = redisTemplate.opsForValue().increment(GLOBAL_SECRET_FAIL_KEY);
-        if (globalFails != null && globalFails == 1L) {
-            redisTemplate.expire(GLOBAL_SECRET_FAIL_KEY, LOCKOUT_SECONDS, TimeUnit.SECONDS);
-        }
-        boolean globalLocked = globalFails != null && globalFails >= MAX_GLOBAL_SECRET_FAILS;
-        if (globalLocked) {
-            redisTemplate.opsForValue().set(GLOBAL_LOCK_KEY, "1", LOCKOUT_SECONDS, TimeUnit.SECONDS);
-        }
-        return ipLocked || globalLocked;
+        return ipLocked;
     }
 
     public void clearAuthFailures(String clientIp) {
         String ip = normalizeIp(clientIp);
         redisTemplate.delete(failKey(ip));
         redisTemplate.delete(lockKey(ip));
-        redisTemplate.delete(GLOBAL_SECRET_FAIL_KEY);
-        redisTemplate.delete(GLOBAL_LOCK_KEY);
-        redisTemplate.delete(GLOBAL_CODE_FAIL_KEY);
+    }
+
+    /**
+     * 统一提取客户端 Token（优先读取 X-Admin-Token / Authorization 请求头，兜底读取 payload 中的 token）
+     */
+    public String resolveToken(HttpServletRequest request, Map<String, ?> payload) {
+        if (request != null) {
+            String token = request.getHeader("X-Admin-Token");
+            if (token != null && !token.isBlank()) {
+                return token.trim();
+            }
+            String authHeader = request.getHeader("Authorization");
+            if (authHeader != null && !authHeader.isBlank()) {
+                return authHeader.startsWith("Bearer ") ? authHeader.substring(7).trim() : authHeader.trim();
+            }
+        }
+        if (payload != null && payload.get("token") != null) {
+            return String.valueOf(payload.get("token")).trim();
+        }
+        return "";
+    }
+
+    public boolean checkAuth(HttpServletRequest request, Map<String, ?> payload) {
+        return checkAuth(resolveToken(request, payload));
     }
 
     public boolean checkAuth(String token) {
@@ -356,14 +383,12 @@ public class AdminAuthService {
     private static String sessionKey(String token) { return "oci:admin_session:" + token; }
 
     private boolean isLocked(String ip) {
-        return Boolean.TRUE.equals(redisTemplate.hasKey(lockKey(ip)))
-                || Boolean.TRUE.equals(redisTemplate.hasKey(GLOBAL_LOCK_KEY));
+        return Boolean.TRUE.equals(redisTemplate.hasKey(lockKey(ip)));
     }
 
     private long lockSecondsLeft(String ip) {
         long ipLeft = Boolean.TRUE.equals(redisTemplate.hasKey(lockKey(ip))) ? secondsLeft(lockKey(ip)) : 0;
-        long globalLeft = Boolean.TRUE.equals(redisTemplate.hasKey(GLOBAL_LOCK_KEY)) ? secondsLeft(GLOBAL_LOCK_KEY) : 0;
-        return Math.max(1, Math.max(ipLeft, globalLeft));
+        return Math.max(1, ipLeft);
     }
 
     private long secondsLeft(String key) {

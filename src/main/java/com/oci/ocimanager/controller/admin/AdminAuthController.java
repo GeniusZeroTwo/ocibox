@@ -26,7 +26,7 @@ public class AdminAuthController {
     }
 
     @PostMapping("/login")
-    public Map<String, Object> login(@RequestBody Map<String, String> payload, HttpServletRequest request) {
+    public Map<String, Object> login(@RequestBody(required = false) Map<String, String> payload, HttpServletRequest request) {
         String username = payload != null ? payload.get("username") : null;
         String password = payload != null ? payload.get("password") : null;
         if (password == null && payload != null) {

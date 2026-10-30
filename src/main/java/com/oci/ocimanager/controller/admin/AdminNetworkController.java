@@ -2,6 +2,7 @@ package com.oci.ocimanager.controller.admin;
 
 import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.OciCloudService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,13 +21,14 @@ public class AdminNetworkController {
     @Autowired private OciCloudService ociCloudService;
     @Autowired private AdminAuthService adminAuthService;
 
-    private boolean checkAuth(String token) {
-        return adminAuthService.checkAuth(token);
+    private boolean checkAuth(HttpServletRequest request, Map<String, String> payload) {
+        return adminAuthService.checkAuth(request, payload);
     }
 
     @PostMapping("/route/fix")
-    public Map<String, Object> fixRouteTables(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> fixRouteTables(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         try {
             String account = payload.get("account");
             if (account == null || account.trim().isEmpty()) return Map.of("success", false, "error", "账号名不能为空");
@@ -38,10 +40,12 @@ public class AdminNetworkController {
     }
 
     @PostMapping("/network/open-ports")
-    public Map<String, Object> openAllPorts(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> openAllPorts(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         try {
             String account = payload.get("account");
+            if (account == null || account.trim().isEmpty()) return Map.of("success", false, "error", "账号名不能为空");
             ociCloudService.openAllPorts(account);
             return Map.of("success", true);
         } catch (Exception e) {

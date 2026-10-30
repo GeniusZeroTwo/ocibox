@@ -8,6 +8,7 @@ import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.OciCloudService;
 import com.oci.ocimanager.service.ScheduledTasksService;
 import com.oci.ocimanager.service.TelegramBotService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import jakarta.annotation.PreDestroy;
 import org.springframework.web.bind.annotation.*;
@@ -38,8 +39,8 @@ public class AdminDashboardController {
         ipFetchExecutor.shutdownNow();
     }
 
-    private boolean checkAuth(String token) {
-        return adminAuthService.checkAuth(token);
+    private boolean checkAuth(HttpServletRequest request, Map<String, ?> payload) {
+        return adminAuthService.checkAuth(request, payload);
     }
 
     private Map<String, Map<String, String>> getEnrichedInstances() {
@@ -143,8 +144,8 @@ public class AdminDashboardController {
     }
 
     @PostMapping("/data")
-    public Map<String, Object> getData(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> getData(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         
         // 🌟 确保账号在内存和输出中均严格遵循 application.yml 物理添加顺序
         Map<String, OciProperties.Account> orderedAccounts = accountYamlService.reorderAccounts(ociProperties.getAccounts());
@@ -217,8 +218,8 @@ public class AdminDashboardController {
     }
 
     @PostMapping("/poll")
-    public Map<String, Object> poll(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> poll(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         Map<String, OciProperties.Account> orderedAccounts = accountYamlService.reorderAccounts(ociProperties.getAccounts());
         List<Map<String, Object>> accountList = buildAccountDetailsList(orderedAccounts);
 
@@ -250,8 +251,8 @@ public class AdminDashboardController {
     private final java.util.concurrent.atomic.AtomicBoolean isSyncingAccounts = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     @PostMapping("/sync")
-    public Map<String, Object> syncInstances(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> syncInstances(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         if (isSyncingInstances.compareAndSet(false, true)) {
             CompletableFuture.runAsync(() -> {
                 try {
@@ -269,8 +270,8 @@ public class AdminDashboardController {
     }
 
     @PostMapping("/sync-accounts")
-    public Map<String, Object> syncAccountsDetails(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> syncAccountsDetails(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         if (!isSyncingAccounts.compareAndSet(false, true)) {
             return Map.of("success", true, "message", "后台正在执行全量同步中，请稍候等待页面自动更新数据");
         }
@@ -311,13 +312,12 @@ public class AdminDashboardController {
     }
 
     @PostMapping("/traffic")
-    public Map<String, Object> getTraffic(@RequestBody Map<String, Object> payload) {
-        Object tokenObj = payload.get("token");
-        if (tokenObj == null || !checkAuth(String.valueOf(tokenObj))) return Map.of("success", false);
+    public Map<String, Object> getTraffic(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         
         Map<String, Map<String, Object>> trafficData = new HashMap<>();
-        boolean force = payload.containsKey("force") && Boolean.TRUE.equals(payload.get("force"));
-        Object targetAccObj = payload.get("targetAccount");
+        boolean force = payload != null && payload.containsKey("force") && Boolean.TRUE.equals(payload.get("force"));
+        Object targetAccObj = payload != null ? payload.get("targetAccount") : null;
         String targetAccount = targetAccObj != null ? String.valueOf(targetAccObj) : null;
 
         if (force || ScheduledTasksService.TRAFFIC_CACHE.isEmpty()) {

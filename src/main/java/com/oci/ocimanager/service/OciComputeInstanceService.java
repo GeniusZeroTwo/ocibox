@@ -72,6 +72,9 @@ public class OciComputeInstanceService {
         return sb.toString();
     }
 
+    private static final java.util.regex.Pattern SSH_PUBKEY_PATTERN = java.util.regex.Pattern.compile(
+            "^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\\.com|sk-ecdsa-sha2-nistp256@openssh\\.com)\\s+[A-Za-z0-9+/=]{16,}(\\s+[^\\r\\n]*)?$");
+
     private String buildCloudInitUserData(String rootPwd, String sshKey, String accountName) {
         String safePwd = sanitizeCloudInitValue(rootPwd);
         String trimmedPwd = (safePwd != null) ? safePwd.trim() : "";
@@ -79,7 +82,8 @@ public class OciComputeInstanceService {
         String trimmedKey = (safeKey != null) ? safeKey.trim() : "";
 
         boolean hasPwd = !trimmedPwd.isEmpty() && !"null".equalsIgnoreCase(trimmedPwd);
-        boolean hasSsh = !trimmedKey.isEmpty() && !"null".equalsIgnoreCase(trimmedKey);
+        boolean hasSsh = !trimmedKey.isEmpty() && !"null".equalsIgnoreCase(trimmedKey)
+                && SSH_PUBKEY_PATTERN.matcher(trimmedKey).matches();
 
         int seed = (accountName != null && !accountName.isEmpty()) ? (accountName.hashCode() & Integer.MAX_VALUE) : 0;
         String[][] dropInPairs = {
@@ -117,7 +121,7 @@ public class OciComputeInstanceService {
             }
             if (hasSsh) {
                 cloudConfig.append("    ssh_authorized_keys:\n");
-                cloudConfig.append("      - ").append(trimmedKey).append("\n");
+                cloudConfig.append("      - '").append(trimmedKey.replace("'", "''")).append("'\n");
             }
         }
 

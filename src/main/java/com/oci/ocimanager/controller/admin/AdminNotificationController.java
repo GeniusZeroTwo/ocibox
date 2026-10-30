@@ -2,6 +2,7 @@ package com.oci.ocimanager.controller.admin;
 
 import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.NotificationService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -20,18 +21,20 @@ public class AdminNotificationController {
     @Autowired
     private AdminAuthService adminAuthService;
 
-    private boolean checkAuth(String token) {
-        return adminAuthService.checkAuth(token);
+    private boolean checkAuth(HttpServletRequest request, Map<String, Object> payload) {
+        return adminAuthService.checkAuth(request, payload);
     }
 
     /**
      * 获取系统通知列表（支持分页、按分类过滤、按未读状态过滤）
      */
     @PostMapping("/list")
-    public Map<String, Object> listNotifications(@RequestBody Map<String, Object> payload) {
-        String token = (String) payload.get("token");
-        if (!checkAuth(token)) {
+    public Map<String, Object> listNotifications(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) {
             return Map.of("success", false, "error", "会话已过期，请重新登录");
+        }
+        if (payload == null) {
+            return notificationService.listNotifications(0, 20, null, false);
         }
 
         int page = payload.get("page") instanceof Number ? ((Number) payload.get("page")).intValue() : 0;
@@ -46,14 +49,13 @@ public class AdminNotificationController {
      * 标记单条通知或全部通知为已读
      */
     @PostMapping("/read")
-    public Map<String, Object> markAsRead(@RequestBody Map<String, Object> payload) {
-        String token = (String) payload.get("token");
-        if (!checkAuth(token)) {
+    public Map<String, Object> markAsRead(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) {
             return Map.of("success", false, "error", "会话已过期，请重新登录");
         }
 
         Long id = null;
-        if (payload.get("id") instanceof Number) {
+        if (payload != null && payload.get("id") instanceof Number) {
             id = ((Number) payload.get("id")).longValue();
         }
 
@@ -70,13 +72,12 @@ public class AdminNotificationController {
      * 清空通知（已读通知或全部通知）
      */
     @PostMapping("/clear")
-    public Map<String, Object> clearNotifications(@RequestBody Map<String, Object> payload) {
-        String token = (String) payload.get("token");
-        if (!checkAuth(token)) {
+    public Map<String, Object> clearNotifications(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) {
             return Map.of("success", false, "error", "会话已过期，请重新登录");
         }
 
-        String type = (String) payload.getOrDefault("type", "read");
+        String type = (payload != null && payload.containsKey("type")) ? String.valueOf(payload.get("type")) : "read";
         int deleted;
         if ("all".equalsIgnoreCase(type)) {
             deleted = notificationService.clearAll();

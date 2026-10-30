@@ -44,8 +44,8 @@ public class AdminPasskeyService {
         if (!adminAuthService.checkAuth(token)) {
             return Map.of("success", false, "error", "请先登录后再绑定通行密钥");
         }
-        Map<String, Object> confirmed = adminAuthService.confirmCredential(
-                username, stepUpSecret, adminAuthService.resolveClientIp(request));
+        Map<String, Object> confirmed = adminAuthService.confirmStepUpCredential(
+                stepUpSecret, adminAuthService.resolveClientIp(request));
         if (!Boolean.TRUE.equals(confirmed.get("success"))) {
             Map<String, Object> denied = new HashMap<>();
             denied.put("success", false);
@@ -76,9 +76,10 @@ public class AdminPasskeyService {
             rp.put("id", rpId.trim());
         }
 
+        String effectiveUser = adminAuthService.getConfiguredAdminUsername();
         Map<String, Object> user = Map.of(
-                "id", Base64.getUrlEncoder().withoutPadding().encodeToString("admin".getBytes(StandardCharsets.UTF_8)),
-                "name", "admin",
+                "id", Base64.getUrlEncoder().withoutPadding().encodeToString(effectiveUser.getBytes(StandardCharsets.UTF_8)),
+                "name", effectiveUser,
                 "displayName", "系统管理员"
         );
 
@@ -119,6 +120,9 @@ public class AdminPasskeyService {
     public Map<String, Object> verifyAndSaveRegistration(String token, Map<String, Object> body, HttpServletRequest request) {
         if (!adminAuthService.checkAuth(token)) {
             return Map.of("success", false, "error", "请先登录后再绑定通行密钥");
+        }
+        if (body == null) {
+            return Map.of("success", false, "error", "请求参数缺失");
         }
         if (!adminAuthService.hasStepUp(token)) {
             return Map.of("success", false, "stepUpRequired", true, "error", "绑定已过期，请重新输入管理员密码或动态码");
@@ -311,6 +315,9 @@ public class AdminPasskeyService {
         String clientIp = resolveClientIp(request);
         if (adminAuthService.isClientIpLocked(clientIp)) {
             return Map.of("success", false, "error", "错误次数过多，请 " + adminAuthService.getLockSecondsLeft(clientIp) + " 秒后再试");
+        }
+        if (body == null) {
+            return Map.of("success", false, "error", "缺少请求参数");
         }
 
         String challengeId = (String) body.get("challengeId");

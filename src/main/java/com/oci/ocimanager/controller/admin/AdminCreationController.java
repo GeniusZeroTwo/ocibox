@@ -4,6 +4,7 @@ import com.oci.ocimanager.repository.CreationTaskRepository;
 import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.CreationTaskService;
 import com.oci.ocimanager.service.OciCloudService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -28,13 +29,14 @@ public class AdminCreationController {
     @Autowired private CreationTaskRepository creationTaskRepository;
     @Autowired private AdminAuthService adminAuthService;
 
-    private boolean checkAuth(String token) {
-        return adminAuthService.checkAuth(token);
+    private boolean checkAuth(HttpServletRequest request, Map<String, ?> payload) {
+        return adminAuthService.checkAuth(request, payload);
     }
 
     @PostMapping("/creation/images")
-    public Map<String, Object> getAvailableImages(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> getAvailableImages(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         try {
             String account = payload.get("account");
             String shape = payload.get("shape");
@@ -49,9 +51,9 @@ public class AdminCreationController {
     }
 
     @PostMapping("/creation/start")
-    public Map<String, Object> startCreationTask(@RequestBody Map<String, Object> payload) {
-        Object tokenObj = payload.get("token");
-        if (tokenObj == null || !checkAuth(String.valueOf(tokenObj))) return Map.of("success", false);
+    public Map<String, Object> startCreationTask(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         
         try {
             String account = String.valueOf(payload.get("account"));
@@ -106,8 +108,9 @@ public class AdminCreationController {
     }
 
     @PostMapping("/creation/stop")
-    public Map<String, Object> stopCreationTask(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> stopCreationTask(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String taskId = payload.get("taskId");
         creationTaskService.stopTask(taskId);
         try {
@@ -118,8 +121,9 @@ public class AdminCreationController {
 
     @PostMapping("/creation/clear-log")
     @Transactional
-    public Map<String, Object> clearTaskLog(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> clearTaskLog(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String taskId = payload.get("taskId");
         if (taskId != null) {
             try {
@@ -149,8 +153,8 @@ public class AdminCreationController {
     }
 
     @PostMapping("/creation/list")
-    public Map<String, Object> getCreationTasks(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> getCreationTasks(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         Map<String, Object> tasksView = new HashMap<>();
         
         List<com.oci.ocimanager.entity.CreationTaskRecord> list = creationTaskService.getAllTasks();
@@ -198,8 +202,8 @@ public class AdminCreationController {
     }
 
     @PostMapping("/creation/generate-key")
-    public Map<String, Object> generateSshKey(@RequestBody(required = false) Map<String, String> payload) {
-        if (payload == null || !checkAuth(payload.get("token"))) return Map.of("success", false);
+    public Map<String, Object> generateSshKey(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         
         try {
             return generateEd25519KeyPair();

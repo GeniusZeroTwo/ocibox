@@ -2,6 +2,7 @@ package com.oci.ocimanager.controller.admin;
 
 import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.OciCloudService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -20,13 +21,14 @@ public class AdminQuotaController {
     @Autowired private OciCloudService ociCloudService;
     @Autowired private AdminAuthService adminAuthService;
 
-    private boolean checkAuth(String token) {
-        return adminAuthService.checkAuth(token);
+    private boolean checkAuth(HttpServletRequest request, Map<String, String> payload) {
+        return adminAuthService.checkAuth(request, payload);
     }
 
     @PostMapping("/quota/inject")
-    public Map<String, Object> injectQuota(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> injectQuota(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         try {
             String account = payload.get("account");
             if (account == null || account.trim().isEmpty()) return Map.of("success", false, "error", "账号名不能为空");
@@ -38,8 +40,9 @@ public class AdminQuotaController {
     }
 
     @PostMapping("/quota/delete")
-    public Map<String, Object> deleteQuota(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> deleteQuota(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         try {
             String account = payload.get("account");
             if (account == null || account.trim().isEmpty()) return Map.of("success", false, "error", "账号名不能为空");
@@ -51,8 +54,8 @@ public class AdminQuotaController {
     }
 
     @PostMapping("/quota/template/get")
-    public Map<String, Object> getQuotaTemplate(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> getQuotaTemplate(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         try {
             String template = ociCloudService.getQuotaTemplate();
             return Map.of("success", true, "template", template);
@@ -62,8 +65,9 @@ public class AdminQuotaController {
     }
 
     @PostMapping("/quota/template/save")
-    public Map<String, Object> saveQuotaTemplate(@RequestBody Map<String, String> payload) {
-        if (!checkAuth(payload.get("token"))) return Map.of("success", false, "error", "会话已过期，请重新登录");
+    public Map<String, Object> saveQuotaTemplate(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         try {
             String template = payload.get("template");
             if (template == null || template.trim().isEmpty()) {

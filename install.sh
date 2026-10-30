@@ -527,7 +527,9 @@ if [[ -f "${EXISTING_CONFIG}" ]] && grep -q "^oci:" "${EXISTING_CONFIG}"; then
     else
         OCI_SECTION=$'oci:\n  accounts: {}'
     fi
-    cp -f "${EXISTING_CONFIG}" "${EXISTING_CONFIG}.bak.$(date +%Y%m%d_%H%M%S)" 2>/dev/null || true
+    BAK_FILE="${EXISTING_CONFIG}.bak.$(date +%Y%m%d_%H%M%S)"
+    cp -f "${EXISTING_CONFIG}" "${BAK_FILE}" 2>/dev/null || true
+    chmod 600 "${BAK_FILE}" 2>/dev/null || true
 fi
 
 # 先停服务再写口令。旧进程内存里仍是旧密码，启动阶段的哈希升级也可能把旧哈希写回刚改过的文件。
@@ -648,11 +650,34 @@ else
     echo -e "⬇️ 正在从 GitHub Releases 下载最新版本核心程序包 (app.jar)..."
     DOWNLOAD_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/ocibox.jar"
     ALT_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/oci-personal.jar"
-    if ! curl -fL --retry 3 --connect-timeout 10 "${DOWNLOAD_URL}" -o "${INSTALL_DIR}/app.jar" 2>/dev/null && \
-       ! curl -fL --retry 3 --connect-timeout 10 "${ALT_URL}" -o "${INSTALL_DIR}/app.jar"; then
-        echo -e "${RED}❌ 下载核心程序包失败！请确认网络畅通或 GitHub Release 是否已生成。${PLAIN}"
+    TMP_JAR="${INSTALL_DIR}/app.jar.download"
+    rm -f "${TMP_JAR}" "${TMP_JAR}.sha256" 2>/dev/null || true
+    USED_URL="${DOWNLOAD_URL}"
+    if ! curl -fL --retry 3 --connect-timeout 10 "${DOWNLOAD_URL}" -o "${TMP_JAR}" 2>/dev/null; then
+        USED_URL="${ALT_URL}"
+        if ! curl -fL --retry 3 --connect-timeout 10 "${ALT_URL}" -o "${TMP_JAR}"; then
+            echo -e "${RED}❌ 下载核心程序包失败！请确认网络畅通或 GitHub Release 是否已生成。${PLAIN}"
+            rm -f "${TMP_JAR}" 2>/dev/null || true
+            exit 1
+        fi
+    fi
+    # 🔒 校验 JAR 归档结构完整性与可选 SHA-256 签名摘要
+    if command -v unzip >/dev/null 2>&1 && ! unzip -tq "${TMP_JAR}" >/dev/null 2>&1; then
+        echo -e "${RED}❌ 下载的核心程序包完整性校验失败 (非合法 JAR 归档)！已中止安装。${PLAIN}"
+        rm -f "${TMP_JAR}" 2>/dev/null || true
         exit 1
     fi
+    if command -v sha256sum >/dev/null 2>&1 && curl -fsSL --connect-timeout 5 "${USED_URL}.sha256" -o "${TMP_JAR}.sha256" 2>/dev/null; then
+        EXPECTED_SHA=$(awk '{print $1}' "${TMP_JAR}.sha256" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+        ACTUAL_SHA=$(sha256sum "${TMP_JAR}" | awk '{print $1}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+        rm -f "${TMP_JAR}.sha256" 2>/dev/null || true
+        if [[ -n "${EXPECTED_SHA}" && "${#EXPECTED_SHA}" -eq 64 && "${EXPECTED_SHA}" != "${ACTUAL_SHA}" ]]; then
+            echo -e "${RED}❌ 核心程序包 SHA-256 校验值不匹配！已拒绝安装。${PLAIN}"
+            rm -f "${TMP_JAR}" 2>/dev/null || true
+            exit 1
+        fi
+    fi
+    mv -f "${TMP_JAR}" "${INSTALL_DIR}/app.jar"
 fi
 
 if [[ ! -s "${INSTALL_DIR}/app.jar" ]]; then

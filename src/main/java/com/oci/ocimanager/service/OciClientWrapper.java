@@ -178,12 +178,39 @@ public class OciClientWrapper {
         }
         byte[] raw = address.getAddress();
         if (raw.length == 4) {
-            int a = raw[0] & 0xff;
-            int b = raw[1] & 0xff;
-            if (a == 0 || a == 127) return true;
-            if (a == 169 && b == 254) return true;
-            if (a == 255 && b == 255 && (raw[2] & 0xff) == 255 && (raw[3] & 0xff) == 255) return true;
+            return isBlockedIpv4Bytes(raw[0], raw[1], raw[2], raw[3]);
         }
+        if (raw.length == 16) {
+            // 拦截 IPv6 唯一本地地址 ULA (fc00::/7，含 AWS/云厂商 IPv6 元数据 fd00:ec2::254)
+            if ((raw[0] & 0xfe) == 0xfc) {
+                return true;
+            }
+            // 拦截 NAT64 (64:ff9b::/96) 或 IPv4-mapped/compatible 内嵌的受限 IPv4 地址
+            boolean isNat64 = (raw[0] & 0xff) == 0x00 && (raw[1] & 0xff) == 0x64
+                    && (raw[2] & 0xff) == 0xff && (raw[3] & 0xff) == 0x9b
+                    && raw[4] == 0 && raw[5] == 0 && raw[6] == 0 && raw[7] == 0
+                    && raw[8] == 0 && raw[9] == 0 && raw[10] == 0 && raw[11] == 0;
+            boolean isV4MappedOrCompat = raw[0] == 0 && raw[1] == 0 && raw[2] == 0 && raw[3] == 0
+                    && raw[4] == 0 && raw[5] == 0 && raw[6] == 0 && raw[7] == 0
+                    && raw[8] == 0 && raw[9] == 0
+                    && ((raw[10] == 0 && raw[11] == 0)
+                        || ((raw[10] & 0xff) == 0xff && (raw[11] & 0xff) == 0xff));
+            if (isNat64 || isV4MappedOrCompat) {
+                return isBlockedIpv4Bytes(raw[12], raw[13], raw[14], raw[15]);
+            }
+        }
+        return false;
+    }
+
+    private static boolean isBlockedIpv4Bytes(byte b0, byte b1, byte b2, byte b3) {
+        int a = b0 & 0xff;
+        int b = b1 & 0xff;
+        int c = b2 & 0xff;
+        int d = b3 & 0xff;
+        if (a == 0 || a == 127) return true;
+        if (a == 169 && b == 254) return true;
+        if (a == 100 && b == 100 && c == 100 && d == 200) return true;
+        if (a == 255 && b == 255 && c == 255 && d == 255) return true;
         return false;
     }
 
@@ -200,11 +227,21 @@ public class OciClientWrapper {
             int port = uri.getPort();
             if (host == null || port <= 0) return null;
 
+            java.net.InetAddress[] resolved = java.net.InetAddress.getAllByName(host.trim());
+            if (resolved == null || resolved.length == 0) return null;
+            for (java.net.InetAddress addr : resolved) {
+                if (isBlockedProxyAddress(addr)) {
+                    System.err.println("🚨 拒绝加载指向受限地址的代理: " + addr.getHostAddress());
+                    return null;
+                }
+            }
+
             java.net.Proxy.Type type = java.net.Proxy.Type.HTTP;
             if ("socks".equalsIgnoreCase(uri.getScheme()) || "socks5".equalsIgnoreCase(uri.getScheme())) {
                 type = java.net.Proxy.Type.SOCKS;
             }
-            java.net.Proxy proxy = new java.net.Proxy(type, new java.net.InetSocketAddress(host, port));
+            // 🔒 绑定已通过安全校验的 InetAddress，阻断 DNS Rebinding (TOCTOU) 二次解析攻击
+            java.net.Proxy proxy = new java.net.Proxy(type, new java.net.InetSocketAddress(resolved[0], port));
 
             var builder = com.oracle.bmc.http.client.ProxyConfiguration.builder().proxy(proxy);
             String userInfo = uri.getUserInfo();
