@@ -116,8 +116,7 @@ yaml_single_quote() {
     printf "'%s'" "$s"
 }
 
-# 哈希不是登录密码。明文用 %s 打印，避免 echo -e 把密码里的反斜杠转义掉。
-# 配置被换成哈希后，登录明文在同目录 .admin-password，权限 600。
+# 哈希不是登录密码。明文只在安装结束时从本次输入打印一次，不写入磁盘。
 show_admin_password() {
     local pwd="$1"
     if [[ "$pwd" == pbkdf2sha256\$* ]]; then
@@ -129,32 +128,21 @@ show_admin_password() {
     fi
 }
 
-save_admin_password_plain() {
-    local pwd="$1"
-    local conf="$2"
+delete_admin_password_file() {
+    local conf="$1"
     local file
-    if [[ -z "$pwd" || -z "$conf" || "$pwd" == pbkdf2sha256\$* || "$pwd" == \$\{* ]]; then
+    if [[ -z "$conf" ]]; then
         return 0
     fi
     file="$(dirname "$conf")/.admin-password"
-    printf '%s\n' "$pwd" > "$file"
-    chmod 600 "$file" 2>/dev/null || true
+    rm -f "$file" 2>/dev/null || true
 }
 
 resolve_admin_password() {
     local pwd="$1"
     local conf="$2"
-    local plain_file plain
-    if [[ "$pwd" == pbkdf2sha256\$* && -n "$conf" ]]; then
-        plain_file="$(dirname "$conf")/.admin-password"
-        if [[ -f "$plain_file" ]]; then
-            IFS= read -r plain < "$plain_file" || true
-            plain="${plain//$'\r'/}"
-            if [[ -n "$plain" && "$plain" != pbkdf2sha256\$* ]]; then
-                printf '%s' "$plain"
-                return
-            fi
-        fi
+    if [[ -n "$conf" ]]; then
+        delete_admin_password_file "$conf"
     fi
     printf '%s' "$pwd"
 }
@@ -628,7 +616,7 @@ if [[ "${WRITTEN_ADMIN_PWD}" != "${ADMIN_PWD}" ]]; then
     echo -e "${RED}❌ 管理员密码写入后读回不一致，已恢复原配置并中止。请换一个不含异常控制字符的密码后重试。${PLAIN}"
     exit 1
 fi
-save_admin_password_plain "${ADMIN_PWD}" "${INSTALL_DIR}/application.yml"
+delete_admin_password_file "${INSTALL_DIR}/application.yml"
 echo -e "${GREEN}✅ 配置文件已安全生成至 ${INSTALL_DIR}/application.yml${PLAIN}"
 
 # 5. 安装核心程序 JAR 包
@@ -919,17 +907,10 @@ read_admin_password() {
 resolve_admin_password() {
     local pwd="$1"
     local conf="$2"
-    local plain_file plain
-    if [[ "$pwd" == pbkdf2sha256\$* && -n "$conf" ]]; then
+    local plain_file
+    if [[ -n "$conf" ]]; then
         plain_file="$(dirname "$conf")/.admin-password"
-        if [[ -f "$plain_file" ]]; then
-            IFS= read -r plain < "$plain_file" || true
-            plain="${plain//$'\r'/}"
-            if [[ -n "$plain" && "$plain" != pbkdf2sha256\$* ]]; then
-                printf '%s' "$plain"
-                return
-            fi
-        fi
+        rm -f "$plain_file" 2>/dev/null || true
     fi
     printf '%s' "$pwd"
 }

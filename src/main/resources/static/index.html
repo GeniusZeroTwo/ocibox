@@ -2182,6 +2182,8 @@
                                             <span>绑定于 {{ item.createdAt || '未知' }}</span>
                                             <span v-if="item.lastUsedAt"> · 最近登录 {{ item.lastUsedAt }}</span>
                                             <span v-else> · 尚未登录过</span>
+                                            <span v-if="item.origin"> · {{ item.origin }}</span>
+                                            <span v-else> · 未绑定来源，请重新添加</span>
                                         </div>
                                     </div>
                                 </div>

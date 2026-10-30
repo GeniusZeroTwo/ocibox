@@ -271,17 +271,10 @@ read_admin_password() {
 resolve_admin_password() {
     local pwd="$1"
     local conf="$2"
-    local plain_file plain
-    if [[ "$pwd" == pbkdf2sha256\$* && -n "$conf" ]]; then
+    local plain_file
+    if [[ -n "$conf" ]]; then
         plain_file="$(dirname "$conf")/.admin-password"
-        if [[ -f "$plain_file" ]]; then
-            IFS= read -r plain < "$plain_file" || true
-            plain="${plain//$'\r'/}"
-            if [[ -n "$plain" && "$plain" != pbkdf2sha256\$* ]]; then
-                printf '%s' "$plain"
-                return
-            fi
-        fi
+        rm -f "$plain_file" 2>/dev/null || true
     fi
     printf '%s' "$pwd"
 }

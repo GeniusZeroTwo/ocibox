@@ -72,7 +72,7 @@ public class AdminPasskeyService {
 
         Map<String, Object> rp = new HashMap<>();
         rp.put("name", "OCIBox");
-        if (rpId != null && !rpId.isBlank() && !"localhost".equalsIgnoreCase(rpId)) {
+        if (rpId != null && !rpId.isBlank()) {
             rp.put("id", rpId.trim());
         }
 
@@ -168,6 +168,10 @@ public class AdminPasskeyService {
                 LOG.warning("通行密钥注册来源不匹配: " + origin);
                 return Map.of("success", false, "error", "通行密钥注册失败");
             }
+            String boundOrigin = canonicalOrigin(origin);
+            if (boundOrigin == null) {
+                return Map.of("success", false, "error", "通行密钥注册失败");
+            }
 
             // 2. 公钥和凭证 ID 只从 attestationObject.authData 解析，客户端字段必须与之一致
             byte[] authData = extractAuthData(decodeBase64OrUrl(attestationObjectStr));
@@ -227,6 +231,7 @@ public class AdminPasskeyService {
             passkey.setPublicKeySpki(base64Spki);
             passkey.setAlgorithm(algorithm);
             passkey.setName(finalName);
+            passkey.setOrigin(boundOrigin);
             passkey.setSignCount(0L);
             passkey.setCreatedAt(LocalDateTime.now().format(TIME_FORMATTER));
 
@@ -292,7 +297,7 @@ public class AdminPasskeyService {
         res.put("timeout", 60000);
         res.put("userVerification", "required");
         res.put("allowCredentials", allowCredentials);
-        if (rpId != null && !rpId.isBlank() && !"localhost".equalsIgnoreCase(rpId)) {
+        if (rpId != null && !rpId.isBlank()) {
             res.put("rpId", rpId.trim());
         }
 
@@ -408,6 +413,17 @@ public class AdminPasskeyService {
                 return Map.of("success", false, "error", "通行密钥验证失败");
             }
 
+            String presentedOrigin = canonicalOrigin(origin);
+            String boundOrigin = passkey.getOrigin();
+            if (boundOrigin == null || boundOrigin.isBlank()) {
+                return Map.of("success", false, "error", "这把通行密钥是旧版绑定的，没有固定登录来源。请用密码登录后重新添加");
+            }
+            if (presentedOrigin == null || !boundOrigin.equals(presentedOrigin)) {
+                adminAuthService.recordAuthFailure(clientIp);
+                LOG.warning("通行密钥登录来源与绑定时不一致");
+                return Map.of("success", false, "error", "通行密钥验证失败");
+            }
+
             // 5. 校验通过，更新最后使用时间与 signCount (含硬件凭据克隆与重放检测)
             long signCount = ((authDataBytes[33] & 0xFFL) << 24)
                     | ((authDataBytes[34] & 0xFFL) << 16)
@@ -516,6 +532,7 @@ public class AdminPasskeyService {
             item.put("algorithm", p.getAlgorithm());
             item.put("createdAt", p.getCreatedAt());
             item.put("lastUsedAt", p.getLastUsedAt());
+            item.put("origin", p.getOrigin() != null ? p.getOrigin() : "");
             result.add(item);
         }
         return Map.of("success", true, "list", result);
@@ -684,16 +701,41 @@ public class AdminPasskeyService {
     private boolean rpIdHashMatches(byte[] actualHash, String expectedRpId) throws GeneralSecurityException {
         if (actualHash == null || expectedRpId == null || expectedRpId.isBlank()) return false;
         byte[] expected = MessageDigest.getInstance("SHA-256").digest(expectedRpId.getBytes(StandardCharsets.UTF_8));
-        if (MessageDigest.isEqual(expected, actualHash)) return true;
-        if ("localhost".equalsIgnoreCase(expectedRpId)) {
-            byte[] ipHash = MessageDigest.getInstance("SHA-256").digest("127.0.0.1".getBytes(StandardCharsets.UTF_8));
-            return MessageDigest.isEqual(ipHash, actualHash);
+        return MessageDigest.isEqual(expected, actualHash);
+    }
+
+    /**
+     * 把 WebAuthn origin 收成 scheme://host[:port]。默认端口去掉，IPv6 加上方括号。
+     * 带用户信息、路径、查询或片段的值一律拒绝。
+     */
+    private String canonicalOrigin(String raw) {
+        if (raw == null || raw.isBlank()) return null;
+        try {
+            URI uri = URI.create(raw.trim());
+            if (uri.getUserInfo() != null) return null;
+            if (uri.getRawQuery() != null || uri.getFragment() != null) return null;
+            String path = uri.getPath();
+            if (path != null && !path.isEmpty() && !"/".equals(path)) return null;
+            String scheme = uri.getScheme();
+            String host = uri.getHost();
+            if (scheme == null || host == null) return null;
+            scheme = scheme.toLowerCase(Locale.ROOT);
+            host = host.toLowerCase(Locale.ROOT);
+            if (!"https".equals(scheme) && !"http".equals(scheme)) return null;
+            int port = uri.getPort();
+            boolean defaultPort = port < 0
+                    || ("https".equals(scheme) && port == 443)
+                    || ("http".equals(scheme) && port == 80);
+            String hostLit = host.indexOf(':') >= 0 ? "[" + host + "]" : host;
+            if (defaultPort) return scheme + "://" + hostLit;
+            return scheme + "://" + hostLit + ":" + port;
+        } catch (IllegalArgumentException e) {
+            return null;
         }
-        if ("127.0.0.1".equals(expectedRpId)) {
-            byte[] nameHash = MessageDigest.getInstance("SHA-256").digest("localhost".getBytes(StandardCharsets.UTF_8));
-            return MessageDigest.isEqual(nameHash, actualHash);
-        }
-        return false;
+    }
+
+    private static boolean isLocalRp(String rpId) {
+        return "localhost".equalsIgnoreCase(rpId) || "127.0.0.1".equals(rpId) || "::1".equals(rpId);
     }
 
     private String resolveClientIp(HttpServletRequest request) {
@@ -727,35 +769,30 @@ public class AdminPasskeyService {
     }
 
     /**
-     * 🛡️ 严格校验 WebAuthn ClientData Origin 与预期 Host / 域名的从属关系，阻断跨站中继与钓鱼
+     * 注册和登录都要求来源主机与本次 Host 完全一致。本机才允许 HTTP。
+     * 请求里如果带了 Origin，协议、主机和端口也必须与 clientData 一致。
      */
     private boolean verifyOrigin(String clientOrigin, String expectedRpId, HttpServletRequest request) {
-        if (clientOrigin == null || clientOrigin.isBlank()) return false;
-        if (expectedRpId == null || expectedRpId.isBlank()) return false;
+        String canonical = canonicalOrigin(clientOrigin);
+        if (canonical == null || expectedRpId == null || expectedRpId.isBlank()) return false;
         try {
-            URI uri = URI.create(clientOrigin);
-            if (uri.getUserInfo() != null) return false;
+            URI uri = URI.create(canonical);
             String scheme = uri.getScheme();
             String host = uri.getHost();
-            if (host == null) return false;
-            host = host.toLowerCase(Locale.ROOT).trim();
-
-            boolean localRp = "localhost".equalsIgnoreCase(expectedRpId) || "127.0.0.1".equals(expectedRpId);
-            if (localRp) {
-                if (!"localhost".equals(host) && !"127.0.0.1".equals(host)) return false;
+            if (host == null || scheme == null) return false;
+            host = host.toLowerCase(Locale.ROOT);
+            if (!host.equalsIgnoreCase(expectedRpId.trim())) return false;
+            if (isLocalRp(expectedRpId)) {
                 if (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme)) return false;
-            } else {
-                if (!"https".equalsIgnoreCase(scheme)) return false;
-                if (!host.equalsIgnoreCase(expectedRpId)) return false;
+            } else if (!"https".equalsIgnoreCase(scheme)) {
+                return false;
             }
 
             if (request != null) {
                 String requestOrigin = request.getHeader("Origin");
                 if (requestOrigin != null && !requestOrigin.isBlank()) {
-                    URI reqUri = URI.create(requestOrigin);
-                    if (reqUri.getHost() == null || !reqUri.getHost().equalsIgnoreCase(host)) {
-                        return false;
-                    }
+                    String requestCanonical = canonicalOrigin(requestOrigin);
+                    if (requestCanonical == null || !requestCanonical.equals(canonical)) return false;
                 }
             }
             return true;

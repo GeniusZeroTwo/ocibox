@@ -80,6 +80,7 @@ public class SqliteSchemaAutoMigrator implements BeanPostProcessor {
                     "name TEXT NOT NULL," +
                     "sign_count INTEGER DEFAULT 0," +
                     "aaguid TEXT," +
+                    "origin TEXT," +
                     "created_at TEXT," +
                     "last_used_at TEXT" +
                 ");");
@@ -93,6 +94,7 @@ public class SqliteSchemaAutoMigrator implements BeanPostProcessor {
                 {"name", "TEXT"},
                 {"sign_count", "INTEGER DEFAULT 0"},
                 {"aaguid", "TEXT"},
+                {"origin", "TEXT"},
                 {"created_at", "TEXT"},
                 {"last_used_at", "TEXT"}
             });

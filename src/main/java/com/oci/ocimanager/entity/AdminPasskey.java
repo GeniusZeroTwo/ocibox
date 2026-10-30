@@ -55,6 +55,12 @@ public class AdminPasskey {
     private String aaguid;
 
     /**
+     * 注册时的完整来源，形如 https://host 或 http://127.0.0.1:5000。登录必须与此完全一致。
+     */
+    @Column(name = "origin", length = 512)
+    private String origin;
+
+    /**
      * 创建时间
      */
     @Column(name = "created_at")
@@ -123,6 +129,14 @@ public class AdminPasskey {
 
     public void setAaguid(String aaguid) {
         this.aaguid = aaguid;
+    }
+
+    public String getOrigin() {
+        return origin;
+    }
+
+    public void setOrigin(String origin) {
+        this.origin = origin;
     }
 
     public String getCreatedAt() {
