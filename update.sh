@@ -165,6 +165,11 @@ chmod 600 "${INSTALL_DIR}/keys/"*.pem 2>/dev/null || true
 chmod 600 "${INSTALL_DIR}/application.yml" 2>/dev/null || true
 
 # 4. 配置并更新 Systemd 服务
+# 1G 小机长驻：堆顶仍是 384m。G1 提前做并发回收，每 10 分钟把空闲页还给系统。
+# 元空间、代码缓存、直接内存单独封顶，避免原生内存把整机吃满。OOM 直接退出，交给 systemd 拉起。
+mkdir -p "${INSTALL_DIR}/logs"
+OCIBOX_JAVA_OPTS="-Xms128m -Xmx384m -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1ReservePercent=15 -XX:+ExplicitGCInvokesConcurrent -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication -XX:G1PeriodicGCInterval=600000 -XX:MetaspaceSize=96m -XX:MaxMetaspaceSize=256m -XX:CompressedClassSpaceSize=128m -XX:ReservedCodeCacheSize=128m -XX:MaxDirectMemorySize=128m -XX:CICompilerCount=2 -XX:SoftRefLRUPolicyMSPerMB=50 -XX:+ExitOnOutOfMemoryError -Djava.awt.headless=true -Dfile.encoding=UTF-8 -Dnetworkaddress.cache.ttl=60 -Dio.netty.eventLoopThreads=2 -Dio.netty.maxDirectMemory=33554432 -Xlog:gc*:file=${INSTALL_DIR}/logs/gc.log:time,uptime,level,tags:filecount=3,filesize=2M"
+
 cat << SERVICE > /etc/systemd/system/${SERVICE_NAME}.service
 [Unit]
 Description=OCIBox Cloud Management Service
@@ -174,7 +179,8 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=$(command -v java) -Xms64m -Xmx384m -XX:+UseG1GC -jar ${INSTALL_DIR}/app.jar
+Environment=MALLOC_ARENA_MAX=2
+ExecStart=$(command -v java) ${OCIBOX_JAVA_OPTS} -jar ${INSTALL_DIR}/app.jar
 Restart=always
 RestartSec=5
 StandardOutput=journal

@@ -191,7 +191,8 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/root/ocibox
-ExecStart=/usr/bin/java -Xms64m -Xmx384m -XX:+UseG1GC -jar /root/ocibox/app.jar
+Environment=MALLOC_ARENA_MAX=2
+ExecStart=/usr/bin/java -Xms128m -Xmx384m -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1ReservePercent=15 -XX:+ExplicitGCInvokesConcurrent -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication -XX:G1PeriodicGCInterval=600000 -XX:MetaspaceSize=96m -XX:MaxMetaspaceSize=256m -XX:CompressedClassSpaceSize=128m -XX:ReservedCodeCacheSize=128m -XX:MaxDirectMemorySize=128m -XX:CICompilerCount=2 -XX:SoftRefLRUPolicyMSPerMB=50 -XX:+ExitOnOutOfMemoryError -Djava.awt.headless=true -Dfile.encoding=UTF-8 -Dnetworkaddress.cache.ttl=60 -Dio.netty.eventLoopThreads=2 -Dio.netty.maxDirectMemory=33554432 -Xlog:gc*:file=/root/ocibox/logs/gc.log:time,uptime,level,tags:filecount=3,filesize=2M -jar /root/ocibox/app.jar
 Restart=always
 RestartSec=5
 StandardOutput=journal
@@ -201,6 +202,10 @@ LimitNOFILE=65535
 [Install]
 WantedBy=multi-user.target
 ```
+
+手动安装时先建日志目录：`mkdir -p /root/ocibox/logs`。`install.sh` / `update.sh` 会自己建。
+
+这组参数按 1 核 1G 机器来：Java 堆从 128MB 涨到最多 384MB，G1 在堆用到约 35% 时就开始并发回收，每 10 分钟把空闲页还给系统。元空间封顶 256MB，代码缓存和直接内存各 128MB，glibc 分配区收成 2 个（`MALLOC_ARENA_MAX=2`）。进程发生 OOM 会直接退出，由上面的 `Restart=always` 拉起。GC 日志在 `/root/ocibox/logs/gc.log`，最多 3 个、每个 2MB。
 
 启动并托管服务：
 
