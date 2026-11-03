@@ -23,9 +23,14 @@ export function getDisplayAccountName(acc) {
     return String(acc).replace(/^\[(.*)\]$/, '$1');
 }
 
-// 随机生成高强度密码
+// 随机生成高强度密码（使用浏览器原生密码学安全随机数 CSPRNG）
 export function genRandomPwd() {
     const a = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()-_=+";
+    if (typeof window !== 'undefined' && window.crypto && window.crypto.getRandomValues) {
+        const buf = new Uint32Array(32);
+        window.crypto.getRandomValues(buf);
+        return Array.from(buf, (n) => a[n % a.length]).join('');
+    }
     return Array.from({ length: 32 }, () => a[Math.floor(Math.random() * a.length)]).join('');
 }
 

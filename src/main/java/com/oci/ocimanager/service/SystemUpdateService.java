@@ -118,7 +118,7 @@ public class SystemUpdateService {
                 lastCheckTime = System.currentTimeMillis();
             } catch (Exception e) {
                 System.err.println("⚠️ [SystemUpdateService] 检查更新失败: " + e.getMessage());
-                cachedUpdateInfo.put("error", "检查更新失败: " + e.getMessage());
+                cachedUpdateInfo.put("error", "检查更新失败，请稍后重试");
             } finally {
                 isChecking.set(false);
             }
@@ -207,7 +207,6 @@ public class SystemUpdateService {
         cachedUpdateInfo.put("releaseUrl", releaseUrl);
         cachedUpdateInfo.put("remoteSha", remoteSha != null ? remoteSha : "");
         cachedUpdateInfo.put("localSha", localSha != null ? localSha : "");
-        cachedUpdateInfo.put("targetJarPath", targetJar.getAbsolutePath());
         cachedUpdateInfo.put("lastCheckTime", DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss").format(LocalDateTime.now()));
         cachedUpdateInfo.remove("error");
 
@@ -269,10 +268,13 @@ public class SystemUpdateService {
                 tmpJar.delete();
             }
 
-            // 1. 获取预期的 SHA-256
+            // 1. 获取预期的 SHA-256（强制要求合法 64 位十六进制摘要，Fail-Closed）
             String expectedSha = (String) cachedUpdateInfo.get("remoteSha");
-            if (expectedSha == null || expectedSha.isBlank()) {
+            if (expectedSha == null || !expectedSha.matches("(?i)^[0-9a-f]{64}$")) {
                 expectedSha = fetchRemoteChecksum();
+            }
+            if (expectedSha == null || !expectedSha.matches("(?i)^[0-9a-f]{64}$")) {
+                throw new SecurityException("未能获取到官方 SHA-256 校验摘要，为保障系统安全已中止升级");
             }
 
             // 2. 下载核心 JAR 包（带自动重试与双 URL 故障转移）
@@ -305,13 +307,11 @@ public class SystemUpdateService {
                 throw new IOException("下载程序包结构损坏，非合法 Java JAR: " + e.getMessage());
             }
 
-            // 4. SHA-256 完整性摘要比对
+            // 4. SHA-256 完整性摘要强制闭环校验 (Fail-Closed)
             String actualSha = calculateSha256(tmpJar);
-            if (expectedSha != null && expectedSha.length() == 64 && actualSha != null) {
-                if (!expectedSha.equalsIgnoreCase(actualSha)) {
-                    if (tmpJar.exists()) tmpJar.delete();
-                    throw new IOException("SHA-256 校验和不匹配！期望: " + expectedSha + "，实际: " + actualSha);
-                }
+            if (actualSha == null || !expectedSha.equalsIgnoreCase(actualSha)) {
+                if (tmpJar.exists()) tmpJar.delete();
+                throw new SecurityException("核心程序包 SHA-256 校验不匹配，已拒绝替换并删除临时文件");
             }
 
             // 5. 原子替换物理 JAR 文件
@@ -356,9 +356,12 @@ public class SystemUpdateService {
                 "sha", actualSha != null ? actualSha : ""
             );
 
+        } catch (SecurityException se) {
+            System.err.println("❌ [SystemUpdateService] 安全校验拦截: " + se.getMessage());
+            return Map.of("success", false, "error", se.getMessage());
         } catch (Exception e) {
             System.err.println("❌ [SystemUpdateService] 一键升级失败: " + e.getMessage());
-            return Map.of("success", false, "error", "升级失败: " + e.getMessage());
+            return Map.of("success", false, "error", "升级失败，请检查服务器网络连接或稍后重试");
         } finally {
             cachedUpdateInfo.put("upgrading", false);
             isUpgrading.set(false);
@@ -424,7 +427,7 @@ public class SystemUpdateService {
     }
 
     /**
-     * 获取远程校验和 checksums.txt
+     * 获取远程校验和 checksums.txt（若直接下载受阻则回退读取 GitHub Releases API digest）
      */
     private String fetchRemoteChecksum() {
         try {
@@ -434,7 +437,7 @@ public class SystemUpdateService {
                     String line;
                     while ((line = reader.readLine()) != null) {
                         String[] parts = line.trim().split("\\s+");
-                        if (parts.length >= 2 && parts[0].length() == 64) {
+                        if (parts.length >= 2 && parts[0].matches("(?i)^[0-9a-f]{64}$")) {
                             String filename = parts[1].toLowerCase();
                             if (filename.contains("ocibox.jar") || filename.contains("oci-personal.jar")) {
                                 return parts[0].toLowerCase();
@@ -446,6 +449,30 @@ public class SystemUpdateService {
         } catch (Exception e) {
             System.err.println("ℹ️ [SystemUpdateService] 拉取 checksums.txt 提示: " + e.getMessage());
         }
+
+        // 回退：从 GitHub Releases API assets[].digest 提取 SHA-256
+        try {
+            HttpURLConnection conn = connectWithRedirects(GITHUB_API_RELEASE_URL, 8000, 8000);
+            if (conn.getResponseCode() == 200) {
+                try (InputStream is = conn.getInputStream()) {
+                    JsonNode root = objectMapper.readTree(is);
+                    JsonNode assets = root.path("assets");
+                    if (assets.isArray()) {
+                        for (JsonNode asset : assets) {
+                            String name = asset.path("name").asText();
+                            String digest = asset.path("digest").asText();
+                            if (("ocibox.jar".equalsIgnoreCase(name) || "oci-personal.jar".equalsIgnoreCase(name))
+                                    && digest.toLowerCase().startsWith("sha256:")) {
+                                String sha = digest.substring(7).trim().toLowerCase();
+                                if (sha.matches("^[0-9a-f]{64}$")) {
+                                    return sha;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
         return null;
     }
 
@@ -480,7 +507,29 @@ public class SystemUpdateService {
     }
 
     /**
-     * 建立支持多跳跨域重定向的 HTTP 链接
+     * 校验更新源 URI 是否严格为 HTTPS 且属于受信任的 GitHub 官方域名
+     */
+    private void validateTrustedUpdateUri(URI uri) throws IOException {
+        if (uri == null || !"https".equalsIgnoreCase(uri.getScheme())) {
+            throw new IOException("拒绝非 HTTPS 的不安全更新链接");
+        }
+        String host = uri.getHost();
+        if (host == null || host.isBlank()) {
+            throw new IOException("更新链接缺少有效主机名");
+        }
+        String lowerHost = host.toLowerCase(Locale.ROOT);
+        boolean trusted = lowerHost.equals("github.com")
+                || lowerHost.equals("api.github.com")
+                || lowerHost.endsWith(".github.com")
+                || lowerHost.endsWith(".githubusercontent.com")
+                || lowerHost.endsWith(".githubassets.com");
+        if (!trusted) {
+            throw new IOException("拒绝跳转到非官方受信任域名: " + lowerHost);
+        }
+    }
+
+    /**
+     * 建立支持多跳跨域重定向的 HTTPS 链接（强制 HTTPS 与 GitHub 官方域名白名单）
      */
     private HttpURLConnection connectWithRedirects(String urlString, int connectTimeout, int readTimeout) throws IOException {
         String currentUrl = urlString;
@@ -488,7 +537,9 @@ public class SystemUpdateService {
         final int MAX_REDIRECTS = 8;
 
         while (redirectCount < MAX_REDIRECTS) {
-            URL url = URI.create(currentUrl).toURL();
+            URI currentUri = URI.create(currentUrl);
+            validateTrustedUpdateUri(currentUri);
+            URL url = currentUri.toURL();
             HttpURLConnection conn = (HttpURLConnection) url.openConnection();
             conn.setConnectTimeout(connectTimeout);
             conn.setReadTimeout(readTimeout);
@@ -499,15 +550,14 @@ public class SystemUpdateService {
             int status = conn.getResponseCode();
             if (status == HttpURLConnection.HTTP_MOVED_TEMP || status == HttpURLConnection.HTTP_MOVED_PERM
                     || status == HttpURLConnection.HTTP_SEE_OTHER || status == 307 || status == 308) {
-                String newUrl = conn.getHeaderField("Location");
-                if (newUrl == null || newUrl.isBlank()) {
+                String location = conn.getHeaderField("Location");
+                conn.disconnect();
+                if (location == null || location.isBlank()) {
                     throw new IOException("重定向状态 " + status + " 但缺失 Location 响应头");
                 }
-                if (!newUrl.startsWith("http://") && !newUrl.startsWith("https://")) {
-                    newUrl = URI.create(currentUrl).resolve(newUrl).toString();
-                }
-                conn.disconnect();
-                currentUrl = newUrl;
+                URI nextUri = currentUri.resolve(location.trim());
+                validateTrustedUpdateUri(nextUri);
+                currentUrl = nextUri.toString();
                 redirectCount++;
             } else {
                 return conn;

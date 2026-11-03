@@ -140,14 +140,21 @@ else
         rm -f "${TMP_JAR}" 2>/dev/null || true
         exit 1
     fi
-    if command -v sha256sum >/dev/null 2>&1 && curl -fsSL --connect-timeout 5 "${USED_URL}.sha256" -o "${TMP_JAR}.sha256" 2>/dev/null; then
-        EXPECTED_SHA=$(awk '{print $1}' "${TMP_JAR}.sha256" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    if command -v sha256sum >/dev/null 2>&1; then
+        CHECKSUMS_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/checksums.txt"
+        EXPECTED_SHA=""
+        if curl -fsSL --connect-timeout 8 "${CHECKSUMS_URL}" -o "${TMP_JAR}.sha256" 2>/dev/null || curl -fsSL --connect-timeout 5 "${USED_URL}.sha256" -o "${TMP_JAR}.sha256" 2>/dev/null; then
+            EXPECTED_SHA=$(grep -iE 'ocibox\.jar|oci-personal\.jar' "${TMP_JAR}.sha256" 2>/dev/null | head -n 1 | awk '{print $1}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+            [[ -z "${EXPECTED_SHA}" ]] && EXPECTED_SHA=$(awk '{print $1}' "${TMP_JAR}.sha256" | head -n 1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+            rm -f "${TMP_JAR}.sha256" 2>/dev/null || true
+        fi
         ACTUAL_SHA=$(sha256sum "${TMP_JAR}" | awk '{print $1}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-        rm -f "${TMP_JAR}.sha256" 2>/dev/null || true
-        if [[ -n "${EXPECTED_SHA}" && "${#EXPECTED_SHA}" -eq 64 && "${EXPECTED_SHA}" != "${ACTUAL_SHA}" ]]; then
-            echo -e "${RED}❌ 核心程序包 SHA-256 校验值不匹配！已拒绝更新并保留原程序。${PLAIN}"
-            rm -f "${TMP_JAR}" 2>/dev/null || true
-            exit 1
+        if [[ -n "${EXPECTED_SHA}" && "${#EXPECTED_SHA}" -eq 64 ]]; then
+            if [[ "${EXPECTED_SHA}" != "${ACTUAL_SHA}" ]]; then
+                echo -e "${RED}❌ 核心程序包 SHA-256 校验值不匹配！已拒绝更新并保留原程序。${PLAIN}"
+                rm -f "${TMP_JAR}" 2>/dev/null || true
+                exit 1
+            fi
         fi
     fi
     mv -f "${TMP_JAR}" "${INSTALL_DIR}/app.jar"
@@ -305,7 +312,7 @@ save_admin_password_plain() {
         return 0
     fi
     file="$(dirname "$conf")/.admin-password"
-    printf '%s\n' "$pwd" > "$file"
+    (umask 077 && printf '%s\n' "$pwd" > "$file")
     chmod 600 "$file" 2>/dev/null || true
 }
 

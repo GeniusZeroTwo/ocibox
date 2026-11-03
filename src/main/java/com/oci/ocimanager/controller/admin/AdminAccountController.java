@@ -427,6 +427,8 @@ public class AdminAccountController {
             if (rawAccountName == null || rawAccountName.trim().isEmpty()) return Map.of("success", false, "error", "账号别名不能为空");
             if (configText == null || configText.trim().isEmpty()) return Map.of("success", false, "error", "配置内容不能为空");
             if (privateKeyText == null || privateKeyText.trim().isEmpty()) return Map.of("success", false, "error", "私钥内容不能为空");
+            if (configText.length() > 16384) return Map.of("success", false, "error", "配置内容超出长度限制 (最大 16KB)");
+            if (privateKeyText.length() > 32768) return Map.of("success", false, "error", "私钥文件超出长度限制 (最大 32KB)");
 
             String cleanAccountName = rawAccountName.replaceAll("[\"']", "").trim();
 
@@ -463,6 +465,11 @@ public class AdminAccountController {
             } catch (Exception ignored) {}
 
             String cleanPrivateKey = privateKeyText.trim().replace("\r\n", "\n");
+            if (cleanPrivateKey.indexOf('\0') >= 0
+                    || !cleanPrivateKey.contains("-----BEGIN ")
+                    || !cleanPrivateKey.contains("PRIVATE KEY-----")) {
+                return Map.of("success", false, "error", "私钥格式无效，请上传或粘贴合法的 PEM 格式私钥文件");
+            }
             java.nio.file.Path keyPath = Paths.get(keyFilePath);
             // 🔒 原子创建 600 权限的 OCI 私钥文件，消除先写文件再改权限之间的默认 umask (0644) 全局可读竞态窗口
             byte[] keyBytes = cleanPrivateKey.getBytes(java.nio.charset.StandardCharsets.UTF_8);
@@ -578,7 +585,8 @@ public class AdminAccountController {
                         }
 
                         lines.add(insertIndex, newYamlNode);
-                        Files.write(ymlFile.toPath(), String.join("\n", lines).getBytes());
+                        Files.write(ymlFile.toPath(), String.join("\n", lines).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                        accountYamlService.enforceStrictFilePermissions(ymlFile.toPath());
                         // 同步刷新内存账号拓扑顺序，确保新号稳固排列在最新位置
                         ociProperties.setAccounts(accountYamlService.reorderAccounts(ociProperties.getAccounts()));
                     }

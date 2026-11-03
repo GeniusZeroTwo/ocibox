@@ -223,6 +223,7 @@ public class AccountYamlService {
                 }
 
                 Files.write(ymlFile.toPath(), newLines);
+                enforceStrictFilePermissions(ymlFile.toPath());
             } catch (Exception e) {
                 System.err.println("自动写入属性 [" + propKey + "] 到配置文件失败 [" + accountName + "]: " + e.getMessage());
             }
@@ -248,7 +249,26 @@ public class AccountYamlService {
     }
 
     /**
-     * 保存管理员明文凭据至同目录 .admin-password (权限 600)，确保 root 终端运维指令 (oci / update.sh) 能正常展示凭据
+     * 强制收敛敏感配置文件权限为 600 (rw-------)，仅属主可读写。
+     */
+    public void enforceStrictFilePermissions(Path path) {
+        if (path == null) return;
+        try {
+            Files.setPosixFilePermissions(path, PosixFilePermissions.fromString("rw-------"));
+        } catch (Exception ignored) {
+            try {
+                File f = path.toFile();
+                f.setReadable(false, false);
+                f.setWritable(false, false);
+                f.setExecutable(false, false);
+                f.setReadable(true, true);
+                f.setWritable(true, true);
+            } catch (Exception ignored2) {}
+        }
+    }
+
+    /**
+     * 保存管理员明文凭据至同目录 .admin-password (原子 600 权限)，确保 root 终端运维指令 (oci / update.sh) 能正常展示凭据
      */
     public void saveRememberedAdminPassword(String plaintext) {
         if (plaintext == null || plaintext.isBlank() || PasswordHasher.isHashed(plaintext)) return;
@@ -257,16 +277,23 @@ public class AccountYamlService {
                 File ymlFile = getConfigFile();
                 if (ymlFile == null || ymlFile.getParentFile() == null) return;
                 Path path = ymlFile.getParentFile().toPath().resolve(".admin-password");
-                Files.writeString(path, plaintext.trim() + "\n", StandardCharsets.UTF_8);
+                byte[] bytes = (plaintext.trim() + "\n").getBytes(StandardCharsets.UTF_8);
                 try {
-                    Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rw-------");
-                    Files.setPosixFilePermissions(path, perms);
-                } catch (Exception ignored) {
-                    File f = path.toFile();
-                    f.setReadable(true, true);
-                    f.setWritable(true, true);
-                    f.setExecutable(false, false);
+                    java.nio.file.attribute.FileAttribute<Set<PosixFilePermission>> attr =
+                            PosixFilePermissions.asFileAttribute(PosixFilePermissions.fromString("rw-------"));
+                    try (java.nio.channels.SeekableByteChannel channel = Files.newByteChannel(
+                            path,
+                            java.util.EnumSet.of(
+                                    java.nio.file.StandardOpenOption.CREATE,
+                                    java.nio.file.StandardOpenOption.TRUNCATE_EXISTING,
+                                    java.nio.file.StandardOpenOption.WRITE),
+                            attr)) {
+                        channel.write(java.nio.ByteBuffer.wrap(bytes));
+                    }
+                } catch (UnsupportedOperationException e) {
+                    Files.write(path, bytes);
                 }
+                enforceStrictFilePermissions(path);
             } catch (Exception e) {
                 System.err.println("保存管理员凭据提示: " + e.getMessage());
             }
@@ -293,6 +320,7 @@ public class AccountYamlService {
                 String indent = leadingWhitespace(fresh.get(target));
                 fresh.set(target, indent + "admin-password: '" + hashed + "'");
                 Files.write(ymlFile.toPath(), fresh, StandardCharsets.UTF_8);
+                enforceStrictFilePermissions(ymlFile.toPath());
                 return true;
             } catch (Exception e) {
                 System.err.println("升级管理员密码哈希失败: " + e.getMessage());
