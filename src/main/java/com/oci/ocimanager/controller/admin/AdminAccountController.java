@@ -95,10 +95,17 @@ public class AdminAccountController {
             }
         }
 
+        String rerollProfileName = null;
         if (reroll) {
             acc.setClientIdentifier(null);
-            accountYamlService.persistClientIdentifierToYaml(account, "");
-            fingerprintService.rerollFingerprint(account, acc);
+            var newFp = fingerprintService.rerollFingerprint(account, acc);
+            if (newFp != null) {
+                rerollProfileName = newFp.profileName();
+                if (newFp.userAgent() != null) {
+                    acc.setClientIdentifier(newFp.userAgent());
+                    accountYamlService.persistClientIdentifierToYaml(account, newFp.userAgent());
+                }
+            }
         } else if (trimmedId != null) {
             acc.setClientIdentifier(trimmedId.isEmpty() ? null : trimmedId);
             accountYamlService.persistClientIdentifierToYaml(account, trimmedId);
@@ -120,7 +127,10 @@ public class AdminAccountController {
 
         Map<String, Object> res = new HashMap<>();
         res.put("success", true);
-        res.put("message", reroll ? "已成功为该账号随机切换全新的专属生态客户端指纹！" : "客户端指纹与网络特征已成功更新！");
+        String msg = reroll 
+                ? ("已成功为该账号随机切换全新的独立生态客户端指纹: " + (rerollProfileName != null ? rerollProfileName : "已生效")) 
+                : "客户端指纹与网络特征已成功更新！";
+        res.put("message", msg);
         if (fp != null) {
             res.put("clientProfile", fp.profileName());
             res.put("clientUserAgent", fp.userAgent());

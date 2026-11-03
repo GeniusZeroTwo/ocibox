@@ -411,3 +411,21 @@ export const notificationUnreadOnly = ref(false);
 export const notificationTotalCount = ref(0);
 export const notificationLoading = ref(false);
 export const toastNotifications = ref([]);
+
+// 🚀 系统版本检测与一键更新响应式状态
+export const systemUpdateInfo = ref({
+    hasUpdate: false,
+    currentVersion: 'v1.1.0',
+    latestVersion: 'v1.1.0',
+    releaseTitle: '',
+    releaseBody: '',
+    releaseUrl: 'https://github.com/GeniusZeroTwo/ocibox/releases',
+    publishedAt: '',
+    buildTime: '',
+    remoteSha: '',
+    localSha: '',
+    checking: false,
+    upgrading: false
+});
+export const isCheckingUpdate = ref(false);
+export const isUpgradingSystem = ref(false);

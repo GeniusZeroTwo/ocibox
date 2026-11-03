@@ -2365,8 +2365,6 @@
             </div>
         </div>
 
-
-
         <!-- 🔔 悬浮实时通知 Toast 容器 -->
         <div class="toast-container" v-if="toastNotifications.length > 0">
             <div class="toast-card" v-for="toast in toastNotifications" :key="toast.id" :class="'toast-' + (toast.level || 'info').toLowerCase()" @click="toggleNotificationDrawer">
@@ -2378,6 +2376,12 @@
                     <button type="button" class="toast-close" @click.stop="closeToastNotification(toast.id)">&times;</button>
                 </div>
                 <div class="toast-body" v-html="formatNotificationContent(toast.content)"></div>
+                <div class="toast-actions" v-if="isUpdateNotice(toast)">
+                    <button type="button" class="btn-toast-update" :disabled="isUpgradingSystem" @click.stop="triggerOneClickUpdate">
+                        <span class="spinner" v-if="isUpgradingSystem" style="width: 11px; height: 11px; border-width: 2px; margin-right: 4px;"></span>
+                        <span v-else>⚡</span> {{ isUpgradingSystem ? '升级中...' : '立即一键更新' }}
+                    </button>
+                </div>
                 <div class="toast-footer">
                     <span class="toast-time">{{ toast.createdAt }}</span>
                     <span class="toast-tip">点击查看详情 →</span>
@@ -2396,6 +2400,10 @@
                     <span class="notice-badge-count" v-if="unreadNoticeCount > 0">{{ unreadNoticeCount }} 未读</span>
                 </div>
                 <div class="notice-drawer-actions">
+                    <button type="button" class="btn-text-action update-text" @click="checkSystemUpdate(true)" :disabled="isCheckingUpdate" title="检查系统新版本">
+                        <span class="spinner" v-if="isCheckingUpdate" style="width: 11px; height: 11px; border-width: 2px; margin-right: 4px;"></span>
+                        <span v-else>🔍</span> 检查更新
+                    </button>
                     <button type="button" class="btn-text-action" @click="markAllNoticesRead" :disabled="unreadNoticeCount === 0" title="全部标为已读">✓ 全部已读</button>
                     <button type="button" class="btn-text-action danger-text" @click="clearNotices('read')" title="清理所有已读消息">🗑️ 清理已读</button>
                     <button type="button" class="notice-drawer-close" @click="closeNotificationDrawer">&times;</button>
@@ -2405,6 +2413,7 @@
             <!-- 分类与未读过滤器 -->
             <div class="notice-drawer-filters">
                 <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'ALL' }" @click="setNotificationCategory('ALL')">全部</button>
+                <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'UPDATE' }" @click="setNotificationCategory('UPDATE')">🚀 更新</button>
                 <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'TRAFFIC' }" @click="setNotificationCategory('TRAFFIC')">🌐 流量</button>
                 <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'INSTANCE' }" @click="setNotificationCategory('INSTANCE')">⚡ 实例</button>
                 <button type="button" class="filter-chip" :class="{ active: notificationFilterCategory === 'SNIPER' }" @click="setNotificationCategory('SNIPER')">🚀 抢机</button>
@@ -2416,6 +2425,30 @@
 
             <!-- 消息列表主体 -->
             <div class="notice-drawer-body">
+                <!-- 🚀 系统新版本发现与一键更新横幅 -->
+                <div class="notice-update-banner" v-if="systemUpdateInfo && systemUpdateInfo.hasUpdate">
+                    <div class="notice-update-banner-header">
+                        <div class="notice-update-banner-tag">
+                            <span class="notice-update-pulse"></span>
+                            <span>发现新版本</span>
+                        </div>
+                        <span class="notice-update-version">{{ systemUpdateInfo.latestVersion || '最新自动构建版' }}</span>
+                    </div>
+                    <div class="notice-update-banner-content">
+                        <div class="notice-update-meta">
+                            <span>当前运行: <code>{{ systemUpdateInfo.currentVersion || 'v1.1.0' }}</code></span>
+                            <span v-if="systemUpdateInfo.buildTime" class="notice-update-time">构建: {{ systemUpdateInfo.buildTime }}</span>
+                        </div>
+                        <div class="notice-update-banner-actions">
+                            <button type="button" class="btn-notice-oneclick-update" :disabled="isUpgradingSystem" @click="triggerOneClickUpdate">
+                                <span class="spinner" v-if="isUpgradingSystem" style="width: 13px; height: 13px; border-width: 2px; margin-right: 6px;"></span>
+                                <span v-else>⚡</span> {{ isUpgradingSystem ? '正在平滑升级中...' : '立即一键更新' }}
+                            </button>
+                            <a v-if="systemUpdateInfo.releaseUrl" :href="systemUpdateInfo.releaseUrl" target="_blank" rel="noopener noreferrer" class="btn-notice-release-link">发行说明 ↗</a>
+                        </div>
+                    </div>
+                </div>
+
                 <div class="notice-loading" v-if="notificationLoading">
                     <span class="spinner" style="width: 20px; height: 20px; border-width: 2px;"></span>
                     <span>正在加载消息...</span>
@@ -2440,6 +2473,12 @@
                     </div>
                     <div class="notice-card-title">{{ notice.title }}</div>
                     <div class="notice-card-content" v-html="formatNotificationContent(notice.content)"></div>
+                    <div class="notice-card-action-bar" v-if="isUpdateNotice(notice)">
+                        <button type="button" class="btn-notice-card-update" :disabled="isUpgradingSystem" @click.stop="triggerOneClickUpdate">
+                            <span class="spinner" v-if="isUpgradingSystem" style="width: 12px; height: 12px; border-width: 2px; margin-right: 4px;"></span>
+                            <span v-else>⚡</span> {{ isUpgradingSystem ? '正在升级中...' : '立即一键更新' }}
+                        </button>
+                    </div>
                 </div>
             </div>
 

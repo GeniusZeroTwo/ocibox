@@ -447,8 +447,13 @@ public class OciClientFingerprintService {
         TreeSet<String> sortedNames = new TreeSet<>(ociProperties.getAccounts().keySet());
         for (String accName : sortedNames) {
             if (accName == null || accName.trim().isEmpty()) continue;
+            OciProperties.Account accCfg = ociProperties.getAccounts().get(accName);
+            // 🌟 若账号已显式配置了自定义客户端标识，跳过自动槽位分配，节省官方蓝图槽位
+            if (accCfg != null && accCfg.getClientIdentifier() != null && !accCfg.getClientIdentifier().trim().isEmpty()) {
+                accountBlueprintIndexMap.remove(accName);
+                continue;
+            }
             if (!accountBlueprintIndexMap.containsKey(accName)) {
-                OciProperties.Account accCfg = ociProperties.getAccounts().get(accName);
                 long h = computeAccountHash(accName, accCfg);
                 int preferredIndex = (int) Math.abs(h % BLUEPRINTS.size());
                 int attempts = 0;
@@ -765,8 +770,13 @@ public class OciClientFingerprintService {
     public ClientFingerprint rerollFingerprint(String accountName, OciProperties.Account accountConfig) {
         String effectiveAccount = (accountName != null && !accountName.trim().isEmpty()) ? accountName : "default-oci-account";
         fingerprintCache.remove(effectiveAccount);
+        if (accountConfig != null) {
+            accountConfig.setClientIdentifier(null);
+        }
 
         int currentSlot = accountBlueprintIndexMap.getOrDefault(effectiveAccount, 0);
+        accountBlueprintIndexMap.remove(effectiveAccount);
+
         int nextSlot = (currentSlot + 19) % BLUEPRINTS.size();
         int attempts = 0;
         while (accountBlueprintIndexMap.containsValue(nextSlot) && attempts < BLUEPRINTS.size()) {
@@ -784,6 +794,7 @@ public class OciClientFingerprintService {
     public ClientFingerprint setCustomIdentifier(String accountName, String customIdentifier, OciProperties.Account accountConfig) {
         String effectiveAccount = (accountName != null && !accountName.trim().isEmpty()) ? accountName : "default-oci-account";
         fingerprintCache.remove(effectiveAccount);
+        accountBlueprintIndexMap.remove(effectiveAccount);
         if (accountConfig != null) {
             accountConfig.setClientIdentifier(customIdentifier);
         }
@@ -826,11 +837,17 @@ public class OciClientFingerprintService {
 
     private String extractShortProfile(String userAgent) {
         if (userAgent == null || userAgent.isEmpty()) return "Custom";
-        int slashIdx = userAgent.indexOf('/');
+        String s = userAgent.trim();
+        if (s.startsWith("Oracle-")) s = s.substring(7);
+        int slashIdx = s.indexOf('/');
         if (slashIdx > 0) {
-            return userAgent.substring(0, slashIdx);
+            return s.substring(0, slashIdx);
         }
-        return userAgent.length() > 20 ? userAgent.substring(0, 20) : userAgent;
+        int spaceIdx = s.indexOf(' ');
+        if (spaceIdx > 0) {
+            return s.substring(0, spaceIdx);
+        }
+        return s.length() > 20 ? s.substring(0, 20) : s;
     }
 
     private long computeAccountHash(String accountName, OciProperties.Account acc) {

@@ -22,6 +22,10 @@
   - 💿 **系统重装**：在线拉取机型专属官方镜像（Ubuntu / Debian / CentOS / Oracle Linux 等）一键无损替换引导卷。
   - 💾 **引导卷清理**：自动探测闲置分离引导卷并提供一键安全扩容与删除。
 - 🎯 **全自动批量抢机任务**：支持多账号、多区域、多配置（ARM 4C24G / AMD 微型实例）后台静默抢占与捡漏。
+- 🛡️ **多账号请求特征差异化与独立客户端标识**：
+  - **135+ 官方生态拟真蓝图**：为系统中每个 OCI 账号自动进行互斥防碰撞分配，涵盖 OCI-CLI、Terraform、Go SDK、Python SDK、Ansible、Java SDK 等全生态指纹。
+  - **全维度特征深度隔离**：各账号拥有独立 User-Agent、`opc-client-info`、地域亲和 `Accept-Language`、离散化超时时序与非对称相位抖动，彻底打破固定节拍器特征。
+  - **自定义客户端标识与独立出口代理**：可在 Web 控制台或 `application.yml` 中为任意账号自定义 `client-identifier` 与专属 `proxy`（HTTP/SOCKS5 出口，带严格 SSRF 拦截），消除关联风控。
 - 🤖 **个人专属 Telegram 运维 Bot**（可选）：
   - 专属私有化鉴权：非管理员访问直接拒止，安全不泄露。
   - 远程指令：支持 `/list`、`/traffic`、`/sync`、`/help` 以及内联交互按钮随时随地手机控机。
@@ -70,6 +74,7 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/install.
    - 修改服务端口 : oci port [新端口] (自动放行防火墙并重启)
    - 域名证书管理 : oci cert (申请/重新绑定/维护证书)
    - 查看实时日志 : oci logs (或 journalctl -u ocibox -f -n 50)
+   - 修改/重置密码 : oci password [新密码] (随时查看或一键重置登录密码)
    - 在线版本更新 : oci update
 ================================================================
 ```
@@ -176,6 +181,19 @@ app:
   admin-password: "设置您的32位高强密码"
   bot-token: "可选：您的TG_BOT_TOKEN"
   admin-id: "可选：您的TG_CHAT_ID"
+
+oci:
+  accounts:
+    "[account-1]":
+      user: "ocid1.user.oc1..aaaa..."
+      fingerprint: "xx:xx:xx:xx..."
+      tenancy: "ocid1.tenancy.oc1..aaaa..."
+      region: "us-ashburn-1"
+      key-file: "/root/ocibox/keys/account-1.pem"
+      # 可选：自定义客户端标识 (留空则按 135+ 生态蓝图自动分配防碰撞指纹)
+      client-identifier: "Terraform/1.9.5"
+      # 可选：独立网络出口代理 (支持 http:// 或 socks5://，严禁指向回环/元数据地址)
+      proxy: "http://192.168.1.100:7890"
 ```
 
 ### 3. 配置 Systemd 开机自启

@@ -17,7 +17,8 @@ import {
     serverSearchKeyword, isBootVolumeCollapsed, persistSessionToken,
     unreadNoticeCount, notificationDrawerOpen, notificationsList,
     notificationFilterCategory, notificationUnreadOnly, notificationTotalCount,
-    notificationLoading, toastNotifications
+    notificationLoading, toastNotifications,
+    systemUpdateInfo, isCheckingUpdate, isUpgradingSystem
 } from './core/state.js';
 
 import { apiCall } from './core/api.js';
@@ -47,6 +48,9 @@ const app = createApp({
             tgBotRunning.value = !!data.tgBotRunning;
             if (data.unreadNoticeCount !== undefined) {
                 unreadNoticeCount.value = data.unreadNoticeCount;
+            }
+            if (data.updateInfo) {
+                systemUpdateInfo.value = { ...systemUpdateInfo.value, ...data.updateInfo };
             }
             globalInstances.value = data.instances || {};
             globalAccounts.value = data.accounts || [];
@@ -1309,10 +1313,6 @@ const app = createApp({
             }
         };
 
-
-
-
-
         // ==========================================
         // 🔔 站内消息与通知中心业务逻辑
         // ==========================================
@@ -1406,6 +1406,94 @@ const app = createApp({
         }
 
         // ==========================================
+        // 🚀 系统版本检测与一键更新
+        // ==========================================
+        function isUpdateNotice(item) {
+            if (!item) return false;
+            const cat = (item.category || '').toUpperCase();
+            if (cat === 'UPDATE') return true;
+            const text = ((item.title || '') + ' ' + (item.content || '')).toLowerCase();
+            return text.includes('新版本') || text.includes('一键更新') || text.includes('核心程序包更新') || text.includes('系统更新');
+        }
+
+        async function checkSystemUpdate(manual = false) {
+            if (isCheckingUpdate.value) return;
+            isCheckingUpdate.value = true;
+            try {
+                const res = await apiCall('notifications/check-update', { force: manual });
+                if (res) {
+                    systemUpdateInfo.value = res;
+                    if (manual) {
+                        if (res.hasUpdate) {
+                            showMessage(sysMsg, `🚀 发现 OCIBox 新版本：${res.latestVersion || '最新构建版'}，可直接在抽屉顶部点击【立即一键更新】！`, true);
+                        } else {
+                            showMessage(sysMsg, `✅ 当前已是最新构建版本 (${res.currentVersion || 'v1.1.0'})，无需更新`, true);
+                        }
+                    }
+                }
+            } catch (e) {
+                if (manual) showMessage(sysMsg, `❌ 检查更新失败: ${e.message || e}`, false);
+            } finally {
+                isCheckingUpdate.value = false;
+            }
+        }
+
+        async function triggerOneClickUpdate() {
+            if (isUpgradingSystem.value) return;
+            const info = systemUpdateInfo.value || {};
+            const curVer = info.currentVersion || 'v1.1.0';
+            const latVer = info.latestVersion || '最新自动构建版';
+            const bTime = info.buildTime ? `• 自动构建时间: <code>${esc(info.buildTime)}</code><br>` : '';
+
+            openConfirmModal(
+                "⚡ 确认一键系统升级",
+                `系统将从官方仓库安全下载最新核心程序包，校验 SHA-256 完整性并平滑热替换。<br><br>` +
+                `<div style="font-size:12px; color:var(--text-muted); background:var(--bg-subtle, rgba(0,0,0,0.04)); padding:10px 14px; border-radius:10px; line-height: 1.6;">` +
+                `• 当前运行版本: <code>${esc(curVer)}</code><br>` +
+                `• 目标升级版本: <b>${esc(latVer)}</b><br>` +
+                `${bTime}` +
+                `• 🔒 <b>数据安全保障:</b> 所有账号私钥、SQLite 数据库及 application.yml 均完整保留，升级完成后服务将自动平滑重启生效。</div>`,
+                "立即一键升级",
+                false,
+                async () => {
+                    isUpgradingSystem.value = true;
+                    showMessage(sysMsg, '⏳ 正在从官方源下载最新程序包并执行完整性校验，请稍候...', true);
+                    try {
+                        const res = await apiCall('notifications/upgrade', {});
+                        if (res && res.success) {
+                            showMessage(sysMsg, res.message || '✅ 核心程序包更新成功！服务正在重启中...', true);
+                            let countdown = 8;
+                            const reloadNotice = {
+                                id: Date.now(),
+                                title: '🚀 系统平滑重启中',
+                                content: `核心程序包已成功校验并热替换！服务正在平滑重启生效中，页面将在 <code>${countdown}</code> 秒后自动重新加载...`,
+                                level: 'SUCCESS',
+                                category: 'UPDATE',
+                                createdAt: '刚刚'
+                            };
+                            toastNotifications.value.unshift(reloadNotice);
+                            const timer = setInterval(() => {
+                                countdown--;
+                                if (countdown > 0) {
+                                    reloadNotice.content = `核心程序包已成功校验并热替换！服务正在平滑重启生效中，页面将在 <code>${countdown}</code> 秒后自动重新加载...`;
+                                } else {
+                                    clearInterval(timer);
+                                    window.location.reload();
+                                }
+                            }, 1000);
+                        } else {
+                            showMessage(sysMsg, `❌ 升级失败: ${res?.error || '网络超时'}`, false);
+                            isUpgradingSystem.value = false;
+                        }
+                    } catch (e) {
+                        showMessage(sysMsg, `❌ 升级请求异常: ${e.message || e}`, false);
+                        isUpgradingSystem.value = false;
+                    }
+                }
+            );
+        }
+
+        // ==========================================
         // 🚀 生命周期钩子与定时器注册
         // ==========================================
 
@@ -1470,9 +1558,11 @@ const app = createApp({
             unreadNoticeCount, notificationDrawerOpen, notificationsList,
             notificationFilterCategory, notificationUnreadOnly, notificationTotalCount,
             notificationLoading, toastNotifications,
+            systemUpdateInfo, isCheckingUpdate, isUpgradingSystem,
             toggleNotificationDrawer, closeNotificationDrawer, fetchNotifications,
             markNoticeRead, markAllNoticesRead, clearNotices, setNotificationCategory,
-            toggleNotificationUnreadOnly, closeToastNotification, formatNotificationContent
+            toggleNotificationUnreadOnly, closeToastNotification, formatNotificationContent,
+            isUpdateNotice, checkSystemUpdate, triggerOneClickUpdate
         };
     }
 });

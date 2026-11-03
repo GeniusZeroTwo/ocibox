@@ -31,6 +31,7 @@ public class AdminDashboardController {
     @Autowired private AccountYamlService accountYamlService;
     @Autowired private AdminAuthService adminAuthService;
     @Autowired private com.oci.ocimanager.service.NotificationService notificationService;
+    @Autowired private com.oci.ocimanager.service.SystemUpdateService systemUpdateService;
 
     private final ExecutorService ipFetchExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -152,14 +153,15 @@ public class AdminDashboardController {
         ociProperties.setAccounts(orderedAccounts);
         List<Map<String, Object>> accountList = buildAccountDetailsList(orderedAccounts);
         
-        return Map.of(
-            "success", true, 
-            "instances", getEnrichedInstances(), 
-            "accounts", orderedAccounts.keySet(),
-            "accountDetails", accountList,
-            "tgBotRunning", telegramBotService.isBotRunning(),
-            "unreadNoticeCount", notificationService.getUnreadCount()
-        );
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("instances", getEnrichedInstances());
+        result.put("accounts", orderedAccounts.keySet());
+        result.put("accountDetails", accountList);
+        result.put("tgBotRunning", telegramBotService.isBotRunning());
+        result.put("unreadNoticeCount", notificationService.getUnreadCount());
+        result.put("updateInfo", systemUpdateService.getCachedUpdateInfo());
+        return result;
     }
 
     private boolean isValidRegisterTime(String time) {
@@ -236,15 +238,16 @@ public class AdminDashboardController {
             trafficData.put(accName, info);
         });
 
-        return Map.of(
-            "success", true,
-            "instances", getEnrichedInstances(),
-            "accountDetails", accountList,
-            "accounts", orderedAccounts.keySet(),
-            "traffic", trafficData,
-            "unreadNoticeCount", notificationService.getUnreadCount(),
-            "latestNotices", notificationService.getLatestUnreadNotices(3)
-        );
+        Map<String, Object> result = new HashMap<>();
+        result.put("success", true);
+        result.put("instances", getEnrichedInstances());
+        result.put("accountDetails", accountList);
+        result.put("accounts", orderedAccounts.keySet());
+        result.put("traffic", trafficData);
+        result.put("unreadNoticeCount", notificationService.getUnreadCount());
+        result.put("latestNotices", notificationService.getLatestUnreadNotices(3));
+        result.put("updateInfo", systemUpdateService.getCachedUpdateInfo());
+        return result;
     }
 
     private final java.util.concurrent.atomic.AtomicBoolean isSyncingInstances = new java.util.concurrent.atomic.AtomicBoolean(false);

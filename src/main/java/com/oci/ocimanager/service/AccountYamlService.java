@@ -13,6 +13,8 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -246,17 +248,27 @@ public class AccountYamlService {
     }
 
     /**
-     * 删掉配置旁边的 .admin-password。明文只在安装结束时打印一次，不留在磁盘上。
+     * 保存管理员明文凭据至同目录 .admin-password (权限 600)，确保 root 终端运维指令 (oci / update.sh) 能正常展示凭据
      */
-    public void deleteRememberedAdminPassword() {
+    public void saveRememberedAdminPassword(String plaintext) {
+        if (plaintext == null || plaintext.isBlank() || PasswordHasher.isHashed(plaintext)) return;
         synchronized (YAML_FILE_LOCK) {
             try {
                 File ymlFile = getConfigFile();
                 if (ymlFile == null || ymlFile.getParentFile() == null) return;
                 Path path = ymlFile.getParentFile().toPath().resolve(".admin-password");
-                Files.deleteIfExists(path);
+                Files.writeString(path, plaintext.trim() + "\n", StandardCharsets.UTF_8);
+                try {
+                    Set<PosixFilePermission> perms = PosixFilePermissions.fromString("rw-------");
+                    Files.setPosixFilePermissions(path, perms);
+                } catch (Exception ignored) {
+                    File f = path.toFile();
+                    f.setReadable(true, true);
+                    f.setWritable(true, true);
+                    f.setExecutable(false, false);
+                }
             } catch (Exception e) {
-                System.err.println("删除管理员明文密码文件失败: " + e.getMessage());
+                System.err.println("保存管理员凭据提示: " + e.getMessage());
             }
         }
     }

@@ -297,13 +297,32 @@ read_admin_password() {
     printf '%s' "$val"
 }
 
+save_admin_password_plain() {
+    local pwd="$1"
+    local conf="$2"
+    local file
+    if [[ -z "$pwd" || -z "$conf" || "$pwd" == pbkdf2sha256\$* || "$pwd" == \$\{* ]]; then
+        return 0
+    fi
+    file="$(dirname "$conf")/.admin-password"
+    printf '%s\n' "$pwd" > "$file"
+    chmod 600 "$file" 2>/dev/null || true
+}
+
 resolve_admin_password() {
     local pwd="$1"
     local conf="$2"
-    local plain_file
-    if [[ -n "$conf" ]]; then
+    local plain_file plain
+    if [[ "$pwd" == pbkdf2sha256\$* && -n "$conf" ]]; then
         plain_file="$(dirname "$conf")/.admin-password"
-        rm -f "$plain_file" 2>/dev/null || true
+        if [[ -f "$plain_file" ]]; then
+            IFS= read -r plain < "$plain_file" || true
+            plain="${plain//$'\r'/}"
+            if [[ -n "$plain" && "$plain" != pbkdf2sha256\$* ]]; then
+                printf '%s' "$plain"
+                return
+            fi
+        fi
     fi
     printf '%s' "$pwd"
 }
@@ -311,9 +330,9 @@ resolve_admin_password() {
 show_admin_password() {
     local pwd="$1"
     if [[ "$pwd" == pbkdf2sha256\$* ]]; then
-        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已加密保存。请使用设置时的明文密码登录，不要把 pbkdf2 哈希当作密码。${PLAIN}"
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已加密保存 (终端运行 'oci password' 可一键重置为新密码)${PLAIN}"
     elif [[ -z "$pwd" || "$pwd" == \$\{* ]]; then
-        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}未设置${PLAIN}"
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}未设置 (终端运行 'oci password' 可立即设置)${PLAIN}"
     else
         printf '🔑 %b管理登录密码%b : %b%s%b\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$pwd" "${PLAIN}"
     fi
@@ -663,6 +682,60 @@ NGINX_CONF
     echo -e "🔗 ${CYAN}本地备用地址${PLAIN}   : ${CYAN}http://${server_ip}:${port}${PLAIN}\n"
 }
 
+ocibox_password() {
+    local new_pwd="${1:-}"
+    local conf="${INSTALL_DIR}/application.yml"
+    [[ ! -f "$conf" && -f "/root/oci-personal/application.yml" ]] && conf="/root/oci-personal/application.yml"
+    [[ ! -f "$conf" && -f "/root/ocibox/application.yml" ]] && conf="/root/ocibox/application.yml"
+    if [[ ! -f "$conf" ]]; then
+        echo -e "${RED}未找到配置文件: $conf${PLAIN}"
+        return 1
+    fi
+    if [[ -z "$new_pwd" ]]; then
+        echo -e "\n${CYAN}================================================================${PLAIN}"
+        echo -e "${GREEN}🔑 OCIBox 管理员登录密码重置${PLAIN}"
+        echo -e "${CYAN}================================================================${PLAIN}"
+        local default_new_pwd
+        default_new_pwd=$(LC_ALL=C tr -dc 'A-Za-z0-9@#$%&*!_=+' < /dev/urandom 2>/dev/null | head -c 32)
+        [[ -z "${default_new_pwd}" || ${#default_new_pwd} -lt 32 ]] && default_new_pwd=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9@#$%&*!_=+' | head -c 32)
+        read -rp "👉 请输入新密码 [直接回车自动生成 32 位强密码: ${default_new_pwd}]: " input_new_pwd
+        new_pwd="${input_new_pwd:-${default_new_pwd}}"
+    fi
+
+    if [[ -z "$new_pwd" ]]; then
+        echo -e "${RED}❌ 密码不能为空！${PLAIN}"
+        return 1
+    fi
+
+    local svc=$(get_service_name)
+    echo -e "⏹️ 正在安全更新密码并重启服务 (${svc})..."
+    systemctl stop "$svc" >/dev/null 2>&1 || true
+
+    # 单引号安全转义并写入 application.yml
+    local escaped_pwd="${new_pwd//\'/\'\'}"
+    sed -i.bak -E "s/^[[:space:]]*admin-password:.*$/  admin-password: '${escaped_pwd}'/" "$conf"
+    rm -f "${conf}.bak" 2>/dev/null || true
+    chmod 600 "$conf" 2>/dev/null || true
+
+    # 安全留存副本至 .admin-password (chmod 600，仅 root 可读)
+    save_admin_password_plain "$new_pwd" "$conf"
+
+    # 重启服务
+    systemctl restart "$svc" >/dev/null 2>&1 || true
+    sleep 2
+
+    local user=$(grep -E '^[[:space:]]*admin-username:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-username:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
+    echo -e "\n${GREEN}================================================================${PLAIN}"
+    echo -e "🎉 ${GREEN}管理员登录密码已成功更新并生效！${PLAIN}"
+    echo -e "================================================================"
+    if [[ -n "$user" && ! "$user" =~ ^\$\{ ]]; then
+        echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${user}${PLAIN}"
+    fi
+    printf '🔑 %b管理登录密码%b : %b%s%b\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$new_pwd" "${PLAIN}"
+    echo -e "💡 提示: 凭据已持久化，随时输入 ${GREEN}oci${PLAIN} 即可呼出管理面板。"
+    echo -e "================================================================\n"
+}
+
 case "${1:-}" in
     status) ocibox_status ;;
     restart) ocibox_restart ;;
@@ -672,15 +745,17 @@ case "${1:-}" in
     update|upgrade) shift; ocibox_update "$@" ;;
     port) ocibox_port "${2:-}" ;;
     cert|ssl|domain) ocibox_cert "${2:-}" ;;
+    password|passwd|pwd) ocibox_password "${2:-}" ;;
     info) ocibox_info ;;
     help|--help|-h)
-        echo "用法: oci [status|restart|start|stop|logs|update|port|cert|info]"
-        echo "   - oci update : 一键保持客户默认选项更新"
+        echo "用法: oci [status|restart|start|stop|logs|update|port|cert|password|info]"
+        echo "   - oci password [新密码] : 查看/一键重置管理员登录密码"
+        echo "   - oci update            : 一键保持客户默认选项更新"
         ;;
     *)
         ocibox_info
         if [[ -t 0 ]]; then
-            echo -e "\n${CYAN}💡 快捷操作: [1] 重启面板  [2] 查看状态  [3] 实时日志  [4] 在线更新  [5] 修改端口  [6] 域名证书  [0/回车] 退出${PLAIN}"
+            echo -e "\n${CYAN}💡 快捷操作: [1] 重启面板  [2] 查看状态  [3] 实时日志  [4] 在线更新  [5] 修改端口  [6] 域名证书  [7] 重置密码  [0/回车] 退出${PLAIN}"
             read -rp "👉 请输入选项编号 [默认回车退出]: " opt
             case "$opt" in
                 1) ocibox_restart ;;
@@ -689,6 +764,7 @@ case "${1:-}" in
                 4) ocibox_update ;;
                 5) ocibox_port ;;
                 6) ocibox_cert ;;
+                7) ocibox_password ;;
                 *) exit 0 ;;
             esac
         fi

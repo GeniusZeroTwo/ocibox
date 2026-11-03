@@ -50,6 +50,7 @@ public class ScheduledTasksService {
     @Autowired private SystemConfigRepository systemConfigRepository;
     @Autowired private ObjectMapper objectMapper;
     @Autowired private com.oci.ocimanager.service.NotificationService notificationService;
+    @Autowired private com.oci.ocimanager.service.SystemUpdateService systemUpdateService;
 
     private static ScheduledTasksService instance;
 
@@ -148,6 +149,18 @@ public class ScheduledTasksService {
     public void monitorBills() {
         if (billingService != null) {
             billingService.refreshAllBillsInBackground();
+        }
+    }
+
+    // 🌟 定时检测 OCIBox 核心系统版本更新，发现新版本自动推送运维通知并支持一键热更新
+    @Scheduled(fixedDelay = 21600000, initialDelay = 30000)
+    public void scheduledUpdateCheck() {
+        try {
+            if (systemUpdateService != null) {
+                systemUpdateService.checkUpdate(false);
+            }
+        } catch (Exception e) {
+            System.err.println("ℹ️ [ScheduledTasksService] 定时版本检查提示: " + e.getMessage());
         }
     }
 

@@ -65,9 +65,6 @@ public class AdminAuthService {
                 upgradeDatabasePassword();
             }
             upgradeYamlPassword();
-            if (accountYamlService != null) {
-                accountYamlService.deleteRememberedAdminPassword();
-            }
         } catch (Exception e) {
             System.err.println("管理员密码哈希升级失败: " + e.getMessage());
         }
@@ -359,6 +356,8 @@ public class AdminAuthService {
         String current = adminPassword.trim();
         if (current.matches("\\$\\{[^}]*}") || PasswordHasher.isHashed(current)) return;
         if (accountYamlService == null) return;
+        // 🌟 哈希化写入 application.yml 之前，在同目录安全保留 .admin-password (chmod 600) 供 root 终端运维命令 (oci/update.sh) 查看
+        accountYamlService.saveRememberedAdminPassword(current);
         String hashed = PasswordHasher.hash(current);
         if (accountYamlService.replacePlaintextAdminPassword(current, hashed)) {
             this.adminPassword = hashed;

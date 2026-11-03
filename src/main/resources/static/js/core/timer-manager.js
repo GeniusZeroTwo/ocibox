@@ -3,7 +3,7 @@ import {
     sessionToken, isEditing, currentTab, globalInstances,
     accountDetails, globalAccounts, trafficData, isSyncingAccounts,
     syncingOcids, sysMsg, bootVolumes, manageAccountSelect,
-    unreadNoticeCount, toastNotifications
+    unreadNoticeCount, toastNotifications, systemUpdateInfo
 } from './state.js';
 
 const seenNoticeIds = new Set();
@@ -210,15 +210,20 @@ export function startGlobalPolling() {
                     if (data.unreadNoticeCount !== undefined) {
                         unreadNoticeCount.value = data.unreadNoticeCount;
                     }
+                    if (data.updateInfo) {
+                        systemUpdateInfo.value = { ...systemUpdateInfo.value, ...data.updateInfo };
+                    }
                     if (data.latestNotices && Array.isArray(data.latestNotices)) {
                         data.latestNotices.forEach(n => {
                             if (!seenNoticeIds.has(n.id)) {
                                 seenNoticeIds.add(n.id);
                                 if (initialPollDone) {
                                     toastNotifications.value.unshift(n);
+                                    const isUpdate = (n.category === 'UPDATE') || (n.title && n.title.includes('新版本'));
+                                    const duration = isUpdate ? 30000 : 6000;
                                     setTimeout(() => {
                                         toastNotifications.value = toastNotifications.value.filter(t => t.id !== n.id);
-                                    }, 6000);
+                                    }, duration);
                                 }
                             }
                         });

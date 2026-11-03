@@ -34,15 +34,23 @@ public class NotificationService {
     private String adminId;
 
     /**
-     * 发送结构化系统消息
-     *
-     * @param title    消息简明标题
-     * @param content  消息正文内容 (支持 Markdown / HTML 格式)
-     * @param level    消息级别：INFO, SUCCESS, WARNING, DANGER
-     * @param category 业务分类：TRAFFIC, INSTANCE, SNIPER, SYSTEM, SECURITY
-     * @return 持久化后的实体
+     * 发送结构化系统消息（默认同时根据配置推送到 TG）
      */
     public SystemNotification send(String title, String content, String level, String category) {
+        return send(title, content, level, category, true);
+    }
+
+    /**
+     * 发送结构化系统消息
+     *
+     * @param title          消息简明标题
+     * @param content        消息正文内容 (支持 Markdown / HTML 格式)
+     * @param level          消息级别：INFO, SUCCESS, WARNING, DANGER
+     * @param category       业务分类：TRAFFIC, INSTANCE, SNIPER, SYSTEM, SECURITY, UPDATE
+     * @param pushToTelegram 是否推送到 Telegram 机器人 (版本更新类通知可设为 false 避免打扰)
+     * @return 持久化后的实体
+     */
+    public SystemNotification send(String title, String content, String level, String category, boolean pushToTelegram) {
         if (title == null || title.isBlank()) {
             title = "系统运维通知";
         }
@@ -60,8 +68,10 @@ public class NotificationService {
             System.err.println("⚠️ [NotificationService] 消息入库失败: " + e.getMessage());
         }
 
-        // 2. 若配置了 Telegram 且机器人正在运行，则同时推送到 TG
-        pushToTelegramIfAvailable(title, content);
+        // 2. 若允许推送到 TG、分类非纯后台版本更新、且已配置 Telegram 机器人正在运行，则同时推送到 TG
+        if (pushToTelegram && !"UPDATE".equalsIgnoreCase(category)) {
+            pushToTelegramIfAvailable(title, content);
+        }
 
         return notice;
     }
@@ -278,6 +288,9 @@ public class NotificationService {
 
     private String extractCategory(String text) {
         String lower = text.toLowerCase();
+        if (lower.contains("更新") || lower.contains("升级") || lower.contains("update") || lower.contains("version") || lower.contains("新版本")) {
+            return "UPDATE";
+        }
         if (lower.contains("流量") || lower.contains("熔断") || lower.contains("断网") || lower.contains("gb")) {
             return "TRAFFIC";
         }

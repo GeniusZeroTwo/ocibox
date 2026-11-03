@@ -2,6 +2,7 @@ package com.oci.ocimanager.controller.admin;
 
 import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.NotificationService;
+import com.oci.ocimanager.service.SystemUpdateService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -17,6 +18,9 @@ public class AdminNotificationController {
 
     @Autowired
     private NotificationService notificationService;
+
+    @Autowired
+    private SystemUpdateService systemUpdateService;
 
     @Autowired
     private AdminAuthService adminAuthService;
@@ -90,5 +94,28 @@ public class AdminNotificationController {
             "deletedCount", deleted,
             "unreadCount", notificationService.getUnreadCount()
         );
+    }
+
+    /**
+     * 检查系统版本更新状态
+     */
+    @PostMapping("/check-update")
+    public Map<String, Object> checkUpdate(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) {
+            return Map.of("success", false, "error", "会话已过期，请重新登录");
+        }
+        boolean force = payload != null && Boolean.TRUE.equals(payload.get("force"));
+        return systemUpdateService.checkUpdate(force);
+    }
+
+    /**
+     * 一键执行系统升级与平滑重启
+     */
+    @PostMapping("/upgrade")
+    public Map<String, Object> executeUpgrade(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) {
+            return Map.of("success", false, "error", "会话已过期，请重新登录");
+        }
+        return systemUpdateService.executeUpdate();
     }
 }
