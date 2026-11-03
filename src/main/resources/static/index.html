@@ -2394,19 +2394,21 @@
         <!-- 🔔 站内消息中心侧边抽屉 -->
         <div class="notice-drawer" :class="{ 'open': notificationDrawerOpen }">
             <div class="notice-drawer-header">
-                <div class="notice-drawer-title">
-                    <span class="notice-drawer-mark" aria-hidden="true">🔔</span>
-                    <span class="notice-drawer-heading">系统消息中心</span>
-                    <span class="notice-badge-count" v-if="unreadNoticeCount > 0">{{ unreadNoticeCount }} 未读</span>
+                <div class="notice-drawer-header-row">
+                    <div class="notice-drawer-title">
+                        <span class="notice-drawer-mark" aria-hidden="true">🔔</span>
+                        <span class="notice-drawer-heading">系统消息中心</span>
+                        <span class="notice-badge-count" v-if="unreadNoticeCount > 0">{{ unreadNoticeCount }} 未读</span>
+                    </div>
+                    <button type="button" class="notice-drawer-close" @click="closeNotificationDrawer" title="关闭消息中心">&times;</button>
                 </div>
-                <div class="notice-drawer-actions">
+                <div class="notice-drawer-actions-toolbar">
                     <button type="button" class="btn-text-action update-text" @click="checkSystemUpdate(true)" :disabled="isCheckingUpdate" title="检查系统新版本">
                         <span class="spinner" v-if="isCheckingUpdate" style="width: 11px; height: 11px; border-width: 2px; margin-right: 4px;"></span>
                         <span v-else>🔍</span> 检查更新
                     </button>
                     <button type="button" class="btn-text-action" @click="markAllNoticesRead" :disabled="unreadNoticeCount === 0" title="全部标为已读">✓ 全部已读</button>
                     <button type="button" class="btn-text-action danger-text" @click="clearNotices('read')" title="清理所有已读消息">🗑️ 清理已读</button>
-                    <button type="button" class="notice-drawer-close" @click="closeNotificationDrawer">&times;</button>
                 </div>
             </div>
 
