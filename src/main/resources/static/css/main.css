@@ -5700,35 +5700,52 @@
 
         .notice-drawer {
             position: fixed;
-            top: 0;
-            right: 0;
-            bottom: 0;
+            top: 12px;
+            right: 12px;
+            bottom: 12px;
             width: 440px;
-            max-width: 100vw;
+            max-width: calc(100vw - 24px);
+            height: calc(100vh - 24px);
+            max-height: calc(100vh - 24px);
             backdrop-filter: blur(28px) saturate(190%);
             -webkit-backdrop-filter: blur(28px) saturate(190%);
             background: rgba(255, 255, 255, 0.72);
-            border-left: 1px solid rgba(255, 255, 255, 0.75);
-            border-top-left-radius: 20px;
-            border-bottom-left-radius: 20px;
+            border: 1px solid rgba(255, 255, 255, 0.75);
+            border-radius: 20px;
             overflow: hidden;
             z-index: 99991;
             display: flex;
             flex-direction: column;
-            box-shadow: -16px 0 48px -6px rgba(15, 23, 42, 0.16),
-                        inset 1px 0 0 rgba(255, 255, 255, 0.85);
-            transform: translateX(100%);
+            box-shadow: -16px 0 48px -6px rgba(15, 23, 42, 0.18),
+                        0 12px 36px -4px rgba(15, 23, 42, 0.12),
+                        inset 0 1px 1px rgba(255, 255, 255, 0.95);
+            transform: translateX(calc(100% + 24px));
             transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
             will-change: transform;
         }
         [data-theme="dark"] .notice-drawer {
-            background: rgba(13, 23, 38, 0.75);
-            border-left: 1px solid rgba(255, 255, 255, 0.12);
-            box-shadow: -16px 0 54px -6px rgba(0, 0, 0, 0.68),
-                        inset 1px 0 0 rgba(255, 255, 255, 0.08);
+            background: rgba(13, 23, 38, 0.78);
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            box-shadow: -16px 0 54px -6px rgba(0, 0, 0, 0.72),
+                        0 12px 40px -4px rgba(0, 0, 0, 0.60),
+                        inset 0 1px 1px rgba(255, 255, 255, 0.12);
         }
         .notice-drawer.open {
             transform: translateX(0);
+        }
+
+        @media (max-width: 520px) {
+            .notice-drawer {
+                top: 8px;
+                right: 8px;
+                bottom: 8px;
+                left: 8px;
+                width: auto;
+                max-width: calc(100vw - 16px);
+                height: calc(100vh - 16px);
+                max-height: calc(100vh - 16px);
+                border-radius: 18px;
+            }
         }
 
         .notice-drawer-header,
@@ -5752,6 +5769,7 @@
             gap: 10px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.65);
             border-top-left-radius: 20px;
+            border-top-right-radius: 20px;
         }
         [data-theme="dark"] .notice-drawer-header {
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
@@ -6251,6 +6269,7 @@
         .notice-drawer-footer {
             border-top: 1px solid rgba(255, 255, 255, 0.65);
             border-bottom-left-radius: 20px;
+            border-bottom-right-radius: 20px;
             padding: 12px 16px;
             font-size: 11px;
             color: var(--text-muted);
