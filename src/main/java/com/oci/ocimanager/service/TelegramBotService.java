@@ -14,7 +14,6 @@ import org.springframework.stereotype.Service;
 
 import org.telegram.telegrambots.client.okhttp.OkHttpTelegramClient;
 import org.telegram.telegrambots.longpolling.interfaces.LongPollingUpdateConsumer;
-import org.telegram.telegrambots.longpolling.util.LongPollingSingleThreadUpdateConsumer;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
@@ -39,7 +38,7 @@ import java.util.concurrent.TimeUnit;
  * 个人专属 Telegram 运维机器人（独占式个人运维管理）
  */
 @Service
-public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer {
+public class TelegramBotService implements LongPollingUpdateConsumer {
 
     @Configuration
     public static class GlobalJacksonConfig {
@@ -175,6 +174,15 @@ public class TelegramBotService implements LongPollingSingleThreadUpdateConsumer
     }
 
     @Override
+    public void consume(List<Update> updates) {
+        if (updates == null || updates.isEmpty()) {
+            return;
+        }
+        for (Update update : updates) {
+            consume(update);
+        }
+    }
+
     public void consume(Update update) {
         botWorker.submit(() -> {
             try {
