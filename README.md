@@ -180,7 +180,7 @@ app:
   admin-username: "admin"
   admin-password: "设置您的32位高强密码"
   bot-token: "可选：您的TG_BOT_TOKEN"
-  admin-id: "可选：您的TG_CHAT_ID"
+  admin-id: "可选：您的 Telegram 用户 ID"
 
 oci:
   accounts:
@@ -268,7 +268,7 @@ curl -sS -O https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/update.s
 | `/sync` | 立即触发全账号状态、新分配 IP 与实例列表深度同步 |
 | `/help` | 查看详细操作指南 |
 
-> **安全提示**：Bot 仅响应部署时配置的管理员 Chat ID，外部其他任何用户发送指令均会被安全拦截并提示无权访问。
+> **安全提示**：Bot 仅响应部署时配置的管理员 Telegram 用户 ID；即使机器人加入群组，其他成员也无法执行运维指令。
 
 ---
 

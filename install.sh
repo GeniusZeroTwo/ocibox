@@ -341,7 +341,7 @@ else
     if is_configured "${EXISTING_BOT_TOKEN}" && is_configured "${EXISTING_ADMIN_ID}"; then
         MASKED_TOKEN="${EXISTING_BOT_TOKEN:0:6}******${EXISTING_BOT_TOKEN: -4}"
         echo -e "${GREEN}🔔 【检测到您此前已成功绑定过 Telegram 运维机器人】${PLAIN}"
-        echo -e "   - 👑 管理员 Chat ID : ${YELLOW}${EXISTING_ADMIN_ID}${PLAIN}"
+        echo -e "   - 👑 管理员用户 ID : ${YELLOW}${EXISTING_ADMIN_ID}${PLAIN}"
         echo -e "   - 🔑 Bot Token 凭据 : ${YELLOW}${MASKED_TOKEN}${PLAIN}"
         read -rp "👉 是否直接保留现有 Telegram 机器人绑定？(Y/n, 默认 Y 沿用): " KEEP_TG
         KEEP_TG="${KEEP_TG:-Y}"
@@ -355,7 +355,7 @@ else
             read -rp "👉 是否需要绑定新的 Telegram 机器人？(y/N, 默认 N 解除绑定): " RE_BIND_TG
             if [[ "${RE_BIND_TG}" =~ ^[Yy]$ ]]; then
                 read -rp "  请输入 Telegram Bot Token (从 @BotFather 获取): " INPUT_BOT_TOKEN
-                read -rp "  请输入管理员 Telegram Chat ID (从 @userinfobot 获取): " INPUT_ADMIN_ID
+                read -rp "  请输入管理员 Telegram 用户 ID (从 @userinfobot 获取): " INPUT_ADMIN_ID
                 BOT_TOKEN="${INPUT_BOT_TOKEN:-}"
                 ADMIN_ID="${INPUT_ADMIN_ID:-}"
                 if is_configured "${BOT_TOKEN}" && is_configured "${ADMIN_ID}"; then
@@ -379,7 +379,7 @@ else
         read -rp "👉 是否需要绑定您的 Telegram 运维机器人？(y/N, 默认 N): " BIND_TG
         if [[ "${BIND_TG}" =~ ^[Yy]$ ]]; then
             read -rp "  请输入 Telegram Bot Token (从 @BotFather 获取): " INPUT_BOT_TOKEN
-            read -rp "  请输入管理员 Telegram Chat ID (从 @userinfobot 获取): " INPUT_ADMIN_ID
+            read -rp "  请输入管理员 Telegram 用户 ID (从 @userinfobot 获取): " INPUT_ADMIN_ID
             BOT_TOKEN="${INPUT_BOT_TOKEN:-}"
             ADMIN_ID="${INPUT_ADMIN_ID:-}"
             if is_configured "${BOT_TOKEN}" && is_configured "${ADMIN_ID}"; then
@@ -663,39 +663,70 @@ else
     ALT_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/oci-personal.jar"
     TMP_JAR="${INSTALL_DIR}/app.jar.download"
     rm -f "${TMP_JAR}" "${TMP_JAR}.sha256" 2>/dev/null || true
-    USED_URL="${DOWNLOAD_URL}"
+    DOWNLOAD_NAME="ocibox.jar"
     if ! curl -fL --retry 3 --connect-timeout 10 "${DOWNLOAD_URL}" -o "${TMP_JAR}" 2>/dev/null; then
-        USED_URL="${ALT_URL}"
+        DOWNLOAD_NAME="oci-personal.jar"
         if ! curl -fL --retry 3 --connect-timeout 10 "${ALT_URL}" -o "${TMP_JAR}"; then
             echo -e "${RED}❌ 下载核心程序包失败！请确认网络畅通或 GitHub Release 是否已生成。${PLAIN}"
             rm -f "${TMP_JAR}" 2>/dev/null || true
             exit 1
         fi
     fi
-    # 🔒 校验 JAR 归档结构完整性与可选 SHA-256 签名摘要
-    if command -v unzip >/dev/null 2>&1 && ! unzip -tq "${TMP_JAR}" >/dev/null 2>&1; then
+    # 🔒 远程程序包必须通过归档结构与官方 SHA-256 校验
+    if ! command -v unzip >/dev/null 2>&1; then
+        echo -e "${RED}❌ 缺少 unzip，无法验证核心程序包，已拒绝安装。${PLAIN}"
+        rm -f "${TMP_JAR}" 2>/dev/null || true
+        exit 1
+    fi
+    if ! unzip -tq "${TMP_JAR}" >/dev/null 2>&1; then
         echo -e "${RED}❌ 下载的核心程序包完整性校验失败 (非合法 JAR 归档)！已中止安装。${PLAIN}"
         rm -f "${TMP_JAR}" 2>/dev/null || true
         exit 1
     fi
-    if command -v sha256sum >/dev/null 2>&1; then
-        CHECKSUMS_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/checksums.txt"
-        EXPECTED_SHA=""
-        if curl -fsSL --connect-timeout 8 "${CHECKSUMS_URL}" -o "${TMP_JAR}.sha256" 2>/dev/null || curl -fsSL --connect-timeout 5 "${USED_URL}.sha256" -o "${TMP_JAR}.sha256" 2>/dev/null; then
-            EXPECTED_SHA=$(grep -iE 'ocibox\.jar|oci-personal\.jar' "${TMP_JAR}.sha256" 2>/dev/null | head -n 1 | awk '{print $1}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-            [[ -z "${EXPECTED_SHA}" ]] && EXPECTED_SHA=$(awk '{print $1}' "${TMP_JAR}.sha256" | head -n 1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-            rm -f "${TMP_JAR}.sha256" 2>/dev/null || true
-        fi
-        ACTUAL_SHA=$(sha256sum "${TMP_JAR}" | awk '{print $1}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-        if [[ -n "${EXPECTED_SHA}" && "${#EXPECTED_SHA}" -eq 64 ]]; then
-            if [[ "${EXPECTED_SHA}" != "${ACTUAL_SHA}" ]]; then
-                echo -e "${RED}❌ 核心程序包 SHA-256 校验值不匹配！已拒绝安装。${PLAIN}"
-                rm -f "${TMP_JAR}" 2>/dev/null || true
-                exit 1
-            fi
-        fi
+    if ! command -v sha256sum >/dev/null 2>&1; then
+        echo -e "${RED}❌ 缺少 sha256sum，无法验证核心程序包，已拒绝安装。${PLAIN}"
+        rm -f "${TMP_JAR}" 2>/dev/null || true
+        exit 1
     fi
-    mv -f "${TMP_JAR}" "${INSTALL_DIR}/app.jar"
+    CHECKSUMS_URL="https://github.com/GeniusZeroTwo/ocibox/releases/download/latest/checksums.txt"
+    if ! curl -fsSL --connect-timeout 8 "${CHECKSUMS_URL}" -o "${TMP_JAR}.sha256" 2>/dev/null; then
+        echo -e "${RED}❌ 无法获取官方 SHA-256 校验文件，已拒绝安装。${PLAIN}"
+        rm -f "${TMP_JAR}" "${TMP_JAR}.sha256" 2>/dev/null || true
+        exit 1
+    fi
+    if ! EXPECTED_SHA=$(awk -v name="${DOWNLOAD_NAME}" '
+        NF == 2 && ($2 == name || $2 == "*" name) {
+            if (length($1) != 64 || $1 ~ /[^[:xdigit:]]/) invalid = 1
+            count++
+            value = $1
+        }
+        END {
+            if (invalid || count != 1) exit 1
+            print value
+        }
+    ' "${TMP_JAR}.sha256"); then
+        rm -f "${TMP_JAR}" "${TMP_JAR}.sha256" 2>/dev/null || true
+        echo -e "${RED}❌ 官方 SHA-256 校验摘要缺失、重复或格式无效，已拒绝安装。${PLAIN}"
+        exit 1
+    fi
+    EXPECTED_SHA=$(printf '%s' "${EXPECTED_SHA}" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    rm -f "${TMP_JAR}.sha256" 2>/dev/null || true
+    if [[ ! "${EXPECTED_SHA}" =~ ^[0-9a-f]{64}$ ]]; then
+        echo -e "${RED}❌ 官方 SHA-256 校验摘要格式无效，已拒绝安装。${PLAIN}"
+        rm -f "${TMP_JAR}" 2>/dev/null || true
+        exit 1
+    fi
+    ACTUAL_SHA=$(sha256sum "${TMP_JAR}" | awk '{print $1}' | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+    if [[ "${EXPECTED_SHA}" != "${ACTUAL_SHA}" ]]; then
+        echo -e "${RED}❌ 核心程序包 SHA-256 校验值不匹配！已拒绝安装。${PLAIN}"
+        rm -f "${TMP_JAR}" 2>/dev/null || true
+        exit 1
+    fi
+    if ! mv -f "${TMP_JAR}" "${INSTALL_DIR}/app.jar"; then
+        echo -e "${RED}❌ 核心程序包替换失败，已中止安装。${PLAIN}"
+        rm -f "${TMP_JAR}" 2>/dev/null || true
+        exit 1
+    fi
 fi
 
 if [[ ! -s "${INSTALL_DIR}/app.jar" ]]; then
@@ -928,7 +959,8 @@ ocibox_update() {
     if [[ -f "${INSTALL_DIR}/update.sh" ]]; then
         bash "${INSTALL_DIR}/update.sh" "$@"
     else
-        bash <(curl -fsSL https://raw.githubusercontent.com/GeniusZeroTwo/ocibox/main/update.sh) "$@"
+        echo "❌ 未找到本地 update.sh，请重新运行安装程序获取受信任的更新脚本。" >&2
+        return 1
     fi
 }
 

@@ -168,9 +168,9 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
         return sb.toString();
     }
 
-    private boolean isAuthorizedAdmin(long chatId) {
-        if (adminId == null || adminId.isBlank()) return false;
-        return adminId.trim().equals(String.valueOf(chatId).trim());
+    private boolean isAuthorizedAdmin(org.telegram.telegrambots.meta.api.objects.User user) {
+        if (user == null || user.getId() == null || adminId == null || adminId.isBlank()) return false;
+        return adminId.trim().equals(String.valueOf(user.getId()).trim());
     }
 
     @Override
@@ -184,10 +184,13 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
     }
 
     public void consume(Update update) {
+        if (update == null) {
+            return;
+        }
         botWorker.submit(() -> {
             try {
                 if (update.hasMessage() && update.getMessage().hasText()) {
-                    handleTextMessage(update.getMessage().getChatId(), update.getMessage().getText().trim());
+                    handleTextMessage(update.getMessage().getChatId(), update.getMessage().getFrom(), update.getMessage().getText().trim());
                 } else if (update.hasCallbackQuery()) {
                     handleCallbackQuery(update.getCallbackQuery());
                 }
@@ -197,8 +200,8 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
         });
     }
 
-    private void handleTextMessage(long chatId, String text) {
-        if (!isAuthorizedAdmin(chatId)) {
+    private void handleTextMessage(long chatId, org.telegram.telegrambots.meta.api.objects.User sender, String text) {
+        if (!isAuthorizedAdmin(sender)) {
             sendText(chatId, "🔒 抱歉，当前机器人为个人私有管理面板专属服务，未对公开放。");
             return;
         }
@@ -389,12 +392,15 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
     }
 
     private void handleCallbackQuery(org.telegram.telegrambots.meta.api.objects.CallbackQuery cb) {
+        if (cb == null || cb.getFrom() == null || cb.getMessage() == null) {
+            return;
+        }
         long chatId = cb.getMessage().getChatId();
         int messageId = cb.getMessage().getMessageId();
         String data = cb.getData();
         String queryId = cb.getId();
 
-        if (!isAuthorizedAdmin(chatId)) {
+        if (!isAuthorizedAdmin(cb.getFrom())) {
             answerCallback(queryId, "🔒 仅管理员有权操作", true);
             return;
         }
