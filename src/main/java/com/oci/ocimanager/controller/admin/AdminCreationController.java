@@ -4,6 +4,7 @@ import com.oci.ocimanager.repository.CreationTaskRepository;
 import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.CreationTaskService;
 import com.oci.ocimanager.service.OciCloudService;
+import com.oci.ocimanager.service.OciComputeInstanceService;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.transaction.annotation.Transactional;
@@ -56,17 +57,27 @@ public class AdminCreationController {
         if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         
         try {
-            String account = String.valueOf(payload.get("account"));
-            String instanceName = String.valueOf(payload.get("instanceName")); 
-            String region = payload.containsKey("region") && payload.get("region") != null ? String.valueOf(payload.get("region")) : null;
-            String shape = String.valueOf(payload.get("shape"));
-            String osName = String.valueOf(payload.get("osName"));
-            String osVersion = String.valueOf(payload.get("osVersion"));
+            String account = payload.get("account") != null ? String.valueOf(payload.get("account")).trim() : "";
+            String instanceName = payload.get("instanceName") != null ? String.valueOf(payload.get("instanceName")).trim() : "";
+            String region = payload.containsKey("region") && payload.get("region") != null ? String.valueOf(payload.get("region")).trim() : null;
+            String shape = payload.get("shape") != null ? String.valueOf(payload.get("shape")).trim() : "";
+            String osName = payload.get("osName") != null ? String.valueOf(payload.get("osName")).trim() : "";
+            String osVersion = payload.get("osVersion") != null ? String.valueOf(payload.get("osVersion")).trim() : "";
+            if (account.isEmpty() || shape.isEmpty() || osName.isEmpty() || osVersion.isEmpty()) {
+                return Map.of("success", false, "error", "缺少账号、机型或操作系统参数");
+            }
             float cpu = Float.parseFloat(String.valueOf(payload.get("cpu")));
             float ram = Float.parseFloat(String.valueOf(payload.get("ram")));
             long disk = Long.parseLong(String.valueOf(payload.get("disk")));
             int count = Integer.parseInt(String.valueOf(payload.get("count")));
             int interval = Integer.parseInt(String.valueOf(payload.get("interval")));
+            if (!Float.isFinite(cpu) || cpu <= 0 || cpu > 256
+                    || !Float.isFinite(ram) || ram <= 0 || ram > 2048
+                    || disk < 50 || disk > 32768
+                    || count < 1 || count > 50
+                    || interval < 5 || interval > 86400) {
+                return Map.of("success", false, "error", "资源规格、数量或抢机间隔超出合法范围");
+            }
             boolean ipv4 = Boolean.TRUE.equals(payload.get("ipv4"));
             boolean ipv6 = Boolean.TRUE.equals(payload.get("ipv6"));
             String authType = payload.get("authType") != null ? String.valueOf(payload.get("authType")).trim() : "";
@@ -95,6 +106,9 @@ public class AdminCreationController {
             }
             if (!hasPwd && !hasSsh) {
                 return Map.of("success", false, "error", "必须填写 Root 密码或 SSH 公钥，否则机器创建后将无法登录！");
+            }
+            if (hasSsh && !OciComputeInstanceService.isValidSshPublicKey(sshKey)) {
+                return Map.of("success", false, "error", "SSH 公钥格式无效，请提供合法的 OpenSSH 公钥");
             }
 
             String safeRootPwd = hasPwd ? rootPwd : null;

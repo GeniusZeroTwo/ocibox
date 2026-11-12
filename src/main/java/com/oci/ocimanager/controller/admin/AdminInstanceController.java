@@ -289,6 +289,9 @@ public class AdminInstanceController {
             if (!hasPwd && !hasSsh) {
                 return Map.of("success", false, "error", "必须填写 Root 密码或 SSH 公钥，否则系统重装后将无法登录！");
             }
+            if (hasSsh && !com.oci.ocimanager.service.OciComputeInstanceService.isValidSshPublicKey(sshKey)) {
+                return Map.of("success", false, "error", "SSH 公钥格式无效，请提供合法的 OpenSSH 公钥");
+            }
 
             String safeRootPwd = hasPwd ? rootPwd : null;
             String safeSsh = hasSsh ? sshKey : null;

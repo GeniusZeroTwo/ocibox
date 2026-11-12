@@ -228,7 +228,10 @@ public class AdminPasskeyService {
                 return Map.of("success", false, "error", "该通行密钥已在系统中绑定，无需重复添加");
             }
 
-            String finalName = (name != null && !name.trim().isEmpty()) ? name.trim() : "通行密钥 #" + (adminPasskeyRepository.count() + 1);
+            String cleanedName = normalizePasskeyName(name);
+            String finalName = (cleanedName != null && !cleanedName.isEmpty())
+                    ? cleanedName
+                    : "通行密钥 #" + (adminPasskeyRepository.count() + 1);
 
             AdminPasskey passkey = new AdminPasskey();
             passkey.setCredentialId(credentialId);
@@ -575,14 +578,31 @@ public class AdminPasskeyService {
         if (id == null || newName == null || newName.trim().isEmpty()) {
             return Map.of("success", false, "error", "参数不合法");
         }
+        String cleanName = normalizePasskeyName(newName);
+        if (cleanName == null) {
+            return Map.of("success", false, "error", "名称格式不合法（不能包含控制字符或超过 64 个字符）");
+        }
         Optional<AdminPasskey> opt = adminPasskeyRepository.findById(id);
         if (opt.isEmpty()) {
             return Map.of("success", false, "error", "密钥不存在");
         }
         AdminPasskey p = opt.get();
-        p.setName(newName.trim());
+        p.setName(cleanName);
         adminPasskeyRepository.save(p);
         return Map.of("success", true, "message", "重命名成功");
+    }
+
+    private static String normalizePasskeyName(String raw) {
+        if (raw == null) return null;
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 64) return null;
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (c < 0x20 || c == 0x7F) {
+                return null;
+            }
+        }
+        return trimmed;
     }
 
     // ==========================================

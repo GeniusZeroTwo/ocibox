@@ -213,6 +213,7 @@ public class AdminAccountController {
                     
                     if (accountFound) {
                         Files.write(file.toPath(), newLines);
+                        accountYamlService.enforceStrictFilePermissions(file.toPath());
                     } else {
                         return Map.of("success", false, "error", "YAML 中未能精准定位到账号节点 [" + oldAccount + "]");
                     }
@@ -327,6 +328,7 @@ public class AdminAccountController {
                     
                     if (accountFoundAndDeleted) {
                         Files.write(file.toPath(), newLines);
+                        accountYamlService.enforceStrictFilePermissions(file.toPath());
                         System.out.println("✅ 终极胜利：已成功对 application.yml 中的 [" + rawAccount + "] 节点执行物理级抹除！");
                     } else {
                         System.err.println("⚠️ 警告: YAML 中未能精准定位到账号节点 [" + rawAccount + "]，可能是该节点之前已被损坏。即将进入内存和数据库肃清阶段...");

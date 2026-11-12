@@ -745,16 +745,43 @@ ocibox_password() {
         echo -e "${RED}❌ 密码不能为空！${PLAIN}"
         return 1
     fi
+    if [[ "$new_pwd" =~ [[:cntrl:]] ]]; then
+        echo -e "${RED}❌ 密码不能包含换行或控制字符！${PLAIN}"
+        return 1
+    fi
 
     local svc=$(get_service_name)
     echo -e "⏹️ 正在安全更新密码并重启服务 (${svc})..."
     systemctl stop "$svc" >/dev/null 2>&1 || true
 
-    # 单引号安全转义并写入 application.yml
+    # 单引号安全转义并按字面整行替换，避免 sed 对 &、\、/ 的特殊解析导致密码写坏
     local escaped_pwd="${new_pwd//\'/\'\'}"
-    sed -i.bak -E "s/^[[:space:]]*admin-password:.*$/  admin-password: '${escaped_pwd}'/" "$conf"
-    rm -f "${conf}.bak" 2>/dev/null || true
+    local tmp_conf="${conf}.tmp.$$"
+    local bak_conf="${conf}.bak.$$"
+    cp -f "$conf" "$bak_conf" 2>/dev/null || true
+    chmod 600 "$bak_conf" 2>/dev/null || true
+    if ! (umask 077 && OCIBOX_NEW_ADMIN_LINE="  admin-password: '${escaped_pwd}'" awk '
+        BEGIN { newLine = ENVIRON["OCIBOX_NEW_ADMIN_LINE"]; updated = 0 }
+        !updated && /^[[:space:]]*admin-password:/ { print newLine; updated = 1; next }
+        { print }
+        END { if (!updated) exit 2 }
+    ' "$conf" > "$tmp_conf"); then
+        rm -f "$tmp_conf" "$bak_conf" 2>/dev/null || true
+        echo -e "${RED}❌ 写入密码失败，已保留原配置！${PLAIN}"
+        systemctl restart "$svc" >/dev/null 2>&1 || true
+        return 1
+    fi
+    chmod 600 "$tmp_conf" 2>/dev/null || true
+    mv -f "$tmp_conf" "$conf"
     chmod 600 "$conf" 2>/dev/null || true
+    if [[ "$(read_admin_password "$conf")" != "$new_pwd" ]]; then
+        mv -f "$bak_conf" "$conf" 2>/dev/null || true
+        chmod 600 "$conf" 2>/dev/null || true
+        echo -e "${RED}❌ 管理员密码写入校验不一致，已恢复原配置！${PLAIN}"
+        systemctl restart "$svc" >/dev/null 2>&1 || true
+        return 1
+    fi
+    rm -f "$bak_conf" 2>/dev/null || true
 
     # 安全留存副本至 .admin-password (chmod 600，仅 root 可读)
     save_admin_password_plain "$new_pwd" "$conf"

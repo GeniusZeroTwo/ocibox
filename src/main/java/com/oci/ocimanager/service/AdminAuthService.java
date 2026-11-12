@@ -48,7 +48,7 @@ public class AdminAuthService {
     // 不用 @Value 读取密码：@Value 会再解析值里面的 ${}，含 $ 或 ${ 的口令会被改掉或让启动失败。
     private String adminPassword = "";
 
-    @Value("${app.admin-id}")
+    @Value("${app.admin-id:}")
     private String adminId;
 
     @Value("${app.trust-forwarded-for:false}")
@@ -88,6 +88,15 @@ public class AdminAuthService {
             redisTemplate.opsForValue().set(cooldownKey, "1", SEND_COOLDOWN_SECONDS, TimeUnit.SECONDS);
             return Map.of("success", true, "message", CODE_HINT);
         }
+        if (adminId == null || adminId.isBlank()) {
+            return Map.of("success", false, "error", "未配置管理员 Telegram ID，无法发送动态密码");
+        }
+        final long adminChatId;
+        try {
+            adminChatId = Long.parseLong(adminId.trim());
+        } catch (NumberFormatException e) {
+            return Map.of("success", false, "error", "管理员 Telegram ID 配置格式无效，请检查 app.admin-id");
+        }
         String codeKey = codeKey(ip);
         if (Boolean.TRUE.equals(redisTemplate.hasKey(codeKey))) {
             redisTemplate.opsForValue().set(cooldownKey, "1", SEND_COOLDOWN_SECONDS, TimeUnit.SECONDS);
@@ -99,7 +108,7 @@ public class AdminAuthService {
         redisTemplate.opsForValue().set(cooldownKey, "1", SEND_COOLDOWN_SECONDS, TimeUnit.SECONDS);
         redisTemplate.delete(GLOBAL_CODE_FAIL_KEY);
 
-        telegramBotService.sendText(Long.parseLong(adminId), "🔐 *后台登录验证码*\n\n您的动态密码为：\n`" + newCode + "`\n\n有效期 3 分钟，登录后即刻失效。");
+        telegramBotService.sendText(adminChatId, "🔐 *后台登录验证码*\n\n您的动态密码为：\n`" + newCode + "`\n\n有效期 3 分钟，登录后即刻失效。");
         return Map.of("success", true, "message", CODE_HINT);
     }
 

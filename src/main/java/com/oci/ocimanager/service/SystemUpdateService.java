@@ -387,7 +387,7 @@ public class SystemUpdateService {
                     if (hasSystemdRun) {
                         cmd = new String[]{"systemd-run", "--unit=ocibox-auto-restart", "bash", "-c", restartCmd};
                     } else {
-                        cmd = new String[]{"nohup", "bash", "-c", restartCmd, ">/dev/null", "2>&1", "&"};
+                        cmd = new String[]{"bash", "-c", "nohup bash -c '" + restartCmd + "' >/dev/null 2>&1 &"};
                     }
 
                     ProcessBuilder pb = new ProcessBuilder(cmd);

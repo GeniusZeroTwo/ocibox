@@ -75,6 +75,18 @@ public class OciComputeInstanceService {
     private static final java.util.regex.Pattern SSH_PUBKEY_PATTERN = java.util.regex.Pattern.compile(
             "^(ssh-ed25519|ssh-rsa|ecdsa-sha2-nistp(256|384|521)|sk-ssh-ed25519@openssh\\.com|sk-ecdsa-sha2-nistp256@openssh\\.com)\\s+[A-Za-z0-9+/=]{16,}(\\s+[^\\r\\n]*)?$");
 
+    /** 校验 OpenSSH 公钥格式，拦截控制字符与异常注入载荷 */
+    public static boolean isValidSshPublicKey(String raw) {
+        if (raw == null) return false;
+        String trimmed = raw.trim();
+        if (trimmed.isEmpty() || trimmed.length() > 8192) return false;
+        for (int i = 0; i < trimmed.length(); i++) {
+            char c = trimmed.charAt(i);
+            if (c < 0x20 || c == 0x7F) return false;
+        }
+        return SSH_PUBKEY_PATTERN.matcher(trimmed).matches();
+    }
+
     private String buildCloudInitUserData(String rootPwd, String sshKey, String accountName) {
         String safePwd = sanitizeCloudInitValue(rootPwd);
         String trimmedPwd = (safePwd != null) ? safePwd.trim() : "";
@@ -495,13 +507,13 @@ public class OciComputeInstanceService {
 
         String subnetId = OciCloudService.SUBNET_CACHE.computeIfAbsent(tenancy + "|" + targetRegion, k -> networkService.getOrCreateSubnetId(vncClient, tenancy));
 
+        boolean hasPwd = (rootPwd != null && !rootPwd.trim().isEmpty() && !"null".equalsIgnoreCase(rootPwd.trim()));
+        boolean hasSsh = isValidSshPublicKey(sshKey);
+
         Map<String, String> metadata = new HashMap<>();
-        if (sshKey != null && !sshKey.trim().isEmpty()) {
+        if (hasSsh) {
             metadata.put("ssh_authorized_keys", sshKey.trim());
         }
-
-        boolean hasPwd = (rootPwd != null && !rootPwd.trim().isEmpty() && !"null".equalsIgnoreCase(rootPwd.trim()));
-        boolean hasSsh = (sshKey != null && !sshKey.trim().isEmpty() && !"null".equalsIgnoreCase(sshKey.trim()));
 
         if (hasPwd || hasSsh) {
             metadata.put("user_data", buildCloudInitUserData(hasPwd ? rootPwd : null, hasSsh ? sshKey : null, accountName));
@@ -609,14 +621,14 @@ public class OciComputeInstanceService {
             updatedMetadata.putAll(instanceInfo.getInstance().getMetadata());
         }
 
-        if (sshKey != null && !sshKey.trim().isEmpty()) {
+        boolean hasPwdReinstall = (rootPwd != null && !rootPwd.trim().isEmpty() && !"null".equalsIgnoreCase(rootPwd.trim()));
+        boolean hasSshReinstall = isValidSshPublicKey(sshKey);
+
+        if (hasSshReinstall) {
             updatedMetadata.put("ssh_authorized_keys", sshKey.trim());
         } else {
             updatedMetadata.remove("ssh_authorized_keys");
         }
-
-        boolean hasPwdReinstall = (rootPwd != null && !rootPwd.trim().isEmpty() && !"null".equalsIgnoreCase(rootPwd.trim()));
-        boolean hasSshReinstall = (sshKey != null && !sshKey.trim().isEmpty() && !"null".equalsIgnoreCase(sshKey.trim()));
 
         // 🔒 【重装逻辑修复】无论是否注入新密码，始终重新生成并覆盖 user_data，防止 OCI 继承原机器旧 user_data 中的密码注入脚本
         updatedMetadata.put("user_data", buildCloudInitUserData(hasPwdReinstall ? rootPwd : null, hasSshReinstall ? sshKey : null, accountName));
