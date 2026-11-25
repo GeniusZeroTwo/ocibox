@@ -9,19 +9,19 @@ import {
     deleteAccountList, createAccountList, manageAccountList,
     quotaTemplate, isLoadingTemplate, isSavingTemplate, isSyncing, isSyncingAccounts, isTrafficLoading, trafficSyncing,
     isSavingLimit, isFetchingImages, isCreating, isFetchingBV, isFixingRoute,
-    syncingOcids, enablingIpv6Ocids, disablingIpv6Ocids,
+    syncingOcids, enablingIpv6Ocids, disablingIpv6Ocids, changingIpOcids,
     loginMsg, sysMsg, createMsg, manageMsg, reinstallMsg, importMsg,
     createImages, reinstallImages, createForm, modals, isDragging,
     availableRegionsForSelectedAccount, isRegionDropdownOpen, kpiStats,
     sortedTrafficData, trafficStats, isUpgradedAccount, groupedInstances,
-    serverSearchKeyword, isBootVolumeCollapsed, persistSessionToken,
+    serverSearchKeyword, isBootVolumeCollapsed, persistSessionToken, resetAllSensitiveState,
     unreadNoticeCount, notificationDrawerOpen, notificationsList,
     notificationFilterCategory, notificationUnreadOnly, notificationTotalCount,
     notificationLoading, toastNotifications,
     systemUpdateInfo, isCheckingUpdate, isUpgradingSystem
 } from './core/state.js';
 
-import { apiCall } from './core/api.js';
+import { apiCall, registerStepUpHandler } from './core/api.js';
 import {
     esc, shortShape, getDisplayAccountName, genRandomPwd, getChangingStateText,
     getBootVolumeChangingStateText, is500mEligible, is500mActive, isTrafficError,
@@ -32,7 +32,7 @@ import {
 } from './utils/helpers.js';
 import {
     startGlobalPolling, triggerFastPolling, ensureChangingInstanceWatcher,
-    ensureBootVolumeWatcher, clearAllTimers, registerTimerCallbacks
+    ensureBootVolumeWatcher, clearAllTimers, registerTimerCallbacks, resetPollingState
 } from './core/timer-manager.js';
 
 const app = createApp({
@@ -74,6 +74,15 @@ const app = createApp({
             ensureChangingInstanceWatcher();
         }
 
+        async function refreshPublicAuthConfig() {
+            try {
+                const cfg = await apiCall('auth-config', {}, null);
+                if (cfg && cfg.success) {
+                    tgBotRunning.value = !!cfg.tgBotRunning;
+                }
+            } catch (ignored) {}
+        }
+
         async function checkSession() {
             try {
                 if (sessionToken.value) {
@@ -84,8 +93,10 @@ const app = createApp({
                         startGlobalPolling();
                     } else if (!data.networkError) {
                         // 🐞 仅在真正的鉴权失败时登出；网络抖动/瞬时错误不清除会话，避免误踢下线。
-                        logout();
+                        await logout();
                     }
+                } else {
+                    await refreshPublicAuthConfig();
                 }
             } catch (err) {
                 console.error('恢复会话异常:', err);
@@ -93,6 +104,133 @@ const app = createApp({
                 isInitializing.value = false;
             }
         }
+
+        // ==========================================
+        // 🔒 高危操作 Step-Up 二次认证闭环（支持多并发排队与密码/动态码/通行密钥三通道）
+        // ==========================================
+        const isPasskeySupported = typeof window !== 'undefined' && !!window.PublicKeyCredential && !!navigator.credentials;
+        const pendingStepUpWaiters = [];
+
+        function settleStepUpWaiters(verified) {
+            while (pendingStepUpWaiters.length > 0) {
+                const resolve = pendingStepUpWaiters.shift();
+                try {
+                    resolve(verified);
+                } catch (ignored) {}
+            }
+        }
+
+        function requestStepUpVerification() {
+            if (!modals.stepUp.show) {
+                modals.stepUp.secret = '';
+                modals.stepUp.isSubmitting = false;
+                modals.stepUp.isSendingCode = false;
+                modals.stepUp.msg = { text: '', isSuccess: true };
+                modals.stepUp.show = true;
+                setEditing(true);
+            }
+            return new Promise((resolve) => {
+                pendingStepUpWaiters.push(resolve);
+            });
+        }
+
+        async function sendStepUpCode() {
+            if (modals.stepUp.isSendingCode) return;
+            modals.stepUp.isSendingCode = true;
+            try {
+                const res = await apiCall('send-code', {}, modals.stepUp.msg);
+                if (res && res.success) {
+                    showMessage(modals.stepUp.msg, res.message || '动态验证码已发送至 Telegram', true);
+                }
+            } finally {
+                modals.stepUp.isSendingCode = false;
+            }
+        }
+
+        async function verifyStepUpWithPasskey() {
+            if (!window.PublicKeyCredential || !navigator.credentials || modals.stepUp.isSubmitting) {
+                return;
+            }
+            modals.stepUp.isSubmitting = true;
+            try {
+                const optRes = await apiCall('passkey/login/options', { rpId: window.location.hostname }, modals.stepUp.msg);
+                if (!optRes || !optRes.success) return;
+
+                const publicKey = {
+                    challenge: base64UrlToBuffer(optRes.challenge),
+                    timeout: optRes.timeout || 60000,
+                    userVerification: optRes.userVerification || 'required'
+                };
+                if (optRes.rpId) publicKey.rpId = optRes.rpId;
+                if (optRes.allowCredentials && optRes.allowCredentials.length > 0) {
+                    publicKey.allowCredentials = optRes.allowCredentials.map((c) => ({
+                        type: 'public-key',
+                        id: base64UrlToBuffer(c.id)
+                    }));
+                }
+
+                const assertion = await navigator.credentials.get({ publicKey });
+                if (!assertion) {
+                    showMessage(modals.stepUp.msg, '未获取到通行密钥凭据', false);
+                    return;
+                }
+
+                const verifyRes = await apiCall('passkey/step-up', {
+                    challengeId: optRes.challengeId,
+                    credentialId: bufferToBase64Url(assertion.rawId),
+                    clientDataJSON: bufferToBase64Url(assertion.response.clientDataJSON),
+                    authenticatorData: bufferToBase64Url(assertion.response.authenticatorData),
+                    signature: bufferToBase64Url(assertion.response.signature)
+                }, modals.stepUp.msg);
+
+                if (verifyRes && verifyRes.success) {
+                    modals.stepUp.show = false;
+                    modals.stepUp.secret = '';
+                    setEditing(false);
+                    settleStepUpWaiters(true);
+                }
+            } catch (err) {
+                if (err && err.name === 'NotAllowedError') {
+                    showMessage(modals.stepUp.msg, '已取消通行密钥验证', false);
+                } else {
+                    showMessage(modals.stepUp.msg, `通行密钥验证失败: ${err ? err.message : '未知异常'}`, false);
+                }
+            } finally {
+                modals.stepUp.isSubmitting = false;
+            }
+        }
+
+        async function submitStepUp() {
+            const secret = (modals.stepUp.secret || '').trim();
+            if (!secret) {
+                showMessage(modals.stepUp.msg, '请输入管理员密码或动态验证码', false);
+                return;
+            }
+            modals.stepUp.isSubmitting = true;
+            try {
+                const res = await apiCall('step-up', { stepUpSecret: secret }, modals.stepUp.msg);
+                if (res && res.success) {
+                    modals.stepUp.show = false;
+                    modals.stepUp.secret = '';
+                    setEditing(false);
+                    settleStepUpWaiters(true);
+                }
+            } finally {
+                modals.stepUp.isSubmitting = false;
+            }
+        }
+
+        function cancelStepUp() {
+            modals.stepUp.show = false;
+            modals.stepUp.secret = '';
+            modals.stepUp.isSubmitting = false;
+            modals.stepUp.isSendingCode = false;
+            modals.stepUp.msg = { text: '', isSuccess: true };
+            setEditing(false);
+            settleStepUpWaiters(false);
+        }
+
+        registerStepUpHandler(requestStepUpVerification);
 
         // ==========================================
         // 👤 登录、退出与验证码
@@ -119,13 +257,19 @@ const app = createApp({
 
         async function logout() {
             try {
-                await apiCall('logout', {}, null);
+                if (sessionToken.value) {
+                    await apiCall('logout', {}, null);
+                }
             } catch (ignored) {}
+            cancelStepUp();
+            clearAllTimers();
+            resetPollingState();
+            resetAllSensitiveState();
             persistSessionToken('');
             sessionToken.value = '';
             loginCode.value = '';
-            clearAllTimers();
-            showMessage(loginMsg, '✅ 已安全退出登录', true);
+            await refreshPublicAuthConfig();
+            showMessage(loginMsg, '已安全退出登录', true);
         }
 
         async function sendAdminCode() {
@@ -326,6 +470,7 @@ const app = createApp({
                 }
 
                 const verifyPayload = {
+                    challengeId: optRes.challengeId || '',
                     credentialId: bufferToBase64Url(credential.rawId),
                     clientDataJSON: bufferToBase64Url(credential.response.clientDataJSON),
                     attestationObject: bufferToBase64Url(credential.response.attestationObject),
@@ -665,6 +810,31 @@ const app = createApp({
             );
         }
 
+        function changeInstanceIp(ocid, name) {
+            openConfirmModal(
+                "更换公网 IP",
+                `确定要为实例 <strong>[${esc(name)}]</strong> 重新申请并更换临时公网 IPv4 地址吗？<br><br>系统将自动保护预留固定 IP (Reserved IP)，仅对临时公网 IP 执行安全释放与退避重试绑定，预计耗时 5~15 秒。`,
+                "确认更换",
+                false,
+                async () => {
+                    changingIpOcids.value[ocid] = true;
+                    showMessage(sysMsg, `正在为【${name}】申请并绑定全新公网 IP，请稍候...`, true);
+                    try {
+                        const data = await apiCall('instance-change-ip', { ocid: ocid }, sysMsg);
+                        if (data && data.success) {
+                            if (globalInstances.value[ocid] && data.publicIp) {
+                                globalInstances.value[ocid].ip = data.publicIp;
+                            }
+                            showMessage(sysMsg, data.message || `实例【${name}】公网 IP 已更换为: ${data.publicIp}`, true);
+                            syncSingleServerStatus(ocid, null, true);
+                        }
+                    } finally {
+                        changingIpOcids.value[ocid] = false;
+                    }
+                }
+            );
+        }
+
         // ==========================================
         // 🌐 流量统计与管理
         // ==========================================
@@ -672,7 +842,10 @@ const app = createApp({
             isTrafficLoading.value = force;
             const data = await apiCall('traffic', { force: force });
             if (data.success) {
-                for (const k in data.traffic) data.traffic[k].showEdit = false;
+                for (const k in data.traffic) {
+                    data.traffic[k].showEdit = false;
+                    data.traffic[k].newLimit = data.traffic[k].limit_gb || 0;
+                }
                 trafficData.value = data.traffic;
                 if (Object.values(data.traffic).some((i) => i.usage_gb < 0 && !isTrafficError(i))) {
                     setTimeout(() => loadTraffic(false), 3000);
@@ -683,15 +856,33 @@ const app = createApp({
 
         async function syncSingleTraffic(acc) {
             trafficSyncing[acc] = true;
-            await apiCall('traffic', { force: true, targetAccount: acc });
+            await apiCall('traffic', { force: true, targetAccount: acc }, sysMsg);
             setTimeout(() => loadTraffic(false), 3000);
             setTimeout(() => { trafficSyncing[acc] = false; }, 4000);
         }
 
         async function saveLimit(acc, val) {
-            const limitValue = parseInt(val, 10) || 0;
-            const data = await apiCall('set-traffic-limit', { account: acc, limit_gb: limitValue });
-            if (data.success) loadTraffic(false);
+            if (isSavingLimit.value) return;
+            const parsed = (val === '' || val === null || val === undefined) ? 0 : Number(val);
+            if (!Number.isFinite(parsed) || parsed < 0 || parsed > 10000000) {
+                return showMessage(sysMsg, '流量限额请输入 0 ~ 10,000,000 之间的非负整数 (0 代表不限流)', false);
+            }
+            const limitValue = Math.round(parsed);
+            isSavingLimit.value = true;
+            try {
+                const data = await apiCall('set-traffic-limit', { account: acc, limit_gb: limitValue }, sysMsg);
+                if (data && data.success) {
+                    if (trafficData.value[acc]) {
+                        trafficData.value[acc].limit_gb = limitValue;
+                        trafficData.value[acc].showEdit = false;
+                    }
+                    setEditing(false);
+                    showMessage(sysMsg, data.message || '流量限额已保存生效', true);
+                    await loadTraffic(false);
+                }
+            } finally {
+                isSavingLimit.value = false;
+            }
         }
 
         // ==========================================
@@ -830,22 +1021,109 @@ const app = createApp({
             }
         }
 
+        async function buildClientEd25519OpenSshKeyPair() {
+            if (!window.crypto || !window.crypto.subtle || typeof window.crypto.subtle.generateKey !== 'function') {
+                return null;
+            }
+            const keyPair = await window.crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+            const jwk = await window.crypto.subtle.exportKey('jwk', keyPair.privateKey);
+            if (!jwk || !jwk.x || !jwk.d) return null;
+
+            const pubBytes = new Uint8Array(base64UrlToBuffer(jwk.x));
+            const seedBytes = new Uint8Array(base64UrlToBuffer(jwk.d));
+            if (pubBytes.length !== 32 || seedBytes.length !== 32) return null;
+
+            const enc = new TextEncoder();
+            const writeUint32 = (n) => new Uint8Array([(n >>> 24) & 0xff, (n >>> 16) & 0xff, (n >>> 8) & 0xff, n & 0xff]);
+            const writeBytes = (b) => {
+                const len = writeUint32(b.length);
+                const out = new Uint8Array(4 + b.length);
+                out.set(len, 0);
+                out.set(b, 4);
+                return out;
+            };
+            const writeStr = (s) => writeBytes(enc.encode(s));
+            const concatAll = (arrays) => {
+                const total = arrays.reduce((acc, a) => acc + a.length, 0);
+                const out = new Uint8Array(total);
+                let offset = 0;
+                for (const a of arrays) {
+                    out.set(a, offset);
+                    offset += a.length;
+                }
+                return out;
+            };
+            const toBase64 = (u8) => {
+                let bin = '';
+                for (let i = 0; i < u8.length; i++) bin += String.fromCharCode(u8[i]);
+                return btoa(bin);
+            };
+
+            const keyTypeStr = writeStr('ssh-ed25519');
+            const pubWireBlob = concatAll([keyTypeStr, writeBytes(pubBytes)]);
+            const publicKeyLine = `ssh-ed25519 ${toBase64(pubWireBlob)} ocibox`;
+
+            const randCheck = new Uint8Array(4);
+            window.crypto.getRandomValues(randCheck);
+            const secret64 = concatAll([seedBytes, pubBytes]);
+            const unpaddedPriv = concatAll([
+                randCheck,
+                randCheck,
+                keyTypeStr,
+                writeBytes(pubBytes),
+                writeBytes(secret64),
+                writeStr('ocibox')
+            ]);
+            const padLen = (8 - (unpaddedPriv.length % 8)) % 8;
+            const pad = new Uint8Array(padLen);
+            for (let i = 0; i < padLen; i++) pad[i] = (i + 1) & 0xff;
+            const paddedPriv = concatAll([unpaddedPriv, pad]);
+
+            const magic = concatAll([enc.encode('openssh-key-v1'), new Uint8Array([0])]);
+            const fullKeyBlob = concatAll([
+                magic,
+                writeStr('none'),
+                writeStr('none'),
+                writeBytes(new Uint8Array(0)),
+                writeUint32(1),
+                writeBytes(pubWireBlob),
+                writeBytes(paddedPriv)
+            ]);
+
+            const b64Body = toBase64(fullKeyBlob).replace(/(.{70})/g, '$1\n').trim();
+            const privateKeyPem = `-----BEGIN OPENSSH PRIVATE KEY-----\n${b64Body}\n-----END OPENSSH PRIVATE KEY-----\n`;
+            return { publicKey: publicKeyLine, privateKey: privateKeyPem, keyType: 'Ed25519' };
+        }
+
         async function generateSshKey(target) {
             const msg = target === 'create' ? createMsg : reinstallMsg;
-            showMessage(msg, '⏳ 正在生成...', true);
-            const data = await apiCall('creation/generate-key', {}, msg);
-            if (data.success) {
-                if (target === 'create') createForm.sshKey = data.publicKey.trim();
-                else modals.reinstall.sshKey = data.publicKey.trim();
+            showMessage(msg, '正在本地安全生成密钥对...', true);
+            let keyPairData = null;
+            try {
+                keyPairData = await buildClientEd25519OpenSshKeyPair();
+            } catch (ignored) {
+                keyPairData = null;
+            }
 
-                const blob = new Blob([data.privateKey], { type: 'text/plain' });
+            if (!keyPairData) {
+                const data = await apiCall('creation/generate-key', {}, msg);
+                if (data && data.success) {
+                    keyPairData = data;
+                }
+            }
+
+            if (keyPairData && keyPairData.publicKey && keyPairData.privateKey) {
+                if (target === 'create') createForm.sshKey = keyPairData.publicKey.trim();
+                else modals.reinstall.sshKey = keyPairData.publicKey.trim();
+
+                const blob = new Blob([keyPairData.privateKey], { type: 'text/plain' });
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `oci_${(data.keyType || 'ed25519').toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}.pem`;
+                a.download = `oci_${(keyPairData.keyType || 'ed25519').toLowerCase().replace(/[^a-z0-9]/g, '_')}_${Date.now()}.pem`;
                 a.click();
                 URL.revokeObjectURL(url);
-                showMessage(msg, `✅ 成功！${data.keyType || 'Ed25519'} 私钥已下载。`, true);
+                showMessage(msg, `${keyPairData.keyType || 'Ed25519'} 密钥对已生成并下载私钥（私钥全程未落盘）`, true);
             }
         }
 
@@ -1396,6 +1674,7 @@ const app = createApp({
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
             safe = safe
+                .replace(/&lt;br\s*\/?&gt;/gi, '<br>')
                 .replace(/&lt;code&gt;(.*?)&lt;\/code&gt;/gi, '<code class="notice-inline-code">$1</code>')
                 .replace(/&lt;b&gt;(.*?)&lt;\/b&gt;/gi, '<b>$1</b>')
                 .replace(/&lt;tg-spoiler&gt;(.*?)&lt;\/tg-spoiler&gt;/gi, '<span class="notice-spoiler">$1</span>')
@@ -1531,17 +1810,17 @@ const app = createApp({
             isInitializing, tgBotRunning, isDarkTheme, sessionToken, currentTab, isEditing,
             globalInstances, trafficData, tasksData, bootVolumes, globalAccounts, accountDetails,
             accountSortMode, accountTagFilter, sortedAccountDetails, trafficSortMode, trafficFilterMode, sortedTrafficData, trafficStats, isUpgradedAccount,
-            loginUsername, loginCode, isSendingCode, isLoggingIn, isPasskeyLoggingIn, cooldown,
+            loginUsername, loginCode, isSendingCode, isLoggingIn, isPasskeyLoggingIn, isPasskeySupported, cooldown,
             networkAccount, manageAccountSelect, deleteAccountSelect, deleteAccountList, createAccountList, manageAccountList,
             quotaTemplate, isLoadingTemplate, isSavingTemplate, isSyncing, isSyncingAccounts, isTrafficLoading, trafficSyncing,
             isSavingLimit, isFetchingImages, isCreating, isFetchingBV, isFixingRoute,
-            syncingOcids, enablingIpv6Ocids, disablingIpv6Ocids, loginMsg, sysMsg, createMsg, manageMsg, reinstallMsg, importMsg,
+            syncingOcids, enablingIpv6Ocids, disablingIpv6Ocids, changingIpOcids, loginMsg, sysMsg, createMsg, manageMsg, reinstallMsg, importMsg,
             createImages, reinstallImages, createForm, modals, isDragging, availableRegionsForSelectedAccount, isRegionDropdownOpen,
             groupedInstances, shortShape, getChangingStateText, getBootVolumeChangingStateText,
             serverSearchKeyword, isBootVolumeCollapsed,
-            login, logout, sendAdminCode, switchTab, toggleTheme,
+            login, logout, sendAdminCode, switchTab, toggleTheme, submitStepUp, cancelStepUp, sendStepUpCode, verifyStepUpWithPasskey,
             loginWithPasskey, loginWithPasskeyFromModal, openPasskeyModal, closePasskeyModal, fetchPasskeys, registerPasskey, deletePasskey, goToTgLogin,
-            syncServers, syncAccountsDetails, syncSingleServerStatus, confirmInstanceAction, confirmDeleteInstance,
+            syncServers, syncAccountsDetails, syncSingleServerStatus, confirmInstanceAction, confirmDeleteInstance, changeInstanceIp,
             is500mEligible, is500mActive, enable500Mbps, disable500Mbps, enableAmd500Mbps, enableIpv6, disableIpv6,
             openRenameModal, confirmRenameInstance, openReinstallModal, confirmReinstall,
             openAllPorts, fixRouteTable, getDisplayAccountName, isTrafficError, getTrafficUsageText, getTrafficPercent,

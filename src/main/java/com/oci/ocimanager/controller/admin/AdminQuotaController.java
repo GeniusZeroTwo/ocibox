@@ -34,6 +34,8 @@ public class AdminQuotaController {
             if (account == null || account.trim().isEmpty()) return Map.of("success", false, "error", "账号名不能为空");
             ociCloudService.injectFreeTierQuota(account);
             return Map.of("success", true);
+        } catch (IllegalArgumentException vex) {
+            return Map.of("success", false, "error", vex.getMessage());
         } catch (Exception e) {
             return com.oci.ocimanager.controller.ApiErrors.fail("防扣费配额注入失败", e);
         }
@@ -75,6 +77,8 @@ public class AdminQuotaController {
             }
             ociCloudService.saveQuotaTemplate(template);
             return Map.of("success", true);
+        } catch (IllegalArgumentException vex) {
+            return Map.of("success", false, "error", vex.getMessage());
         } catch (Exception e) {
             return com.oci.ocimanager.controller.ApiErrors.fail("保存模板失败", e);
         }

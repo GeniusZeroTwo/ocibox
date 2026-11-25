@@ -58,10 +58,14 @@ public class AdminPasskeyService {
         byte[] challengeBytes = new byte[32];
         SECURE_RANDOM.nextBytes(challengeBytes);
         String challenge = Base64.getUrlEncoder().withoutPadding().encodeToString(challengeBytes);
+        String challengeId = UUID.randomUUID().toString();
+        String safeRpId = rpId != null ? rpId.trim() : "";
 
-        // 将 challenge 与 rpId 存入 Redis，有效期 2 分钟
+        // 按独立 challengeId 隔离注册挑战码，避免多标签页并发发起注册时相互覆盖，同时保留兼容槽位
+        redisTemplate.opsForValue().set("oci:passkey:reg_challenge:" + token + ":" + challengeId, challenge, 2, TimeUnit.MINUTES);
+        redisTemplate.opsForValue().set("oci:passkey:reg_rpid:" + token + ":" + challengeId, safeRpId, 2, TimeUnit.MINUTES);
         redisTemplate.opsForValue().set("oci:passkey:reg_challenge:" + token, challenge, 2, TimeUnit.MINUTES);
-        redisTemplate.opsForValue().set("oci:passkey:reg_rpid:" + token, rpId != null ? rpId.trim() : "", 2, TimeUnit.MINUTES);
+        redisTemplate.opsForValue().set("oci:passkey:reg_rpid:" + token, safeRpId, 2, TimeUnit.MINUTES);
 
         // 已存在的凭证排除列表，防止同一设备重复注册
         List<AdminPasskey> existingList = adminPasskeyRepository.findAll();
@@ -72,8 +76,8 @@ public class AdminPasskeyService {
 
         Map<String, Object> rp = new HashMap<>();
         rp.put("name", "OCIBox");
-        if (rpId != null && !rpId.isBlank()) {
-            rp.put("id", rpId.trim());
+        if (!safeRpId.isEmpty()) {
+            rp.put("id", safeRpId);
         }
 
         String effectiveUser = adminAuthService.getConfiguredAdminUsername();
@@ -94,17 +98,18 @@ public class AdminPasskeyService {
                 "userVerification", "required"
         );
 
-        return Map.of(
-                "success", true,
-                "rp", rp,
-                "user", user,
-                "challenge", challenge,
-                "pubKeyCredParams", pubKeyCredParams,
-                "authenticatorSelection", authenticatorSelection,
-                "timeout", 60000,
-                "attestation", "none",
-                "excludeCredentials", excludeList
-        );
+        Map<String, Object> options = new HashMap<>();
+        options.put("success", true);
+        options.put("challengeId", challengeId);
+        options.put("rp", rp);
+        options.put("user", user);
+        options.put("challenge", challenge);
+        options.put("pubKeyCredParams", pubKeyCredParams);
+        options.put("authenticatorSelection", authenticatorSelection);
+        options.put("timeout", 60000);
+        options.put("attestation", "none");
+        options.put("excludeCredentials", excludeList);
+        return options;
     }
 
     /**
@@ -128,13 +133,25 @@ public class AdminPasskeyService {
             return Map.of("success", false, "stepUpRequired", true, "error", "绑定已过期，请重新输入管理员密码或动态码");
         }
 
-        String expectedChallenge = redisTemplate.opsForValue().get("oci:passkey:reg_challenge:" + token);
-        String expectedRpId = redisTemplate.opsForValue().get("oci:passkey:reg_rpid:" + token);
+        String challengeId = body.get("challengeId") != null ? String.valueOf(body.get("challengeId")).trim() : "";
+        String challengeKey = !challengeId.isEmpty()
+                ? ("oci:passkey:reg_challenge:" + token + ":" + challengeId)
+                : ("oci:passkey:reg_challenge:" + token);
+        String rpIdKey = !challengeId.isEmpty()
+                ? ("oci:passkey:reg_rpid:" + token + ":" + challengeId)
+                : ("oci:passkey:reg_rpid:" + token);
+
+        String expectedChallenge = redisTemplate.opsForValue().get(challengeKey);
+        String expectedRpId = redisTemplate.opsForValue().get(rpIdKey);
         if (expectedChallenge == null || expectedChallenge.isBlank()) {
             return Map.of("success", false, "error", "注册超时或无效，请重新尝试添加通行密钥");
         }
-        redisTemplate.delete("oci:passkey:reg_challenge:" + token);
-        redisTemplate.delete("oci:passkey:reg_rpid:" + token);
+        redisTemplate.delete(challengeKey);
+        redisTemplate.delete(rpIdKey);
+        if (!challengeId.isEmpty()) {
+            redisTemplate.delete("oci:passkey:reg_challenge:" + token);
+            redisTemplate.delete("oci:passkey:reg_rpid:" + token);
+        }
 
         try {
             String clientDataJsonStr = (String) body.get("clientDataJSON");
@@ -204,24 +221,26 @@ public class AdminPasskeyService {
             if (clientCredId.length == 0 || !MessageDigest.isEqual(credIdBytes, clientCredId)) {
                 return Map.of("success", false, "error", "凭证 ID 与认证器数据不一致");
             }
-            if (algorithm != -7) {
-                return Map.of("success", false, "error", "仅接受 ES256 通行密钥");
+            ParsedCoseKey parsedCose = parseCosePublicKey(authData, 55 + credIdLen);
+            if (parsedCose == null || parsedCose.publicKey() == null) {
+                return Map.of("success", false, "error", "仅支持 ES256 或 RS256 通行密钥公钥");
             }
-            PublicKey authKey = parseEs256CoseKey(authData, 55 + credIdLen);
-            if (authKey == null) {
-                return Map.of("success", false, "error", "仅接受认证器内的 ES256 公钥");
+            int coseAlg = parsedCose.algorithm();
+            if (algorithm != null && algorithm != coseAlg) {
+                return Map.of("success", false, "error", "客户端声明的算法与认证器公钥算法不一致");
             }
-            byte[] canonicalSpki = authKey.getEncoded();
+            byte[] canonicalSpki = parsedCose.publicKey().getEncoded();
             if (publicKeySpkiStr != null && !publicKeySpkiStr.isBlank()) {
                 byte[] clientSpki = decodeBase64OrUrl(publicKeySpkiStr);
-                PublicKey clientKey = KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(clientSpki));
+                String keyFactoryAlg = (coseAlg == -257) ? "RSA" : "EC";
+                PublicKey clientKey = KeyFactory.getInstance(keyFactoryAlg).generatePublic(new X509EncodedKeySpec(clientSpki));
                 if (!MessageDigest.isEqual(canonicalSpki, clientKey.getEncoded())) {
                     return Map.of("success", false, "error", "客户端公钥与认证器数据不一致");
                 }
             }
             String base64Spki = Base64.getEncoder().encodeToString(canonicalSpki);
             credentialId = Base64.getUrlEncoder().withoutPadding().encodeToString(credIdBytes);
-            algorithm = -7;
+            algorithm = coseAlg;
 
             // 3. 检查凭证是否已被注册
             if (adminPasskeyRepository.findByCredentialId(credentialId).isPresent()) {
@@ -233,13 +252,18 @@ public class AdminPasskeyService {
                     ? cleanedName
                     : "通行密钥 #" + (adminPasskeyRepository.count() + 1);
 
+            long initialSignCount = ((authData[33] & 0xFFL) << 24)
+                    | ((authData[34] & 0xFFL) << 16)
+                    | ((authData[35] & 0xFFL) << 8)
+                    | (authData[36] & 0xFFL);
+
             AdminPasskey passkey = new AdminPasskey();
             passkey.setCredentialId(credentialId);
             passkey.setPublicKeySpki(base64Spki);
             passkey.setAlgorithm(algorithm);
             passkey.setName(finalName);
             passkey.setOrigin(boundOrigin);
-            passkey.setSignCount(0L);
+            passkey.setSignCount(initialSignCount);
             passkey.setCreatedAt(LocalDateTime.now().format(TIME_FORMATTER));
 
             adminPasskeyRepository.save(passkey);
@@ -265,11 +289,12 @@ public class AdminPasskeyService {
             return Map.of("success", false, "error", "错误次数过多，请 " + adminAuthService.getLockSecondsLeft(clientIp) + " 秒后再试");
         }
         String rateKey = "oci:passkey:opt_rate:" + clientIp;
-        Long reqCount = redisTemplate.opsForValue().increment(rateKey);
-        if (reqCount != null && reqCount == 1L) {
-            redisTemplate.expire(rateKey, 60, TimeUnit.SECONDS);
-        }
+        Long reqCount = redisTemplate.opsForValue().increment(rateKey, 60, TimeUnit.SECONDS);
         if (reqCount != null && reqCount > 15L) {
+            return Map.of("success", false, "error", "请求过于频繁，请稍后再试");
+        }
+        Long globalReqCount = redisTemplate.opsForValue().increment("oci:passkey:global_opt_rate", 60, TimeUnit.SECONDS);
+        if (globalReqCount != null && globalReqCount > 120L) {
             return Map.of("success", false, "error", "请求过于频繁，请稍后再试");
         }
 
@@ -322,6 +347,8 @@ public class AdminPasskeyService {
         if (body == null) {
             return Map.of("success", false, "error", "缺少请求参数");
         }
+        // 严禁外部请求在未鉴权 /login/verify 中伪造内部 __stepUpSessionToken 字段；仅内部 verifyStepUp 允许注入受保护标记
+        boolean isInternalStepUp = body instanceof InternalStepUpMap;
 
         String challengeId = (String) body.get("challengeId");
         if (challengeId == null || challengeId.isBlank()) {
@@ -404,10 +431,9 @@ public class AdminPasskeyService {
             System.arraycopy(clientDataHash, 0, signedData, authDataBytes.length, clientDataHash.length);
 
             byte[] sigBytes = decodeBase64OrUrl(signatureStr);
-            byte[] derSig = ensureDerSignature(sigBytes);
-
             byte[] spkiBytes = Base64.getDecoder().decode(passkey.getPublicKeySpki());
             String keyType = (passkey.getAlgorithm() != null && passkey.getAlgorithm() == -257) ? "RSA" : "EC";
+            byte[] verifySig = "RSA".equals(keyType) ? sigBytes : ensureDerSignature(sigBytes);
             KeyFactory kf = KeyFactory.getInstance(keyType);
             PublicKey publicKey = kf.generatePublic(new X509EncodedKeySpec(spkiBytes));
 
@@ -416,7 +442,7 @@ public class AdminPasskeyService {
             sig.initVerify(publicKey);
             sig.update(signedData);
 
-            if (!sig.verify(derSig)) {
+            if (!sig.verify(verifySig)) {
                 LOG.warning("⚠️ 通行密钥签名验证失败，密钥名称: " + passkey.getName());
                 adminAuthService.recordAuthFailure(clientIp);
                 sendPasskeyFailedTgAlert(passkey, request, "数字签名校验未通过 (可能存在伪造签名或重放攻击)");
@@ -440,9 +466,9 @@ public class AdminPasskeyService {
                     | ((authDataBytes[35] & 0xFFL) << 8)
                     | (authDataBytes[36] & 0xFFL);
 
-            // 🛡️ WebAuthn §7.2 Step 17: 硬件凭据克隆与重放检测
+            // 🛡️ WebAuthn §7.2 Step 17: 硬件凭据克隆与重放检测（一旦原计数器或本次计数器非零，严禁回退或停滞，包括篡改为 0）
             long currentSignCount = passkey.getSignCount() != null ? passkey.getSignCount() : 0L;
-            if (currentSignCount > 0 && signCount > 0 && signCount <= currentSignCount) {
+            if ((currentSignCount > 0 || signCount > 0) && signCount <= currentSignCount) {
                 LOG.warning("🚨 [安全告警] 通行密钥签名计数器异常 (current=" + currentSignCount + ", received=" + signCount + ")，疑似硬件凭据克隆攻击！");
                 adminAuthService.recordAuthFailure(clientIp);
                 sendPasskeyFailedTgAlert(passkey, request, "签名计数器异常 (疑似克隆攻击或重放)");
@@ -453,6 +479,12 @@ public class AdminPasskeyService {
             String nowStr = LocalDateTime.now().format(TIME_FORMATTER);
             passkey.setLastUsedAt(nowStr);
             adminPasskeyRepository.save(passkey);
+
+            // 若当前请求属于已登录会话的二次确认 (Step-Up)，仅标记 Step-Up 窗口而不重复签发新会话或群发登录通知
+            if (isInternalStepUp && body.get("__stepUpSessionToken") instanceof String existingSessionToken && !existingSessionToken.isBlank()) {
+                adminAuthService.markStepUp(existingSessionToken);
+                return Map.of("success", true, "name", passkey.getName());
+            }
 
             // 6. 签发后台管理员会话 Token (与常规验证码登录保持统一)
             String token = adminAuthService.issueSession();
@@ -471,6 +503,27 @@ public class AdminPasskeyService {
             LOG.log(Level.SEVERE, "通行密钥登录校验异常", e);
             return Map.of("success", false, "error", "通行密钥验证失败");
         }
+    }
+
+    private static final class InternalStepUpMap extends HashMap<String, Object> {
+        InternalStepUpMap(Map<String, Object> src) {
+            super(src);
+        }
+    }
+
+    /**
+     * 已登录会话使用通行密钥完成高危操作二次验证 (Step-Up)
+     */
+    public Map<String, Object> verifyStepUp(String token, Map<String, Object> body, HttpServletRequest request) {
+        if (!adminAuthService.checkAuth(token)) {
+            return Map.of("success", false, "error", "会话已过期，请重新登录");
+        }
+        if (body == null) {
+            return Map.of("success", false, "error", "缺少请求参数");
+        }
+        InternalStepUpMap copy = new InternalStepUpMap(body);
+        copy.put("__stepUpSessionToken", token.trim());
+        return verifyLogin(copy, request);
     }
 
     /**
@@ -675,18 +728,24 @@ public class AdminPasskeyService {
         }
     }
 
-    /** 只接受 COSE EC2 / P-256 / ES256。解析失败返回 null，不回退到客户端自报的 SPKI。 */
-    private PublicKey parseEs256CoseKey(byte[] authData, int offset) {
+    private record ParsedCoseKey(PublicKey publicKey, int algorithm) {}
+
+    /**
+     * 解析认证器内嵌 COSE 公钥（支持 ES256: kty=2, alg=-7, crv=1 与 RS256: kty=3, alg=-257）。
+     * 解析失败返回 null，绝不回退信任客户端自报的 SPKI。
+     */
+    private ParsedCoseKey parseCosePublicKey(byte[] authData, int offset) {
         try {
             CborCursor cursor = new CborCursor(authData, offset);
             if (cursor.major() != 5) return null;
             long pairs = cursor.readArg();
-            if (pairs < 4 || pairs > 16) return null;
+            if (pairs < 3 || pairs > 16) return null;
             Integer kty = null;
             Integer alg = null;
             Integer crv = null;
-            byte[] x = null;
-            byte[] y = null;
+            byte[] neg1Bytes = null;
+            byte[] neg2Bytes = null;
+            byte[] neg3Bytes = null;
             for (long i = 0; i < pairs; i++) {
                 int keyMajor = cursor.major();
                 long keyArg = cursor.readArg();
@@ -694,7 +753,7 @@ public class AdminPasskeyService {
                 if (keyMajor == 0) label = Math.toIntExact(keyArg);
                 else if (keyMajor == 1) label = Math.toIntExact(-1L - keyArg);
                 else return null;
-                if (label == 1 || label == 3 || label == -1) {
+                if (label == 1 || label == 3) {
                     int valueMajor = cursor.major();
                     long valueArg = cursor.readArg();
                     int value;
@@ -702,24 +761,46 @@ public class AdminPasskeyService {
                     else if (valueMajor == 1) value = Math.toIntExact(-1L - valueArg);
                     else return null;
                     if (label == 1) kty = value;
-                    else if (label == 3) alg = value;
-                    else crv = value;
+                    else alg = value;
+                } else if (label == -1) {
+                    int valueMajor = cursor.major();
+                    if (valueMajor == 0 || valueMajor == 1) {
+                        long valueArg = cursor.readArg();
+                        crv = (valueMajor == 0) ? Math.toIntExact(valueArg) : Math.toIntExact(-1L - valueArg);
+                    } else if (valueMajor == 2) {
+                        neg1Bytes = cursor.readBytes();
+                    } else {
+                        return null;
+                    }
                 } else if (label == -2 || label == -3) {
                     if (cursor.major() != 2) return null;
                     byte[] raw = cursor.readBytes();
-                    if (label == -2) x = raw;
-                    else y = raw;
+                    if (label == -2) neg2Bytes = raw;
+                    else neg3Bytes = raw;
                 } else {
                     cursor.skip();
                 }
             }
-            if (kty == null || kty != 2 || (alg != null && alg != -7) || crv == null || crv != 1) return null;
-            if (x == null || y == null || x.length != 32 || y.length != 32) return null;
-            AlgorithmParameters params = AlgorithmParameters.getInstance("EC");
-            params.init(new ECGenParameterSpec("secp256r1"));
-            ECParameterSpec ecParams = params.getParameterSpec(ECParameterSpec.class);
-            ECPoint point = new ECPoint(new BigInteger(1, x), new BigInteger(1, y));
-            return KeyFactory.getInstance("EC").generatePublic(new ECPublicKeySpec(point, ecParams));
+            if (kty != null && kty == 2) {
+                if ((alg != null && alg != -7) || crv == null || crv != 1) return null;
+                if (neg2Bytes == null || neg3Bytes == null || neg2Bytes.length != 32 || neg3Bytes.length != 32) return null;
+                AlgorithmParameters params = AlgorithmParameters.getInstance("EC");
+                params.init(new ECGenParameterSpec("secp256r1"));
+                ECParameterSpec ecParams = params.getParameterSpec(ECParameterSpec.class);
+                ECPoint point = new ECPoint(new BigInteger(1, neg2Bytes), new BigInteger(1, neg3Bytes));
+                PublicKey pk = KeyFactory.getInstance("EC").generatePublic(new ECPublicKeySpec(point, ecParams));
+                return new ParsedCoseKey(pk, -7);
+            }
+            if (kty != null && kty == 3) {
+                if (alg != null && alg != -257) return null;
+                if (neg1Bytes == null || neg2Bytes == null || neg1Bytes.length < 256 || neg2Bytes.length == 0) return null;
+                BigInteger modulus = new BigInteger(1, neg1Bytes);
+                BigInteger exponent = new BigInteger(1, neg2Bytes);
+                if (modulus.bitLength() < 2048 || exponent.compareTo(BigInteger.valueOf(3)) < 0) return null;
+                PublicKey pk = KeyFactory.getInstance("RSA").generatePublic(new RSAPublicKeySpec(modulus, exponent));
+                return new ParsedCoseKey(pk, -257);
+            }
+            return null;
         } catch (Exception e) {
             return null;
         }

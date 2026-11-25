@@ -34,24 +34,50 @@ public class AdminDashboardController {
     @Autowired private com.oci.ocimanager.service.SystemUpdateService systemUpdateService;
 
     private final ExecutorService ipFetchExecutor = Executors.newVirtualThreadPerTaskExecutor();
+    private final ExecutorService trafficRefreshExecutor = new ThreadPoolExecutor(
+            4,
+            4,
+            60L,
+            TimeUnit.SECONDS,
+            new LinkedBlockingQueue<>(128),
+            r -> {
+                Thread t = new Thread(r, "oci-traffic-refresh");
+                t.setDaemon(true);
+                return t;
+            },
+            new ThreadPoolExecutor.DiscardPolicy()
+    );
+    private final Set<String> fetchingIpOcids = ConcurrentHashMap.newKeySet();
+    private final Set<String> refreshingTrafficAccounts = ConcurrentHashMap.newKeySet();
 
     @PreDestroy
     public void destroy() {
         ipFetchExecutor.shutdownNow();
+        trafficRefreshExecutor.shutdownNow();
     }
 
     private boolean checkAuth(HttpServletRequest request, Map<String, ?> payload) {
         return adminAuthService.checkAuth(request, payload);
     }
 
+    private Map<String, OciProperties.Account> snapshotOrderedAccounts() {
+        synchronized (accountYamlService.lock()) {
+            Map<String, OciProperties.Account> current = ociProperties.getAccounts();
+            return current != null ? new LinkedHashMap<>(current) : new LinkedHashMap<>();
+        }
+    }
+
+    /**
+     * 零阻塞组装实例视图：直接读取内存缓存快照与本地 Region 地理映射；
+     * 若运行中实例尚未缓存 IP，仅单飞投递后台异步抓取任务，绝不在高频 /poll 线程内同步阻塞等待！
+     */
     private Map<String, Map<String, String>> getEnrichedInstances() {
         Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
         if (instances.isEmpty()) {
             return new HashMap<>();
         }
 
-        Map<String, Map<String, String>> enriched = new ConcurrentHashMap<>();
-        List<String> needFetchOcids = new ArrayList<>();
+        Map<String, Map<String, String>> enriched = new LinkedHashMap<>();
 
         for (Map.Entry<String, Map<String, String>> entry : instances.entrySet()) {
             String ocid = entry.getKey();
@@ -67,78 +93,32 @@ public class AdminDashboardController {
                     cachedIp = "未分配 IP";
                 }
                 info.put("ip", cachedIp);
-            } else if ("RUNNING".equals(info.get("state"))) {
+            } else if ("RUNNING".equalsIgnoreCase(info.get("state"))) {
                 info.put("ip", "获取中...");
-                needFetchOcids.add(ocid);
+                String account = info.get("account");
+                if (account != null && fetchingIpOcids.add(ocid)) {
+                    CompletableFuture.runAsync(() -> {
+                        try {
+                            ociCloudService.getInstanceIp(ocid, account);
+                            ociCloudService.getInstanceIpv6(ocid, account);
+                        } catch (Exception ignored) {
+                        } finally {
+                            fetchingIpOcids.remove(ocid);
+                        }
+                    }, ipFetchExecutor);
+                }
             } else {
                 info.put("ip", "未分配 IP");
             }
-            enriched.put(ocid, info);
-        }
 
-        if (!needFetchOcids.isEmpty()) {
-            List<CompletableFuture<Void>> ipFutures = new ArrayList<>();
-            for (String ocid : needFetchOcids) {
-                Map<String, String> info = enriched.get(ocid);
-                String account = info.get("account");
-                CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                    try {
-                        String ip = ociCloudService.getInstanceIp(ocid, account);
-                        if (ip == null || ip.contains("无私网IP") || ip.contains("关机")) {
-                            ip = "未分配 IP";
-                        }
-                        info.put("ip", ip);
-                        String ipv6 = ociCloudService.getInstanceIpv6(ocid, account);
-                        if (ipv6 != null && !ipv6.isBlank()) {
-                            info.put("ipv6", ipv6);
-                        }
-                    } catch (Exception e) {
-                        info.put("ip", "获取失败");
-                    }
-                }, ipFetchExecutor);
-                ipFutures.add(future);
-            }
-            try {
-                CompletableFuture.allOf(ipFutures.toArray(new CompletableFuture<?>[0]))
-                        .get(60, TimeUnit.SECONDS);
-            } catch (TimeoutException e) {
-                for (String ocid : needFetchOcids) {
-                    Map<String, String> info = enriched.get(ocid);
-                    if ("获取中...".equals(info.get("ip"))) {
-                        info.put("ip", "获取超时，请刷新");
-                    }
-                }
-            } catch (Exception e) {
-                System.err.println("并行获取IP异常: " + e.getMessage());
-            }
-        }
-
-        List<CompletableFuture<Void>> locFutures = new ArrayList<>();
-        for (Map<String, String> info : enriched.values()) {
             String ip = info.get("ip");
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                info.put("location", ociCloudService.getIpLocation(ip));
-            }, ipFetchExecutor);
-            locFutures.add(future);
-        }
-        try {
-            CompletableFuture.allOf(locFutures.toArray(new CompletableFuture<?>[0]))
-                    .get(60, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            for (Map<String, String> info : enriched.values()) {
-                if (!info.containsKey("location")) {
-                    info.put("location", "未知地区");
-                }
-            }
-        }
-
-        for (Map<String, String> info : enriched.values()) {
-            String ip = info.get("ip");
+            info.put("location", ociCloudService.getInstanceLocation(ip, info.get("region")));
             if (ip != null && (ip.contains("(NAT)") || ip.contains("500M") || ip.contains("(原)"))) {
                 info.put("is500m", "true");
             } else {
                 info.put("is500m", "false");
             }
+            enriched.put(ocid, info);
         }
 
         return enriched;
@@ -147,10 +127,9 @@ public class AdminDashboardController {
     @PostMapping("/data")
     public Map<String, Object> getData(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
         if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
-        
-        // 🌟 确保账号在内存和输出中均严格遵循 application.yml 物理添加顺序
-        Map<String, OciProperties.Account> orderedAccounts = accountYamlService.reorderAccounts(ociProperties.getAccounts());
-        ociProperties.setAccounts(orderedAccounts);
+
+        // 🔒 只读快照：绝不在读接口中调用无锁 ociProperties.setAccounts(...)，彻底杜绝并发删号被复活！
+        Map<String, OciProperties.Account> orderedAccounts = snapshotOrderedAccounts();
         List<Map<String, Object>> accountList = buildAccountDetailsList(orderedAccounts);
         
         Map<String, Object> result = new HashMap<>();
@@ -182,7 +161,7 @@ public class AdminDashboardController {
             
             accInfo.put("name", accountName);
             accInfo.put("region", acc.getRegion() != null ? acc.getRegion() : "未知");
-            accInfo.put("subscribedRegions", String.join(",", ociCloudService.getSubscribedRegions(accountName)));
+            accInfo.put("subscribedRegions", String.join(",", ociCloudService.getCachedSubscribedRegions(accountName)));
             accInfo.put("orderIndex", orderIndex++);
             
             String regTime = acc.getRegisterTime();
@@ -222,11 +201,11 @@ public class AdminDashboardController {
     @PostMapping("/poll")
     public Map<String, Object> poll(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
         if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
-        Map<String, OciProperties.Account> orderedAccounts = accountYamlService.reorderAccounts(ociProperties.getAccounts());
+        Map<String, OciProperties.Account> orderedAccounts = snapshotOrderedAccounts();
         List<Map<String, Object>> accountList = buildAccountDetailsList(orderedAccounts);
 
         Map<String, Map<String, Object>> trafficData = new HashMap<>();
-        ociProperties.getAccounts().keySet().forEach(accName -> {
+        orderedAccounts.keySet().forEach(accName -> {
             TrafficLimit limit = trafficLimitRepository.findById(accName).orElse(new TrafficLimit());
             Map<String, Object> info = new HashMap<>();
             double currentUsage = ScheduledTasksService.TRAFFIC_CACHE.getOrDefault(accName, -1.0);
@@ -278,14 +257,16 @@ public class AdminDashboardController {
         if (!isSyncingAccounts.compareAndSet(false, true)) {
             return Map.of("success", true, "message", "后台正在执行全量同步中，请稍候等待页面自动更新数据");
         }
+        Map<String, OciProperties.Account> accountsSnapshot = snapshotOrderedAccounts();
         ociCloudService.clearPaygCache();
         ociCloudService.clearBillCache();
         ociCloudService.clearBannedCache();
         ociCloudService.clearRegionsCache();
         ociCloudService.clearProviderCache();
-        for (String accountName : ociProperties.getAccounts().keySet()) {
+        for (Map.Entry<String, OciProperties.Account> entry : accountsSnapshot.entrySet()) {
+            String accountName = entry.getKey();
+            OciProperties.Account acc = entry.getValue();
             ociCloudService.invalidateBootVolumeCache(accountName);
-            OciProperties.Account acc = ociProperties.getAccounts().get(accountName);
             if (acc != null && !isValidRegisterTime(acc.getRegisterTime())) {
                 acc.setRegisterTime("自动抓取中...");
                 triggerAutoFetchRegisterTime(accountName);
@@ -294,12 +275,14 @@ public class AdminDashboardController {
         CompletableFuture.runAsync(() -> {
             try {
                 ociCloudService.updateInstancesCache(true);
-                for (String accountName : ociProperties.getAccounts().keySet()) {
+                Map<String, OciProperties.Account> asyncSnapshot = snapshotOrderedAccounts();
+                for (Map.Entry<String, OciProperties.Account> entry : asyncSnapshot.entrySet()) {
+                    String accountName = entry.getKey();
+                    OciProperties.Account acc = entry.getValue();
                     ociCloudService.isAccountBanned(accountName);
                     ociCloudService.getCachedPaygStatus(accountName);
                     ociCloudService.getCachedCurrentMonthBill(accountName);
                     ociCloudService.getSubscribedRegions(accountName);
-                    OciProperties.Account acc = ociProperties.getAccounts().get(accountName);
                     if (acc != null && !isValidRegisterTime(acc.getRegisterTime())) {
                         triggerAutoFetchRegisterTime(accountName);
                     }
@@ -323,51 +306,68 @@ public class AdminDashboardController {
         Object targetAccObj = payload != null ? payload.get("targetAccount") : null;
         String targetAccount = targetAccObj != null ? String.valueOf(targetAccObj) : null;
 
+        Map<String, OciProperties.Account> currentAccounts = snapshotOrderedAccounts();
         if (force || ScheduledTasksService.TRAFFIC_CACHE.isEmpty()) {
-            CompletableFuture.runAsync(() -> {
-                String currentMonth = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
-                Set<String> accountsToUpdate = (targetAccount != null && !targetAccount.isEmpty()) 
-                                               ? Set.of(targetAccount) 
-                                               : ociProperties.getAccounts().keySet();
-                
-                accountsToUpdate.forEach(accName -> {
-                    try {
-                        double usage = -1.0;
-                        int maxRetries = 3;
-                        for (int i = 0; i < maxRetries; i++) {
-                            try {
-                                usage = ociCloudService.fetchTrafficInGb(accName);
-                                if (usage >= 0) break;
-                            } catch (Exception ex) {
-                                if (ex.getMessage() != null && ex.getMessage().contains("500") && ex.getMessage().contains("InternalError")) {
-                                    if (i == maxRetries - 1) throw ex;
-                                    try { Thread.sleep(4000 * (i + 1)); } catch (InterruptedException ignored) {}
-                                } else {
-                                    throw ex;
+            String currentMonth = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
+            Set<String> accountsToUpdate;
+            if (targetAccount != null && !targetAccount.isEmpty()) {
+                accountsToUpdate = currentAccounts.containsKey(targetAccount) ? Set.of(targetAccount) : Collections.emptySet();
+            } else {
+                accountsToUpdate = currentAccounts.keySet();
+            }
+
+            for (String accName : accountsToUpdate) {
+                if (!refreshingTrafficAccounts.add(accName)) {
+                    continue; // 单飞去重：该账号已在后台刷新流量中，忽略重复请求
+                }
+                try {
+                    trafficRefreshExecutor.execute(() -> {
+                        try {
+                            double usage = -1.0;
+                            int maxRetries = 3;
+                            for (int i = 0; i < maxRetries; i++) {
+                                try {
+                                    usage = ociCloudService.fetchTrafficInGb(accName);
+                                    if (usage >= 0) break;
+                                } catch (Exception ex) {
+                                    if (ex.getMessage() != null && ex.getMessage().contains("500") && ex.getMessage().contains("InternalError")) {
+                                        if (i == maxRetries - 1) throw ex;
+                                        try { Thread.sleep(4000L * (i + 1)); } catch (InterruptedException ignored) {}
+                                    } else {
+                                        throw ex;
+                                    }
                                 }
                             }
-                        }
 
-                        if (usage >= 0) {
-                            ScheduledTasksService.TRAFFIC_CACHE.put(accName, usage);
-                            ScheduledTasksService.UPDATE_TIME_CACHE.put(accName, java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " UTC");
-                            
-                            if (ScheduledTasksService.getInstance() != null) {
-                                ScheduledTasksService.getInstance().checkAndSendTrafficWarning(accName, usage, currentMonth);
+                            if (usage >= 0) {
+                                if (ScheduledTasksService.getInstance() != null) {
+                                    ScheduledTasksService.getInstance().evaluateAndRecordTrafficUsage(accName, usage, currentMonth);
+                                } else {
+                                    ScheduledTasksService.TRAFFIC_CACHE.put(accName, usage);
+                                    ScheduledTasksService.UPDATE_TIME_CACHE.put(accName,
+                                            java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " UTC");
+                                }
+                            } else if (!ScheduledTasksService.TRAFFIC_CACHE.containsKey(accName) || ScheduledTasksService.TRAFFIC_CACHE.get(accName) < 0) {
+                                ScheduledTasksService.TRAFFIC_CACHE.put(accName, -1.0);
+                                ScheduledTasksService.UPDATE_TIME_CACHE.put(accName, "API异常暂无数据，请稍后重试");
                             }
+                        } catch (Exception e) {
+                            System.err.println("获取流量失败 [" + accName + "]: " + e.getMessage());
+                            if (!ScheduledTasksService.TRAFFIC_CACHE.containsKey(accName) || ScheduledTasksService.TRAFFIC_CACHE.get(accName) < 0) {
+                                ScheduledTasksService.TRAFFIC_CACHE.put(accName, -1.0);
+                                ScheduledTasksService.UPDATE_TIME_CACHE.put(accName, "API异常暂无数据，请稍后重试");
+                            }
+                        } finally {
+                            refreshingTrafficAccounts.remove(accName);
                         }
-                    } catch (Exception e) {
-                        System.err.println("获取流量失败 [" + accName + "]: " + e.getMessage());
-                        if (!ScheduledTasksService.TRAFFIC_CACHE.containsKey(accName) || ScheduledTasksService.TRAFFIC_CACHE.get(accName) < 0) {
-                            ScheduledTasksService.TRAFFIC_CACHE.put(accName, -1.0);
-                            ScheduledTasksService.UPDATE_TIME_CACHE.put(accName, "API异常暂无数据，请稍后重试");
-                        }
-                    }
-                });
-            });
+                    });
+                } catch (Exception rejectedEx) {
+                    refreshingTrafficAccounts.remove(accName);
+                }
+            }
         }
 
-        ociProperties.getAccounts().keySet().forEach(accName -> {
+        currentAccounts.keySet().forEach(accName -> {
             TrafficLimit limit = trafficLimitRepository.findById(accName).orElse(new TrafficLimit());
             Map<String, Object> info = new HashMap<>();
             
@@ -383,5 +383,81 @@ public class AdminDashboardController {
         });
         
         return Map.of("success", true, "traffic", trafficData);
+    }
+
+    @PostMapping("/set-traffic-limit")
+    public Map<String, Object> setTrafficLimit(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
+        if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
+
+        Object rawAccObj = payload.get("account");
+        String rawAcc = rawAccObj != null ? String.valueOf(rawAccObj).trim() : "";
+        if (rawAcc.isEmpty()) {
+            return Map.of("success", false, "error", "账号名不能为空");
+        }
+
+        Object rawLimitObj = payload.containsKey("limit_gb") ? payload.get("limit_gb") : payload.get("limitGb");
+        if (rawLimitObj == null) {
+            return Map.of("success", false, "error", "缺少流量限额参数 (limit_gb)");
+        }
+
+        int limitGb;
+        try {
+            double parsed = Double.parseDouble(String.valueOf(rawLimitObj).trim());
+            if (Double.isNaN(parsed) || Double.isInfinite(parsed) || parsed < 0 || parsed > 10_000_000) {
+                return Map.of("success", false, "error", "流量限额必须为 0 ~ 10,000,000 之间的有效整数 (0 表示不限流)");
+            }
+            limitGb = (int) Math.round(parsed);
+        } catch (NumberFormatException e) {
+            return Map.of("success", false, "error", "流量限额格式无效，请输入非负整数");
+        }
+
+        Map<String, OciProperties.Account> accounts = snapshotOrderedAccounts();
+        String matchedAccount = null;
+        if (accounts.containsKey(rawAcc)) {
+            matchedAccount = rawAcc;
+        } else {
+            String cleanReq = AccountYamlService.normalizeAccountKey(rawAcc);
+            for (String key : accounts.keySet()) {
+                if (AccountYamlService.normalizeAccountKey(key).equals(cleanReq)) {
+                    matchedAccount = key;
+                    break;
+                }
+            }
+        }
+        if (matchedAccount == null) {
+            return Map.of("success", false, "error", "账号不存在: " + rawAcc);
+        }
+
+        TrafficLimit entity = trafficLimitRepository.findById(matchedAccount).orElseGet(TrafficLimit::new);
+        entity.setAccountName(matchedAccount);
+        entity.setLimitGb(limitGb);
+        trafficLimitRepository.save(entity);
+
+        final String finalAccount = matchedAccount;
+        CompletableFuture.runAsync(() -> {
+            try {
+                ScheduledTasksService scheduler = ScheduledTasksService.getInstance();
+                if (scheduler == null) return;
+                String currentMonth = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
+                        .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
+                Double cachedUsage = ScheduledTasksService.TRAFFIC_CACHE.get(finalAccount);
+                if (cachedUsage != null && cachedUsage >= 0) {
+                    scheduler.evaluateTrafficMeltdownOrRevive(finalAccount, cachedUsage, currentMonth, true);
+                } else {
+                    double fresh = ociCloudService.fetchTrafficInGb(finalAccount);
+                    if (fresh >= 0) {
+                        scheduler.evaluateAndRecordTrafficUsage(finalAccount, fresh, currentMonth);
+                    }
+                }
+            } catch (Exception e) {
+                System.err.println("更新流量限额后即时评估熔断状态异常 [" + finalAccount + "]: " + e.getMessage());
+            }
+        }, ipFetchExecutor);
+
+        String msg = limitGb > 0
+                ? ("已成功设置账号 [" + matchedAccount + "] 月流量熔断限额为 " + limitGb + " GB")
+                : ("已取消账号 [" + matchedAccount + "] 的月流量熔断限额");
+        return Map.of("success", true, "account", matchedAccount, "limit_gb", limitGb, "message", msg);
     }
 }

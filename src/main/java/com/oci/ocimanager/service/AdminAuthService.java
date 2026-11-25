@@ -14,12 +14,13 @@ import org.springframework.stereotype.Component;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 后台鉴权：验证码、登录锁定、会话签发与口令校验。
+ * 后台鉴权：验证码、登录锁定、会话签发、二次确认(Step-Up)与口令校验。
  */
 @Component
 public class AdminAuthService {
@@ -29,18 +30,20 @@ public class AdminAuthService {
     private static final int MAX_GLOBAL_CODE_FAIL_ATTEMPTS = 10;
     private static final long CODE_TTL_SECONDS = 180;
     private static final long SEND_COOLDOWN_SECONDS = 60;
+    private static final long GLOBAL_SEND_COOLDOWN_SECONDS = 60;
     private static final long LOCKOUT_SECONDS = 15 * 60;
     private static final long SESSION_ABSOLUTE_SECONDS = 12 * 60 * 60;
     private static final long SESSION_IDLE_SECONDS = 12 * 60 * 60;
     private static final long STEP_UP_SECONDS = 5 * 60;
     private static final String GLOBAL_CODE_FAIL_KEY = "oci:admin_login:global_code_fail";
+    private static final String GLOBAL_SEND_COOLDOWN_KEY = "oci:admin_login:send_global";
     private static final String CODE_HINT = "若已绑定 Telegram，验证码已发送；否则请直接使用管理员密码登录";
 
-    @Autowired private TelegramBotService telegramBotService;
+    @Autowired(required = false) private TelegramBotService telegramBotService;
     @Autowired private LocalCacheService redisTemplate;
-    @Autowired private SystemConfigRepository systemConfigRepo;
-    @Autowired private AccountYamlService accountYamlService;
-    @Autowired private Environment environment;
+    @Autowired(required = false) private SystemConfigRepository systemConfigRepo;
+    @Autowired(required = false) private AccountYamlService accountYamlService;
+    @Autowired(required = false) private Environment environment;
 
     @Value("${app.admin-username:admin}")
     private String adminUsername;
@@ -54,24 +57,37 @@ public class AdminAuthService {
     @Value("${app.trust-forwarded-for:false}")
     private boolean trustForwardedFor;
 
+    @Value("${app.trusted-proxies:}")
+    private String trustedProxies;
+
     @PostConstruct
     public void upgradePlaintextAdminPasswords() {
         try {
             reloadAdminPasswordFromEnvironment();
-            // 配置文件里的口令是安装脚本写入的那一份。库里的旧口令不能再并列生效，否则改密后旧密码仍能登录。
+            if (adminUsername != null && !adminUsername.isBlank()) {
+                clearLegacyDatabaseUsername();
+            }
             if (adminPassword != null && !adminPassword.isBlank()) {
                 clearLegacyDatabasePassword();
             } else {
                 upgradeDatabasePassword();
             }
             upgradeYamlPassword();
+            if (accountYamlService != null) {
+                accountYamlService.cleanupPlaintextPasswordArtifacts();
+            }
         } catch (Exception e) {
             System.err.println("管理员密码哈希升级失败: " + e.getMessage());
         }
     }
 
+    public Map<String, Object> getPublicAuthConfig() {
+        boolean tgRunning = telegramBotService != null && telegramBotService.isBotRunning();
+        return Map.of("success", true, "tgBotRunning", tgRunning);
+    }
+
     public String resolveClientIp(HttpServletRequest request) {
-        return ClientIpResolver.resolve(request, trustForwardedFor);
+        return ClientIpResolver.resolve(request, trustForwardedFor, trustedProxies);
     }
 
     public Map<String, Object> sendCode(String clientIp) {
@@ -83,6 +99,10 @@ public class AdminAuthService {
         if (Boolean.TRUE.equals(redisTemplate.hasKey(cooldownKey))) {
             long waitSeconds = Math.max(1, secondsLeft(cooldownKey));
             return Map.of("success", false, "error", "获取过于频繁，请等待 " + waitSeconds + " 秒后再试");
+        }
+        if (Boolean.TRUE.equals(redisTemplate.hasKey(GLOBAL_SEND_COOLDOWN_KEY))) {
+            long waitSeconds = Math.max(1, secondsLeft(GLOBAL_SEND_COOLDOWN_KEY));
+            return Map.of("success", false, "error", "动态码发送过于频繁，请等待 " + waitSeconds + " 秒后再试");
         }
         if (telegramBotService == null || !telegramBotService.isBotRunning()) {
             redisTemplate.opsForValue().set(cooldownKey, "1", SEND_COOLDOWN_SECONDS, TimeUnit.SECONDS);
@@ -106,7 +126,7 @@ public class AdminAuthService {
         String newCode = String.format("%06d", SECURE_RANDOM.nextInt(1_000_000));
         redisTemplate.opsForValue().set(codeKey, newCode, CODE_TTL_SECONDS, TimeUnit.SECONDS);
         redisTemplate.opsForValue().set(cooldownKey, "1", SEND_COOLDOWN_SECONDS, TimeUnit.SECONDS);
-        redisTemplate.delete(GLOBAL_CODE_FAIL_KEY);
+        redisTemplate.opsForValue().set(GLOBAL_SEND_COOLDOWN_KEY, "1", GLOBAL_SEND_COOLDOWN_SECONDS, TimeUnit.SECONDS);
 
         telegramBotService.sendText(adminChatId, "🔐 *后台登录验证码*\n\n您的动态密码为：\n`" + newCode + "`\n\n有效期 3 分钟，登录后即刻失效。");
         return Map.of("success", true, "message", CODE_HINT);
@@ -123,14 +143,16 @@ public class AdminAuthService {
     }
 
     public String getConfiguredAdminUsername() {
-        String configuredUser = (adminUsername != null && !adminUsername.isBlank()) ? adminUsername.trim() : "admin";
+        if (adminUsername != null && !adminUsername.isBlank()) {
+            return adminUsername.trim();
+        }
         if (systemConfigRepo != null) {
             var optUser = systemConfigRepo.findById("ADMIN_WEB_USERNAME");
             if (optUser.isPresent() && optUser.get().getConfigValue() != null && !optUser.get().getConfigValue().isBlank()) {
-                configuredUser = optUser.get().getConfigValue().trim();
+                return optUser.get().getConfigValue().trim();
             }
         }
-        return configuredUser;
+        return "admin";
     }
 
     /**
@@ -141,11 +163,51 @@ public class AdminAuthService {
     }
 
     /**
-     * 已登录会话的二次确认（Step-Up）：已持有合法后台会话 Token 时，仅校验管理员密码或动态码，
-     * 解决通过 TG 动态码或 Passkey 登录后（前端未录入自定义用户名）绑定新 Passkey 必然失败的缺陷。
+     * 已登录会话的二次确认（Step-Up）：已持有合法后台会话 Token 时，仅校验管理员密码或动态码。
      */
     public Map<String, Object> confirmStepUpCredential(String secret, String clientIp) {
         return verifyCredentialInternal(null, secret, clientIp, false);
+    }
+
+    /**
+     * 高危接口统一二次认证守卫：
+     * - 若本次请求携带了 stepUpSecret，则立即校验并刷新 Step-Up 窗口；
+     * - 否则检查会话是否仍处于有效的 5 分钟 Step-Up 窗口内；
+     * - 未通过则返回 stepUpRequired=true，由前端弹窗引导二次确认。
+     */
+    public Map<String, Object> verifyOrRequireStepUp(HttpServletRequest request, Map<String, ?> payload) {
+        String token = resolveToken(request, payload);
+        if (!checkAuth(token)) {
+            return Map.of("success", false, "error", "会话已过期，请重新登录");
+        }
+        // 🔒 优先检查会话级 5 分钟 Step-Up 窗口：防止前端已通过 /step-up 核销一次性 TG 动态码后，重放原请求时二次核销失败！
+        if (hasStepUp(token)) {
+            return Map.of("success", true);
+        }
+        String secret = null;
+        if (payload != null) {
+            Object raw = payload.get("stepUpSecret");
+            if (raw != null && !String.valueOf(raw).isBlank()) {
+                secret = String.valueOf(raw);
+            }
+        }
+        if (secret != null) {
+            Map<String, Object> confirmed = confirmStepUpCredential(secret, resolveClientIp(request));
+            if (Boolean.TRUE.equals(confirmed.get("success"))) {
+                markStepUp(token);
+                return Map.of("success", true);
+            }
+            Map<String, Object> denied = new HashMap<>();
+            denied.put("success", false);
+            denied.put("stepUpRequired", true);
+            denied.put("error", confirmed.get("error") != null ? confirmed.get("error") : "管理员密码或动态码错误");
+            return denied;
+        }
+        Map<String, Object> required = new HashMap<>();
+        required.put("success", false);
+        required.put("stepUpRequired", true);
+        required.put("error", "高危操作需要二次验证管理员密码或动态码");
+        return required;
     }
 
     private Map<String, Object> verifyCredentialInternal(String username, String secret, String clientIp, boolean requireUsernameForPassword) {
@@ -164,7 +226,6 @@ public class AdminAuthService {
                         current.getBytes(StandardCharsets.UTF_8));
 
         String configuredUser = getConfiguredAdminUsername();
-        // 🔒 当未登录态使用密码登录时，必须显式提供用户名并与配置的账号名严格匹配；已登录 Step-Up 态则直接校验密码
         boolean usernameValid = !requireUsernameForPassword || ((username != null && !username.isBlank())
                 && MessageDigest.isEqual(username.trim().getBytes(StandardCharsets.UTF_8), configuredUser.getBytes(StandardCharsets.UTF_8)));
 
@@ -172,6 +233,7 @@ public class AdminAuthService {
 
         if (codeValid || passwordValid) {
             redisTemplate.delete(codeKey(ip));
+            redisTemplate.delete(GLOBAL_CODE_FAIL_KEY);
             clearAuthFailures(ip);
             if (passwordValid) {
                 upgradeDatabasePassword();
@@ -179,15 +241,10 @@ public class AdminAuthService {
             return Map.of("success", true);
         }
 
-        if (!current.isEmpty()) {
-            Long globalCodeFails = redisTemplate.opsForValue().increment(GLOBAL_CODE_FAIL_KEY);
-            if (globalCodeFails != null && globalCodeFails == 1L) {
-                redisTemplate.expire(GLOBAL_CODE_FAIL_KEY, CODE_TTL_SECONDS, TimeUnit.SECONDS);
-            }
-            if (globalCodeFails != null && globalCodeFails >= MAX_GLOBAL_CODE_FAIL_ATTEMPTS) {
-                redisTemplate.delete(codeKey(ip));
-                redisTemplate.delete(GLOBAL_CODE_FAIL_KEY);
-            }
+        Long globalCodeFails = redisTemplate.opsForValue().increment(GLOBAL_CODE_FAIL_KEY, CODE_TTL_SECONDS, TimeUnit.SECONDS);
+        if (globalCodeFails != null && globalCodeFails >= MAX_GLOBAL_CODE_FAIL_ATTEMPTS) {
+            redisTemplate.deletePattern("oci:admin_login:code:*");
+            redisTemplate.delete(GLOBAL_CODE_FAIL_KEY);
         }
 
         if (recordAuthFailure(ip)) {
@@ -224,10 +281,7 @@ public class AdminAuthService {
 
     public boolean recordAuthFailure(String clientIp) {
         String ip = normalizeIp(clientIp);
-        Long attempts = redisTemplate.opsForValue().increment(failKey(ip));
-        if (attempts != null && attempts == 1L) {
-            redisTemplate.expire(failKey(ip), LOCKOUT_SECONDS, TimeUnit.SECONDS);
-        }
+        Long attempts = redisTemplate.opsForValue().increment(failKey(ip), LOCKOUT_SECONDS, TimeUnit.SECONDS);
         boolean ipLocked = attempts != null && attempts >= MAX_FAILED_ATTEMPTS;
         if (ipLocked) {
             redisTemplate.opsForValue().set(lockKey(ip), "1", LOCKOUT_SECONDS, TimeUnit.SECONDS);
@@ -241,9 +295,6 @@ public class AdminAuthService {
         redisTemplate.delete(lockKey(ip));
     }
 
-    /**
-     * 统一提取客户端 Token（优先读取 X-Admin-Token / Authorization 请求头，兜底读取 payload 中的 token）
-     */
     public String resolveToken(HttpServletRequest request, Map<String, ?> payload) {
         if (request != null) {
             String token = request.getHeader("X-Admin-Token");
@@ -309,10 +360,6 @@ public class AdminAuthService {
         return PasswordHasher.matches(presented, opt.get().getConfigValue().trim());
     }
 
-    /**
-     * 取属性源里的原始口令，不走嵌套占位符替换。整段值恰好是 {@code ${...}} 时才交给 Environment，
-     * 以兼容包内默认的 {@code ${ADMIN_PASSWORD:}}。
-     */
     private void reloadAdminPasswordFromEnvironment() {
         String raw = readRawAdminPassword();
         if (raw.matches("\\$\\{[^}]*}")) {
@@ -323,9 +370,7 @@ public class AdminAuthService {
                 } else {
                     raw = "";
                 }
-            } catch (Exception ignored) {
-                // 解析失败就保留字面量，避免把真正的密码清空。
-            }
+            } catch (Exception ignored) {}
         }
         this.adminPassword = raw == null ? "" : raw.trim();
     }
@@ -341,6 +386,13 @@ public class AdminAuthService {
             if (!text.isEmpty()) return text;
         }
         return "";
+    }
+
+    private void clearLegacyDatabaseUsername() {
+        if (systemConfigRepo == null) return;
+        if (systemConfigRepo.existsById("ADMIN_WEB_USERNAME")) {
+            systemConfigRepo.deleteById("ADMIN_WEB_USERNAME");
+        }
     }
 
     private void clearLegacyDatabasePassword() {
@@ -365,8 +417,6 @@ public class AdminAuthService {
         String current = adminPassword.trim();
         if (current.matches("\\$\\{[^}]*}") || PasswordHasher.isHashed(current)) return;
         if (accountYamlService == null) return;
-        // 🌟 哈希化写入 application.yml 之前，在同目录安全保留 .admin-password (chmod 600) 供 root 终端运维命令 (oci/update.sh) 查看
-        accountYamlService.saveRememberedAdminPassword(current);
         String hashed = PasswordHasher.hash(current);
         if (accountYamlService.replacePlaintextAdminPassword(current, hashed)) {
             this.adminPassword = hashed;

@@ -49,11 +49,18 @@ public class OciBootVolumeService {
 
     List<Map<String, String>> fetchBootVolumeData(String accountName) throws Exception {
         OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
+        if (accConfig == null) {
+            throw new IllegalArgumentException("账号配置不存在: " + accountName);
+        }
         var clients = clientManager.getOciClients(accountName);
         String tenancy = accConfig.getTenancy();
 
         List<Map<String, String>> result = new ArrayList<>();
         java.util.List<String> regions = clientManager.getSubscribedRegions(accountName);
+        java.util.List<String> compartmentIds = clientManager.getActiveCompartmentIds(accountName);
+        if (compartmentIds.isEmpty() && tenancy != null) {
+            compartmentIds = java.util.List.of(tenancy);
+        }
 
         for (String region : regions) {
             try {
@@ -66,53 +73,56 @@ public class OciBootVolumeService {
                 );
 
                 for (AvailabilityDomain ad : adRes.getItems()) {
-                    var attachmentsRes = computeClient.listBootVolumeAttachments(
-                            ListBootVolumeAttachmentsRequest.builder()
-                                    .compartmentId(tenancy)
-                                    .availabilityDomain(ad.getName())
-                                    .build()
-                    );
+                    for (String compId : compartmentIds) {
+                        var attachmentsRes = computeClient.listBootVolumeAttachments(
+                                ListBootVolumeAttachmentsRequest.builder()
+                                        .compartmentId(compId)
+                                        .availabilityDomain(ad.getName())
+                                        .build()
+                        );
 
-                    Map<String, BootVolumeAttachment> attachmentMap = new HashMap<>();
-                    for (BootVolumeAttachment att : attachmentsRes.getItems()) {
-                        if (att.getLifecycleState() != BootVolumeAttachment.LifecycleState.Detached) {
-                            attachmentMap.put(att.getBootVolumeId(), att);
-                        }
-                    }
-
-                    var bvRes = blockstorageClient.listBootVolumes(
-                            ListBootVolumesRequest.builder()
-                                    .compartmentId(tenancy)
-                                    .availabilityDomain(ad.getName())
-                                    .build()
-                    );
-
-                    for (BootVolume bv : bvRes.getItems()) {
-                        if (bv.getLifecycleState() == BootVolume.LifecycleState.Terminated) {
-                            continue;
-                        }
-
-                        Map<String, String> map = new HashMap<>();
-                        map.put("id", bv.getId());
-                        map.put("name", bv.getDisplayName());
-                        map.put("state", bv.getLifecycleState().getValue());
-                        map.put("size", String.valueOf(bv.getSizeInGBs()));
-                        map.put("ad", ad.getName());
-                        map.put("region", region);
-
-                        BootVolumeAttachment att = attachmentMap.get(bv.getId());
-                        if (att != null) {
-                            map.put("attachmentId", att.getId());
-                            map.put("instanceId", att.getInstanceId());
-                            String instName = "未知实例或已被删除";
-                            if (OciCloudService.INSTANCE_CACHE.containsKey(att.getInstanceId())) {
-                                instName = OciCloudService.INSTANCE_CACHE.get(att.getInstanceId()).get("name");
+                        Map<String, BootVolumeAttachment> attachmentMap = new HashMap<>();
+                        for (BootVolumeAttachment att : attachmentsRes.getItems()) {
+                            if (att.getLifecycleState() != BootVolumeAttachment.LifecycleState.Detached) {
+                                attachmentMap.put(att.getBootVolumeId(), att);
                             }
-                            map.put("attachedTo", instName);
-                        } else {
-                            map.put("attachedTo", "");
                         }
-                        result.add(map);
+
+                        var bvRes = blockstorageClient.listBootVolumes(
+                                ListBootVolumesRequest.builder()
+                                        .compartmentId(compId)
+                                        .availabilityDomain(ad.getName())
+                                        .build()
+                        );
+
+                        for (BootVolume bv : bvRes.getItems()) {
+                            if (bv.getLifecycleState() == BootVolume.LifecycleState.Terminated) {
+                                continue;
+                            }
+
+                            Map<String, String> map = new HashMap<>();
+                            map.put("id", bv.getId());
+                            map.put("name", bv.getDisplayName());
+                            map.put("state", bv.getLifecycleState().getValue());
+                            map.put("size", String.valueOf(bv.getSizeInGBs()));
+                            map.put("ad", ad.getName());
+                            map.put("region", region);
+                            map.put("compartmentId", compId);
+
+                            BootVolumeAttachment att = attachmentMap.get(bv.getId());
+                            if (att != null) {
+                                map.put("attachmentId", att.getId());
+                                map.put("instanceId", att.getInstanceId());
+                                String instName = "未知实例或已被删除";
+                                if (OciCloudService.INSTANCE_CACHE.containsKey(att.getInstanceId())) {
+                                    instName = OciCloudService.INSTANCE_CACHE.get(att.getInstanceId()).get("name");
+                                }
+                                map.put("attachedTo", instName);
+                            } else {
+                                map.put("attachedTo", "");
+                            }
+                            result.add(map);
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -196,6 +206,15 @@ public class OciBootVolumeService {
                     .build());
             invalidateBootVolumeCache(accountName);
             return true;
+        } catch (com.oracle.bmc.model.BmcException bmcEx) {
+            int code = bmcEx.getStatusCode();
+            String msg = bmcEx.getMessage() != null ? bmcEx.getMessage().toLowerCase() : "";
+            if (code == 404 || (code == 409 && (msg.contains("terminat") || msg.contains("deleted")))) {
+                invalidateBootVolumeCache(accountName);
+                return true;
+            }
+            System.err.println("删除引导卷失败(API异常): " + bmcEx.getMessage());
+            return false;
         } catch (Exception e) {
             System.err.println("删除引导卷失败: " + e.getMessage());
             return false;

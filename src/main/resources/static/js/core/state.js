@@ -114,6 +114,7 @@ export const isFixingRoute = ref(false);
 export const syncingOcids = ref({});
 export const enablingIpv6Ocids = ref({});
 export const disablingIpv6Ocids = ref({});
+export const changingIpOcids = ref({});
 
 // 消息反馈响应式对象
 const createMsgObject = () => reactive({ text: '', isSuccess: true });
@@ -149,6 +150,7 @@ export const modals = reactive({
     danger: { show: false, title: '', message: '', expectedKeyword: '', inputKeyword: '', actionCallback: null },
     confirm: { show: false, title: '', message: '', confirmText: '确认', isDanger: false, actionCallback: null },
     passkey: { show: false, list: [], isLoading: false, isRegistering: false, newName: '', stepUpSecret: '', msg: { text: '', isSuccess: true } },
+    stepUp: { show: false, secret: '', isSubmitting: false, isSendingCode: false, msg: { text: '', isSuccess: true } },
     subscribeRegion: {
         show: false,
         account: '',
@@ -429,3 +431,76 @@ export const systemUpdateInfo = ref({
 });
 export const isCheckingUpdate = ref(false);
 export const isUpgradingSystem = ref(false);
+
+// 🔒 退出登录时全量清空内存中的敏感业务数据与弹窗状态
+export function resetAllSensitiveState() {
+    currentTab.value = 'auth';
+    isEditing.value = false;
+    globalInstances.value = {};
+    trafficData.value = {};
+    tasksData.value = {};
+    bootVolumes.value = [];
+    globalAccounts.value = [];
+    accountDetails.value = [];
+    quotaTemplate.value = '';
+    createImages.value = [];
+    reinstallImages.value = [];
+    networkAccount.value = '';
+    manageAccountSelect.value = '';
+    deleteAccountSelect.value = '';
+    serverSearchKeyword.value = '';
+    syncingOcids.value = {};
+    enablingIpv6Ocids.value = {};
+    disablingIpv6Ocids.value = {};
+    changingIpOcids.value = {};
+    Object.keys(trafficSyncing).forEach(k => delete trafficSyncing[k]);
+
+    createForm.account = '';
+    createForm.region = '';
+    createForm.os = '';
+    createForm.instanceName = '';
+    createForm.rootPwd = genRandomPwd();
+    createForm.sshKey = '';
+
+    unreadNoticeCount.value = 0;
+    notificationDrawerOpen.value = false;
+    notificationsList.value = [];
+    notificationTotalCount.value = 0;
+    toastNotifications.value = [];
+
+    modals.tagAccount.show = false;
+    modals.tagAccount.tags = [];
+    modals.renameAccount.show = false;
+    modals.rename.show = false;
+    modals.expandVolume.show = false;
+    modals.expandVolume.bv = null;
+    modals.reinstall.show = false;
+    modals.reinstall.rootPwd = genRandomPwd();
+    modals.reinstall.sshKey = '';
+    modals.import.show = false;
+    modals.import.accountName = '';
+    modals.import.configText = '';
+    modals.import.fileText = '';
+    modals.import.fileName = '';
+    modals.danger.show = false;
+    modals.danger.actionCallback = null;
+    modals.confirm.show = false;
+    modals.confirm.actionCallback = null;
+    modals.passkey.show = false;
+    modals.passkey.list = [];
+    modals.passkey.stepUpSecret = '';
+    modals.stepUp.show = false;
+    modals.stepUp.secret = '';
+    modals.stepUp.isSubmitting = false;
+    modals.stepUp.isSendingCode = false;
+    modals.stepUp.msg = { text: '', isSuccess: true };
+    modals.subscribeRegion.show = false;
+    modals.subscribeRegion.subscribedRegions = [];
+    modals.subscribeRegion.allRegions = [];
+
+    sysMsg.text = '';
+    createMsg.text = '';
+    manageMsg.text = '';
+    reinstallMsg.text = '';
+    importMsg.text = '';
+}

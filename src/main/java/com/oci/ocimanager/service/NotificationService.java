@@ -22,6 +22,7 @@ import java.util.regex.Pattern;
 public class NotificationService {
 
     private static final int MAX_NOTIFICATIONS_RETENTION = 300;
+    private static final Pattern SPOILER_SECRET_PATTERN = Pattern.compile("(?is)<tg-spoiler>.*?</tg-spoiler>");
 
     @Autowired
     private SystemNotificationRepository notificationRepo;
@@ -58,8 +59,9 @@ public class NotificationService {
             content = "";
         }
 
-        // 1. 本地持久化至 SQLite 数据库
-        SystemNotification notice = new SystemNotification(title, content, level, category);
+        // 1. 本地持久化至 SQLite 数据库（脱敏 <tg-spoiler> 中的实例密码等敏感明文，杜绝明文凭据落盘）
+        String sanitizedForDb = sanitizeForDatabaseStorage(content);
+        SystemNotification notice = new SystemNotification(title, sanitizedForDb, level, category);
         try {
             notice = notificationRepo.save(notice);
             // 异步触发旧数据滚动清理，保证单表轻量化
@@ -74,6 +76,11 @@ public class NotificationService {
         }
 
         return notice;
+    }
+
+    static String sanitizeForDatabaseStorage(String raw) {
+        if (raw == null || raw.isEmpty()) return "";
+        return SPOILER_SECRET_PATTERN.matcher(raw).replaceAll("<code>[已脱敏保护，未明文落盘]</code>");
     }
 
     /**

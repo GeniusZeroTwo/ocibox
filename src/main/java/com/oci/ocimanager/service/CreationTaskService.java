@@ -4,6 +4,7 @@ import com.oci.ocimanager.config.OciProperties;
 import com.oci.ocimanager.entity.CreationTaskRecord;
 import com.oci.ocimanager.repository.CreationTaskRepository;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -35,8 +36,11 @@ public class CreationTaskService {
     @Autowired
     private TelegramBotService telegramBotService;
 
+    public static final int MAX_CONCURRENT_TASKS = 20;
+
     private final Map<String, Thread> runningThreads = new ConcurrentHashMap<>();
     private final Map<String, AtomicBoolean> taskFlags = new ConcurrentHashMap<>();
+    private final Map<String, CreationTaskRecord> runningRecords = new ConcurrentHashMap<>();
     // 🐞 显式停止标记：worker 退出时据此兜底删除数据库记录，杜绝“停止后迟到 save() 复活任务”。
     private final Set<String> stoppedTasks = ConcurrentHashMap.newKeySet();
 
@@ -60,15 +64,16 @@ public class CreationTaskService {
     }
 
     public void appendLog(String taskId, String message) {
-        taskLogs.computeIfAbsent(taskId, k -> new StringBuffer());
-        StringBuffer log = taskLogs.get(taskId);
-        
-        // 🌟 核心内存优化：将单任务最大保留日志从 10000 字符降至 5000，节约 50% 的字符串内存开销
-        if (log.length() > 5000) {
-            log.delete(0, log.length() - 2500);
-            log.insert(0, "...[由于内存限制，早期日志已被系统截断]...\n");
+        if (taskId == null || message == null) return;
+        StringBuffer log = taskLogs.computeIfAbsent(taskId, k -> new StringBuffer());
+        synchronized (log) {
+            // 🌟 核心内存优化：将单任务最大保留日志从 10000 字符降至 5000，节约 50% 的字符串内存开销
+            if (log.length() > 5000) {
+                log.delete(0, log.length() - 2500);
+                log.insert(0, "...[由于内存限制，早期日志已被系统截断]...\n");
+            }
+            log.append(message);
         }
-        log.append(message);
     }
 
     private void saveTaskWithRetry(CreationTaskRecord task) {
@@ -89,27 +94,52 @@ public class CreationTaskService {
     }
 
     public String getTaskLog(String taskId) {
-        return taskLogs.containsKey(taskId) ? taskLogs.get(taskId).toString() : "该任务日志已被系统释放(节约内存)或任务不存在。";
+        StringBuffer log = taskLogs.get(taskId);
+        if (log == null) {
+            return "该任务日志已被系统释放(节约内存)或任务不存在。";
+        }
+        synchronized (log) {
+            return log.toString();
+        }
     }
 
     @PostConstruct
     public void resumeTasksOnStartup() {
         System.out.println("🔄 正在从数据库恢复未完成的抢机任务...");
         try {
+            // 🔒 清理历史已完成/停止任务残留的明文密码字段，杜绝 SQLite 长期滞留明文凭据
+            List<CreationTaskRecord> allExisting = taskRepository.findAll();
+            for (CreationTaskRecord existing : allExisting) {
+                if (!"RUNNING".equalsIgnoreCase(existing.getStatus())
+                        && existing.getPassword() != null && !existing.getPassword().isEmpty()) {
+                    existing.setPassword(null);
+                    saveTaskWithRetry(existing);
+                }
+            }
+
             List<CreationTaskRecord> runningTasks = taskRepository.findByStatus("RUNNING");
             if (runningTasks.isEmpty()) {
                 System.out.println("✅ 没有需要恢复的抢机任务。");
                 return;
             }
-            
+
+            int resumedCount = 0;
             for (CreationTaskRecord task : runningTasks) {
+                if (resumedCount >= MAX_CONCURRENT_TASKS) {
+                    task.setStatus("STOPPED");
+                    task.setPassword(null);
+                    saveTaskWithRetry(task);
+                    appendLog(task.getId(), "⚠️ [" + getNowTime() + "] 超出系统最大并发抢机任务数 (" + MAX_CONCURRENT_TASKS + ")，已安全置为停止状态。\n");
+                    continue;
+                }
                 System.out.println("▶️ 恢复任务: 账号 " + task.getAccount() + "，任务 ID: " + task.getId());
                 appendLog(task.getId(), "🔄 [" + getNowTime() + "] 系统重启，已自动恢复抢占任务...\n");
                 startTaskInternal(task);
-                
+                resumedCount++;
+
                 try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
             }
-            System.out.println("✅ 共恢复了 " + runningTasks.size() + " 个抢机任务。");
+            System.out.println("✅ 共恢复了 " + resumedCount + " 个抢机任务。");
         } catch (Exception e) {
             System.err.println("❌ 恢复抢机任务失败: " + e.getMessage());
         }
@@ -120,6 +150,9 @@ public class CreationTaskService {
     }
 
     public String startTask(String account, String instanceName, String region, String shape, String osName, String osVersion, float cpu, float ram, long disk, int count, int interval, boolean ipv4, boolean ipv6, boolean rootLogin, String rootPwd, String sshKey) {
+        if (runningThreads.size() >= MAX_CONCURRENT_TASKS) {
+            throw new IllegalStateException("当前并发抢机任务数已达上限 (" + MAX_CONCURRENT_TASKS + " 个)，请先停止部分任务后再创建");
+        }
         CreationTaskRecord record = new CreationTaskRecord();
         String taskId = UUID.randomUUID().toString();
         record.setId(taskId);
@@ -158,35 +191,41 @@ public class CreationTaskService {
         appendLog(taskId, "🚀 [" + getNowTime() + "] 任务已持久化并加入执行队列...\n");
         startTaskInternal(record);
         
-        return "✅ 抢机任务已持久化并开始运行，服务器重启也不会丢失。";
+        return taskId;
     }
 
     private synchronized void startTaskInternal(CreationTaskRecord task) {
-        String account = task.getAccount();
         String taskId = task.getId(); 
 
         if (taskFlags.containsKey(taskId) && taskFlags.get(taskId).get()) {
             System.out.println("⚠️ 拦截到重复触发的任务 [" + taskId + "]...");
             return;
         }
+        if (runningThreads.size() >= MAX_CONCURRENT_TASKS) {
+            appendLog(taskId, "⚠️ [" + getNowTime() + "] 并发任务数已达上限 (" + MAX_CONCURRENT_TASKS + ")，暂缓启动。\n");
+            return;
+        }
 
         AtomicBoolean isRunning = new AtomicBoolean(true);
         taskFlags.put(taskId, isRunning);
+        runningRecords.put(taskId, task);
 
         // 🌟 核心防御更新：弃用 Thread.ofVirtual()，改为传统的 OS 平台线程 Thread.ofPlatform()！
         // 虚拟线程会被 OCI SDK 底层的 HTTP 阻塞操作“钉死”(Pinning) 从而耗尽所有的核心调度器，
         // 导致 Tomcat HTTP 线程无法获得 CPU 分配，进而引发全站 504 假死崩溃。
         // 改用传统 OS 线程后，抢机操作将被系统级隔离，再也不会波及前端响应！
-        Thread taskThread = Thread.ofPlatform().name("creation-task-" + taskId.substring(0, 8)).start(() -> {
+        Thread taskThread = Thread.ofPlatform().name("creation-task-" + taskId.substring(0, Math.min(8, taskId.length()))).start(() -> {
             boolean isFirstRun = true;
             int consecutiveAdLimitFailures = 0;
             try {
                 while (isRunning.get()) {
+                    String account = task.getAccount();
                     boolean success = false;
                     int targetCount = task.getInstances() > 0 ? task.getInstances() : 1;
 
                     if (task.getSuccessCount() >= targetCount) {
                         task.setStatus("SUCCESS");
+                        task.setPassword(null);
                         saveTaskWithRetry(task);
                         isRunning.set(false);
                         break;
@@ -262,6 +301,7 @@ public class CreationTaskService {
                                 task.setSuccessCount(newSuccessCount);
                                 if (newSuccessCount >= targetCount) {
                                     task.setStatus("SUCCESS");
+                                    task.setPassword(null);
                                 }
                                 saveTaskWithRetry(task);
 
@@ -383,7 +423,11 @@ public class CreationTaskService {
                                             // 计数推进后，currentInstanceName（依赖 successCount）也会随之改变，避免重复命中同一台。
                                             int newSuccessCount = task.getSuccessCount() + 1;
                                             task.setSuccessCount(newSuccessCount);
-                                            try { taskRepository.save(task); } catch (Exception ignored) {}
+                                            if (newSuccessCount >= targetCount) {
+                                                task.setStatus("SUCCESS");
+                                                task.setPassword(null);
+                                            }
+                                            saveTaskWithRetry(task);
                                             appendLog(taskId, "🎉 [" + getNowTime() + "] 喜报！核实发现机器在刚才其实已成功开出，只是未收到响应！(第 " + newSuccessCount + "/" + targetCount + " 台, OCID: " + foundId.substring(0, 20) + "...)\n");
                                             
                                             // 🌟 修复超时核实时的推送：同样使用 HTML 防御模式
@@ -470,9 +514,8 @@ public class CreationTaskService {
                                                 "👉 建议: " + advice + "\n");
                                     }
                                     task.setStatus("STOPPED");
-                                    try {
-                                        taskRepository.save(task);
-                                    } catch (Exception ignored) {}
+                                    task.setPassword(null);
+                                    saveTaskWithRetry(task);
                                     isRunning.set(false);
                                     break;
                                 }
@@ -528,6 +571,7 @@ public class CreationTaskService {
 
                         if (task.getSuccessCount() >= targetCount) {
                             task.setStatus("SUCCESS");
+                            task.setPassword(null);
                             saveTaskWithRetry(task);
                             appendLog(taskId, "🏁 [" + getNowTime() + "] 目标创建数量 (" + targetCount + " 台) 已全部成功抢占，任务完成！\n");
                             isRunning.set(false);
@@ -552,6 +596,7 @@ public class CreationTaskService {
             } finally {
                 taskFlags.remove(taskId);
                 runningThreads.remove(taskId);
+                runningRecords.remove(taskId);
                 // 🐞 兜底：若本任务是被显式停止的，线程退出时再删一次数据库记录，
                 // 抵消停止前后线程内任何迟到的 save() 复活效果。此处在整个 worker 生命周期最后执行，
                 // 之后不再有任何 save()，故能彻底关闭“复活”窗口。仅停止时删除，正常 SUCCESS 记录保留。
@@ -564,6 +609,40 @@ public class CreationTaskService {
         });
 
         runningThreads.put(taskId, taskThread);
+    }
+
+    public synchronized void onAccountRenamed(String oldAccount, String newAccount) {
+        if (oldAccount == null || newAccount == null || oldAccount.equals(newAccount)) return;
+        for (CreationTaskRecord record : runningRecords.values()) {
+            if (oldAccount.equals(record.getAccount())) {
+                record.setAccount(newAccount);
+            }
+        }
+        try {
+            List<CreationTaskRecord> all = taskRepository.findAll();
+            for (CreationTaskRecord dbRec : all) {
+                if (oldAccount.equals(dbRec.getAccount())) {
+                    dbRec.setAccount(newAccount);
+                    taskRepository.save(dbRec);
+                }
+            }
+        } catch (Exception e) {
+            System.err.println("⚠️ [CreationTaskService] 同步重命名任务账号失败: " + e.getMessage());
+        }
+    }
+
+    @PreDestroy
+    public void shutdownAllTasks() {
+        for (AtomicBoolean flag : taskFlags.values()) {
+            if (flag != null) {
+                flag.set(false);
+            }
+        }
+        for (Thread thread : runningThreads.values()) {
+            if (thread != null) {
+                thread.interrupt();
+            }
+        }
     }
 
     public String stopTask(String taskId) {

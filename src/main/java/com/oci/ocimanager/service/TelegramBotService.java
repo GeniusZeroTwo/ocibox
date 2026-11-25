@@ -28,7 +28,6 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.security.SecureRandom;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -54,10 +53,8 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
     @Value("${app.admin-id:}")
     private String adminId;
 
-    public static final ConcurrentHashMap<String, String> TG_USER_MAP = new ConcurrentHashMap<>();
-    public static final ConcurrentHashMap<String, String> TG_URL_MAP = new ConcurrentHashMap<>();
-
     private static final String TOTAL_SYSTEM_IP_CHANGES_KEY = "TOTAL_SYSTEM_IP_CHANGES";
+    private final java.util.concurrent.atomic.AtomicBoolean isTgSyncing = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     @Autowired private SystemConfigRepository systemConfigRepo;
     @Autowired private OciCloudService ociCloudService;
@@ -126,30 +123,6 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
         return "OCIBox_Bot";
     }
 
-    public static String extractTelegramUsername(org.telegram.telegrambots.meta.api.objects.User user) {
-        if (user == null) return null;
-        if (user.getUserName() != null && !user.getUserName().isBlank()) {
-            return "@" + user.getUserName().trim().replace("@", "");
-        }
-        String fn = user.getFirstName() != null ? user.getFirstName().trim() : "";
-        String ln = user.getLastName() != null ? user.getLastName().trim() : "";
-        String fullName = (fn + " " + ln).trim();
-        return fullName.isBlank() ? null : fullName;
-    }
-
-    public static String extractTelegramUserUrl(org.telegram.telegrambots.meta.api.objects.User user) {
-        if (user == null) return null;
-        if (user.getUserName() != null && !user.getUserName().isBlank()) {
-            return "https://t.me/" + user.getUserName().trim().replace("@", "");
-        }
-        return "tg://user?id=" + user.getId();
-    }
-
-    public String getOrFetchTelegramUsername(String tgId) {
-        if (tgId == null || tgId.isBlank()) return null;
-        return TG_USER_MAP.get(tgId);
-    }
-
     public static String cleanInstanceDisplayName(String rawName, String account) {
         if (rawName == null) return "未命名实例";
         if (account != null && !account.isBlank()) {
@@ -190,7 +163,9 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
         botWorker.submit(() -> {
             try {
                 if (update.hasMessage() && update.getMessage().hasText()) {
-                    handleTextMessage(update.getMessage().getChatId(), update.getMessage().getFrom(), update.getMessage().getText().trim());
+                    boolean isPrivateChat = update.getMessage().getChat() != null
+                            && "private".equalsIgnoreCase(update.getMessage().getChat().getType());
+                    handleTextMessage(update.getMessage().getChatId(), update.getMessage().getFrom(), update.getMessage().getText().trim(), isPrivateChat);
                 } else if (update.hasCallbackQuery()) {
                     handleCallbackQuery(update.getCallbackQuery());
                 }
@@ -200,9 +175,17 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
         });
     }
 
-    private void handleTextMessage(long chatId, org.telegram.telegrambots.meta.api.objects.User sender, String text) {
+    private void handleTextMessage(long chatId, org.telegram.telegrambots.meta.api.objects.User sender, String text, boolean isPrivateChat) {
         if (!isAuthorizedAdmin(sender)) {
-            sendText(chatId, "🔒 抱歉，当前机器人为个人私有管理面板专属服务，未对公开放。");
+            if (!isPrivateChat) {
+                // 群组/超级群/频道内非管理员发言一律静默忽略，防止刷屏与消耗发送配额
+                return;
+            }
+            String cdKey = "oci:tg_unauth_cd:" + chatId;
+            if (Boolean.FALSE.equals(redisTemplate.hasKey(cdKey))) {
+                redisTemplate.opsForValue().set(cdKey, "1", 5, TimeUnit.MINUTES);
+                sendText(chatId, "🔒 抱歉，当前机器人为个人私有管理面板专属服务，未对公开放。");
+            }
             return;
         }
 
@@ -213,15 +196,26 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
         } else if ("/traffic".equals(text)) {
             sendTrafficOverview(chatId, null);
         } else if ("/sync".equals(text)) {
-            sendText(chatId, "🔄 正在同步全账号与实例，请稍候...");
-            try {
-                Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
-                int accCount = ociProperties.getAccounts() != null ? ociProperties.getAccounts().size() : 0;
-                sendText(chatId, "✅ 同步完成！共纳管 " + accCount + " 个甲骨文账号，" + instances.size() + " 台实例。");
-            } catch (Exception e) {
-                System.err.println("❌ 同步失败: " + e.getMessage());
-                sendText(chatId, "❌ 同步失败，请稍后在网页后台查看。");
+            if (!isTgSyncing.compareAndSet(false, true)) {
+                sendText(chatId, "⏳ 全量云端同步任务正在进行中，请稍候...");
+                return;
             }
+            sendText(chatId, "🔄 正在向甲骨文云同步全账号与实例状态，请稍候...");
+            CompletableFuture.runAsync(() -> {
+                try {
+                    Map<String, Map<String, String>> instances = ociCloudService.updateInstancesCache(true);
+                    if (ScheduledTasksService.getInstance() != null) {
+                        ScheduledTasksService.getInstance().saveSystemCache();
+                    }
+                    int accCount = ociProperties.getAccounts() != null ? ociProperties.getAccounts().size() : 0;
+                    sendText(chatId, "✅ 云端同步完成！共纳管 " + accCount + " 个甲骨文账号，" + instances.size() + " 台实例。");
+                } catch (Exception e) {
+                    System.err.println("❌ 同步失败: " + e.getMessage());
+                    sendText(chatId, "❌ 同步失败，请稍后在网页后台查看。");
+                } finally {
+                    isTgSyncing.set(false);
+                }
+            });
         } else if ("/help".equals(text)) {
             String help = "👑 <b>【OCIBox 个人管理指令】</b>\n\n"
                     + "/start - 打开主控台菜单\n"
@@ -342,7 +336,7 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
         String state = info.getOrDefault("state", "UNKNOWN");
         String shape = info.getOrDefault("shape", "未知");
         String region = info.getOrDefault("region", "未知");
-        String ocpu = info.getOrDefault("ocpu", "-");
+        String ocpu = info.getOrDefault("cpu", info.getOrDefault("ocpu", "-"));
         String memory = info.getOrDefault("memory", "-");
 
         String ip = ociCloudService.getCachedIp(ocid);
@@ -412,15 +406,26 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
             answerCallback(queryId, "正在加载流量数据...", false);
             sendTrafficOverview(chatId, messageId);
         } else if ("menu_sync".equals(data)) {
-            answerCallback(queryId, "正在同步...", false);
-            try {
-                Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
-                answerCallback(queryId, "✅ 同步成功！共 " + instances.size() + " 台实例", true);
-                renderStartView(chatId, messageId);
-            } catch (Exception e) {
-                System.err.println("❌ 同步失败: " + e.getMessage());
-                answerCallback(queryId, "❌ 同步失败，请稍后在网页后台查看。", true);
+            if (!isTgSyncing.compareAndSet(false, true)) {
+                answerCallback(queryId, "⏳ 全量云端同步任务正在进行中，请稍候...", true);
+                return;
             }
+            answerCallback(queryId, "🔄 已启动云端全量同步...", false);
+            updateMessage(chatId, messageId, "⏳ <b>正在向甲骨文云同步最新实例与公网 IP 状态...</b>\n\n全账号并发巡检通常耗时数秒至数十秒，完成后将自动刷新主控台。", null);
+            CompletableFuture.runAsync(() -> {
+                try {
+                    ociCloudService.updateInstancesCache(true);
+                    if (ScheduledTasksService.getInstance() != null) {
+                        ScheduledTasksService.getInstance().saveSystemCache();
+                    }
+                    renderStartView(chatId, messageId);
+                } catch (Exception e) {
+                    System.err.println("❌ 同步失败: " + e.getMessage());
+                    updateMessage(chatId, messageId, "❌ 云端同步失败，请稍后在网页后台查看。", null);
+                } finally {
+                    isTgSyncing.set(false);
+                }
+            });
         } else if (data.startsWith("page_")) {
             int page = 0;
             try {
@@ -497,6 +502,13 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
                 } else {
                     updateMessage(chatId, messageId, "❌ 更换 IP 失败：未能获取到新分配的 IP 地址。", null);
                 }
+            } catch (IllegalStateException e) {
+                List<InlineKeyboardRow> rows = new ArrayList<>();
+                InlineKeyboardRow r = new InlineKeyboardRow();
+                r.add(InlineKeyboardButton.builder().text("🔙 返回该实例").callbackData("inst_" + shortId).build());
+                rows.add(r);
+                updateMessage(chatId, messageId, "⚠️ <b>已拦截更换 IP 操作</b>\n\n" + escapeHtml(e.getMessage()),
+                        InlineKeyboardMarkup.builder().keyboard(rows).build());
             } catch (Exception e) {
                 System.err.println("更换 IP 异常: " + e.getMessage());
                 updateMessage(chatId, messageId, "❌ 更换 IP 失败，请稍后在网页后台查看。", null);
@@ -514,15 +526,18 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
                 Map<String, String> info = instances.get(ocid);
                 String accName = info != null ? info.get("account") : null;
 
+                boolean ok;
                 if ("START".equals(action)) {
-                    ociCloudService.instanceAction(ocid, "START", accName);
+                    ok = ociCloudService.instanceAction(ocid, "START", accName);
+                    if (ok) ScheduledTasksService.recordManualInstancePowerAction(ocid, "START");
                 } else if ("STOP".equals(action)) {
-                    ociCloudService.instanceAction(ocid, "STOP", accName);
+                    ok = ociCloudService.instanceAction(ocid, "STOP", accName);
+                    if (ok) ScheduledTasksService.recordManualInstancePowerAction(ocid, "STOP");
                 } else {
-                    ociCloudService.instanceAction(ocid, "SOFTRESET", accName);
+                    ok = ociCloudService.instanceAction(ocid, "SOFTRESET", accName);
                 }
 
-                answerCallback(queryId, "✅ 已成功发送" + actionName + "指令！", true);
+                answerCallback(queryId, ok ? ("✅ 已成功发送" + actionName + "指令！") : "❌ 操作未成功，请稍后重试", true);
                 renderInstanceDetail(chatId, messageId, shortId, ocid);
             } catch (Exception e) {
                 System.err.println("实例电源操作异常: " + e.getMessage());
@@ -649,18 +664,35 @@ public class TelegramBotService implements LongPollingUpdateConsumer {
                 Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
                 Map<String, String> info = instances.get(ocid);
                 String accName = info != null ? info.get("account") : null;
+                String cleanName = cleanInstanceDisplayName(info != null ? info.get("name") : ocid, accName);
                 String randomPwd = generateRandomPassword(32);
                 String[] osParts = imgVal.split("\\|", 2);
                 String osName = osParts[0];
                 String osVersion = osParts.length > 1 ? osParts[1] : "";
 
-                boolean ok = ociCloudService.reinstallInstance(ocid, accName, (info != null ? info.get("name") : null), osName, osVersion, null, null, randomPwd);
+                String oldBootVolumeId = null;
+                try {
+                    List<Map<String, String>> bvs = ociCloudService.getBootVolumes(accName);
+                    if (bvs != null) {
+                        for (Map<String, String> bv : bvs) {
+                            if (ocid.equals(bv.get("instanceId"))) {
+                                oldBootVolumeId = bv.get("id");
+                                break;
+                            }
+                        }
+                    }
+                } catch (Exception ignored) {}
+
+                // 传 null 作为 instanceName，保留云端原 displayName，杜绝叠加 "[账号名] " 前缀污染
+                boolean ok = ociCloudService.reinstallInstance(ocid, accName, null, osName, osVersion, null, null, randomPwd);
                 if (ok) {
                     String success = "✅ <b>【系统重装任务已成功派发】</b>\n\n"
+                            + "🖥️ <b>目标实例</b>: <code>" + escapeHtml(cleanName) + "</code>\n"
                             + "🐧 <b>安装镜像</b>: <code>" + escapeHtml(imgName) + "</code>\n"
-                            + "🔑 <b>初始 root 密码</b>: <code>" + escapeHtml(randomPwd) + "</code>\n\n"
-                            + "引导卷正在后台拉起开机，稍后请使用该密码建立连接。";
+                            + "🔑 <b>初始 root 密码</b>: <tg-spoiler><code>" + escapeHtml(randomPwd) + "</code></tg-spoiler>\n\n"
+                            + "引导卷正在后台拉起开机，系统将在开机完成后自动回收旧引导卷并推送通知。";
                     sendHtmlText(chatId, success);
+                    ociCloudService.startReinstallMonitor(ocid, accName, cleanName, randomPwd, oldBootVolumeId, false);
                 } else {
                     sendHtmlText(chatId, "❌ 系统重装失败，请在网页后台查看详细错误日志。");
                 }

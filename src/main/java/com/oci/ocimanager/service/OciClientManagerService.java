@@ -26,82 +26,130 @@ public class OciClientManagerService {
     @Autowired
     private OciClientFingerprintService fingerprintService;
 
-    public synchronized SimpleAuthenticationDetailsProvider getProvider(String accountName, OciProperties.Account account) throws Exception {
-        if (account == null) {
-            throw new IllegalArgumentException("该账号的对象结构完全为空，请检查 YAML 是否存在语法或缩进错误！");
-        }
+    private static final long COMPARTMENT_CACHE_TTL_MS = 30L * 60L * 1000L;
+    private final java.util.concurrent.ConcurrentHashMap<String, Object> accountLocks = new java.util.concurrent.ConcurrentHashMap<>();
+    private final Set<String> refreshingRegionsAccounts = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final Set<String> transientRegionFailureAccounts = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
-        if (OciCloudService.PROVIDER_CACHE.containsKey(accountName)) {
-            return OciCloudService.PROVIDER_CACHE.get(accountName);
-        }
-
-        if (account.getKeyFile() == null) {
-            throw new IllegalArgumentException("未配置私钥路径 (缺少 key-file 字段)");
-        }
-        if (account.getTenancy() == null) {
-            throw new IllegalArgumentException("未配置租户 ID (缺少 tenancy 字段)");
-        }
-        if (account.getUser() == null) {
-            throw new IllegalArgumentException("未配置用户 ID (缺少 user 字段)");
-        }
-        if (account.getFingerprint() == null) {
-            throw new IllegalArgumentException("未配置指纹 (缺少 fingerprint 字段)");
-        }
-        if (account.getRegion() == null) {
-            throw new IllegalArgumentException("未配置区域 (缺少 region 字段)");
-        }
-
-        Path keyPath = Paths.get(account.getKeyFile());
-        if (!Files.exists(keyPath)) {
-            throw new IllegalArgumentException("私钥文件不存在: " + account.getKeyFile());
-        }
-        SimpleAuthenticationDetailsProvider provider = SimpleAuthenticationDetailsProvider.builder()
-                .tenantId(account.getTenancy())
-                .userId(account.getUser())
-                .fingerprint(account.getFingerprint())
-                .privateKeySupplier(new SimplePrivateKeySupplier(account.getKeyFile()))
-                .region(com.oracle.bmc.Region.valueOf(account.getRegion()))
-                .build();
-
-        OciCloudService.PROVIDER_CACHE.put(accountName, provider);
-        return provider;
+    public boolean hasTransientRegionDiscoveryFailure(String accountName) {
+        return accountName != null && transientRegionFailureAccounts.contains(accountName);
     }
 
-    public synchronized OciClientWrapper getOciClients(String accountName) throws Exception {
-        OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
-        if (accConfig == null && accountName != null) {
+    private static void closeWrapperAsync(OciClientWrapper wrapper) {
+        if (wrapper == null) return;
+        java.util.concurrent.CompletableFuture.delayedExecutor(45, java.util.concurrent.TimeUnit.SECONDS)
+                .execute(() -> {
+                    try {
+                        wrapper.closeAll();
+                    } catch (Exception ignored) {}
+                });
+    }
+
+    private Object lockForAccount(String accountName) {
+        String key = (accountName != null) ? accountName.replaceAll("[\"'\\s\\[\\]\\r\\n]", "") : "__default__";
+        return accountLocks.computeIfAbsent(key, k -> new Object());
+    }
+
+    private OciProperties.Account resolveAccountConfig(String accountName) {
+        if (accountName == null) return null;
+        Map<String, OciProperties.Account> accounts = ociProperties.getAccounts();
+        if (accounts == null) return null;
+        OciProperties.Account accConfig = accounts.get(accountName);
+        if (accConfig == null) {
             String clean = accountName.replaceAll("[\"'\\s\\[\\]\\r\\n]", "");
-            for (Map.Entry<String, OciProperties.Account> e : ociProperties.getAccounts().entrySet()) {
+            for (Map.Entry<String, OciProperties.Account> e : accounts.entrySet()) {
                 if (e.getKey().replaceAll("[\"'\\s\\[\\]\\r\\n]", "").equals(clean)) {
                     accConfig = e.getValue();
                     break;
                 }
             }
         }
+        return accConfig;
+    }
+
+    public SimpleAuthenticationDetailsProvider getProvider(String accountName, OciProperties.Account account) throws Exception {
+        if (account == null) {
+            throw new IllegalArgumentException("该账号的对象结构完全为空，请检查 YAML 是否存在语法或缩进错误！");
+        }
+
+        SimpleAuthenticationDetailsProvider cached = OciCloudService.PROVIDER_CACHE.get(accountName);
+        if (cached != null) {
+            return cached;
+        }
+
+        synchronized (lockForAccount(accountName)) {
+            cached = OciCloudService.PROVIDER_CACHE.get(accountName);
+            if (cached != null) {
+                return cached;
+            }
+
+            if (account.getKeyFile() == null) {
+                throw new IllegalArgumentException("未配置私钥路径 (缺少 key-file 字段)");
+            }
+            if (account.getTenancy() == null) {
+                throw new IllegalArgumentException("未配置租户 ID (缺少 tenancy 字段)");
+            }
+            if (account.getUser() == null) {
+                throw new IllegalArgumentException("未配置用户 ID (缺少 user 字段)");
+            }
+            if (account.getFingerprint() == null) {
+                throw new IllegalArgumentException("未配置指纹 (缺少 fingerprint 字段)");
+            }
+            if (account.getRegion() == null) {
+                throw new IllegalArgumentException("未配置区域 (缺少 region 字段)");
+            }
+
+            Path keyPath = Paths.get(account.getKeyFile());
+            if (!Files.exists(keyPath)) {
+                throw new IllegalArgumentException("私钥文件不存在: " + account.getKeyFile());
+            }
+            SimpleAuthenticationDetailsProvider provider = SimpleAuthenticationDetailsProvider.builder()
+                    .tenantId(account.getTenancy())
+                    .userId(account.getUser())
+                    .fingerprint(account.getFingerprint())
+                    .privateKeySupplier(new SimplePrivateKeySupplier(account.getKeyFile()))
+                    .region(com.oracle.bmc.Region.valueOf(account.getRegion()))
+                    .build();
+
+            OciCloudService.PROVIDER_CACHE.put(accountName, provider);
+            return provider;
+        }
+    }
+
+    public OciClientWrapper getOciClients(String accountName) throws Exception {
+        OciProperties.Account accConfig = resolveAccountConfig(accountName);
         if (accConfig == null) {
             throw new IllegalArgumentException("账号配置不存在: " + accountName);
         }
 
-        if (OciCloudService.CLIENT_CACHE.containsKey(accountName)) {
-            return OciCloudService.CLIENT_CACHE.get(accountName);
+        OciClientWrapper cached = OciCloudService.CLIENT_CACHE.get(accountName);
+        if (cached != null) {
+            return cached;
         }
 
-        var provider = getProvider(accountName, accConfig);
-        var fingerprint = fingerprintService.getFingerprint(accountName, accConfig);
+        synchronized (lockForAccount(accountName)) {
+            cached = OciCloudService.CLIENT_CACHE.get(accountName);
+            if (cached != null) {
+                return cached;
+            }
 
-        // 🔒 各账号使用专属的离散化 ClientConfiguration（差异化超时时间、并发数，同时锁定 MaxAttempts=1 杜绝 429 级联雪崩）
-        ClientConfiguration accountClientConfig = ClientConfiguration.builder()
-                .connectionTimeoutMillis(fingerprint.connectTimeoutMillis())
-                .readTimeoutMillis(fingerprint.readTimeoutMillis())
-                .maxAsyncThreads(fingerprint.maxAsyncThreads())
-                .retryConfiguration(com.oracle.bmc.retrier.RetryConfiguration.builder()
-                        .terminationStrategy(new com.oracle.bmc.waiter.MaxAttemptsTerminationStrategy(1))
-                        .build())
-                .build();
+            var provider = getProvider(accountName, accConfig);
+            var fingerprint = fingerprintService.getFingerprint(accountName, accConfig);
 
-        OciClientWrapper wrapper = new OciClientWrapper(accountName, provider, accountClientConfig, fingerprint, accConfig);
-        OciCloudService.CLIENT_CACHE.put(accountName, wrapper);
-        return wrapper;
+            // 🔒 各账号使用专属的离散化 ClientConfiguration（差异化超时时间、并发数，同时锁定 MaxAttempts=1 杜绝 429 级联雪崩）
+            ClientConfiguration accountClientConfig = ClientConfiguration.builder()
+                    .connectionTimeoutMillis(fingerprint.connectTimeoutMillis())
+                    .readTimeoutMillis(fingerprint.readTimeoutMillis())
+                    .maxAsyncThreads(fingerprint.maxAsyncThreads())
+                    .retryConfiguration(com.oracle.bmc.retrier.RetryConfiguration.builder()
+                            .terminationStrategy(new com.oracle.bmc.waiter.MaxAttemptsTerminationStrategy(1))
+                            .build())
+                    .build();
+
+            OciClientWrapper wrapper = new OciClientWrapper(accountName, provider, accountClientConfig, fingerprint, accConfig);
+            OciCloudService.CLIENT_CACHE.put(accountName, wrapper);
+            return wrapper;
+        }
     }
 
     public OciClientFingerprintService.ClientFingerprint getClientFingerprint(String accountName) {
@@ -132,49 +180,137 @@ public class OciClientManagerService {
             OciCloudService.CLIENT_CACHE.clear();
         }
         for (OciClientWrapper wrapper : wrappers) {
-            if (wrapper != null) {
-                wrapper.closeAll();
-            }
+            closeWrapperAsync(wrapper);
         }
         OciCloudService.AD_LIST_CACHE.clear();
         OciCloudService.IMAGE_CACHE.clear();
+        OciCloudService.IMAGE_CACHE_TIME.clear();
         OciCloudService.SUBNET_CACHE.clear();
+        OciCloudService.SUBNET_CACHE_TIME.clear();
         OciCloudService.SUBSCRIBED_REGIONS_CACHE.clear();
+        OciCloudService.COMPARTMENT_IDS_CACHE.clear();
+        OciCloudService.COMPARTMENT_IDS_CACHE_TIME.clear();
+        transientRegionFailureAccounts.clear();
     }
 
     public void clearClientCacheForAccount(String accountName) {
         if (accountName == null) return;
         fingerprintService.clearCache(accountName);
         OciCloudService.PROVIDER_CACHE.remove(accountName);
+        OciCloudService.SUBSCRIBED_REGIONS_CACHE.remove(accountName);
+        OciCloudService.COMPARTMENT_IDS_CACHE.remove(accountName);
+        OciCloudService.COMPARTMENT_IDS_CACHE_TIME.remove(accountName);
+        transientRegionFailureAccounts.remove(accountName);
         OciClientWrapper wrapper = OciCloudService.CLIENT_CACHE.remove(accountName);
-        if (wrapper != null) {
-            try {
-                wrapper.closeAll();
-            } catch (Exception ignored) {}
-        }
+        closeWrapperAsync(wrapper);
     }
 
     public void clearRegionsCache() {
         OciCloudService.SUBSCRIBED_REGIONS_CACHE.clear();
+        OciCloudService.COMPARTMENT_IDS_CACHE.clear();
+        OciCloudService.COMPARTMENT_IDS_CACHE_TIME.clear();
+        transientRegionFailureAccounts.clear();
+    }
+
+    /**
+     * 非阻塞读取已订阅区域列表：若内存已有缓存则立即返回；
+     * 若未命中缓存，立即返回主区域作为兜底并单飞触发后台异步拉取，绝不阻塞 /poll 轮询线程。
+     */
+    public java.util.List<String> getCachedSubscribedRegions(String accountName) {
+        java.util.List<String> cached = OciCloudService.SUBSCRIBED_REGIONS_CACHE.get(accountName);
+        if (cached != null && !cached.isEmpty()) {
+            return cached;
+        }
+        OciProperties.Account accConfig = resolveAccountConfig(accountName);
+        if (accConfig == null) {
+            return java.util.Collections.emptyList();
+        }
+        if (refreshingRegionsAccounts.add(accountName)) {
+            Thread.ofVirtual().name("oci-region-warmup-" + accountName).start(() -> {
+                try {
+                    getSubscribedRegions(accountName);
+                } catch (Exception ignored) {
+                } finally {
+                    refreshingRegionsAccounts.remove(accountName);
+                }
+            });
+        }
+        if (accConfig.getRegion() != null && !accConfig.getRegion().isBlank()) {
+            return java.util.List.of(accConfig.getRegion());
+        }
+        return java.util.Collections.emptyList();
+    }
+
+    /**
+     * 获取账号根租户及所有 ACTIVE 子区间 ID（缓存 30 分钟），确保子区间实例/引导卷/安全列表均被纳管与熔断保护。
+     */
+    public java.util.List<String> getActiveCompartmentIds(String accountName) {
+        OciProperties.Account accConfig = resolveAccountConfig(accountName);
+        if (accConfig == null || accConfig.getTenancy() == null || accConfig.getTenancy().isBlank()) {
+            return java.util.Collections.emptyList();
+        }
+        String tenancyId = accConfig.getTenancy();
+        Long cachedAt = OciCloudService.COMPARTMENT_IDS_CACHE_TIME.get(accountName);
+        java.util.List<String> cached = OciCloudService.COMPARTMENT_IDS_CACHE.get(accountName);
+        if (cached != null && !cached.isEmpty() && cachedAt != null
+                && (System.currentTimeMillis() - cachedAt) < COMPARTMENT_CACHE_TTL_MS) {
+            return cached;
+        }
+
+        Set<String> compartments = new LinkedHashSet<>();
+        compartments.add(tenancyId);
+        boolean canCacheCompartments = true;
+        try {
+            var clients = getOciClients(accountName);
+            String page = null;
+            do {
+                var resp = clients.getIdentity().listCompartments(
+                        com.oracle.bmc.identity.requests.ListCompartmentsRequest.builder()
+                                .compartmentId(tenancyId)
+                                .compartmentIdInSubtree(true)
+                                .accessLevel(com.oracle.bmc.identity.requests.ListCompartmentsRequest.AccessLevel.Accessible)
+                                .lifecycleState(com.oracle.bmc.identity.model.Compartment.LifecycleState.Active)
+                                .page(page)
+                                .build()
+                );
+                if (resp.getItems() != null) {
+                    for (var c : resp.getItems()) {
+                        if (c != null && c.getId() != null && !c.getId().isBlank()) {
+                            compartments.add(c.getId());
+                        }
+                    }
+                }
+                page = resp.getOpcNextPage();
+            } while (page != null && !page.isBlank());
+        } catch (com.oracle.bmc.model.BmcException bmcEx) {
+            int code = bmcEx.getStatusCode();
+            if (code != 401 && code != 403 && code != 404) {
+                canCacheCompartments = false;
+            }
+            System.err.println("查询账号 [" + accountName + "] 子区间列表异常 (HTTP " + code + ")，降级仅扫描根租户: " + bmcEx.getMessage());
+        } catch (Exception e) {
+            canCacheCompartments = false;
+            System.err.println("查询账号 [" + accountName + "] 子区间列表失败，降级仅扫描根租户: " + e.getMessage());
+        }
+
+        java.util.List<String> result = java.util.List.copyOf(compartments);
+        if (canCacheCompartments) {
+            OciCloudService.COMPARTMENT_IDS_CACHE.put(accountName, result);
+            OciCloudService.COMPARTMENT_IDS_CACHE_TIME.put(accountName, System.currentTimeMillis());
+        }
+        return result;
     }
 
     public java.util.List<String> getSubscribedRegions(String accountName) {
         if (OciCloudService.SUBSCRIBED_REGIONS_CACHE.containsKey(accountName)) {
+            transientRegionFailureAccounts.remove(accountName);
             return OciCloudService.SUBSCRIBED_REGIONS_CACHE.get(accountName);
         }
-        OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
-        if (accConfig == null && accountName != null) {
-            String clean = accountName.replaceAll("[\"'\\s\\[\\]\\r\\n]", "");
-            for (Map.Entry<String, OciProperties.Account> e : ociProperties.getAccounts().entrySet()) {
-                if (e.getKey().replaceAll("[\"'\\s\\[\\]\\r\\n]", "").equals(clean)) {
-                    accConfig = e.getValue();
-                    break;
-                }
-            }
-        }
+        OciProperties.Account accConfig = resolveAccountConfig(accountName);
         if (accConfig == null) return new java.util.ArrayList<>();
 
         java.util.List<String> regions = new java.util.ArrayList<>();
+        boolean canCacheRegions = true;
         try {
             var clients = getOciClients(accountName);
             String tenancyId = accConfig.getTenancy();
@@ -188,13 +324,27 @@ public class OciClientManagerService {
                     regions.add(rs.getRegionName());
                 }
             }
+            transientRegionFailureAccounts.remove(accountName);
+        } catch (com.oracle.bmc.model.BmcException bmcEx) {
+            int code = bmcEx.getStatusCode();
+            if (code == 401 || code == 403 || code == 404) {
+                transientRegionFailureAccounts.remove(accountName);
+            } else {
+                canCacheRegions = false;
+                transientRegionFailureAccounts.add(accountName);
+            }
+            System.err.println("获取账户 [" + accountName + "] 订阅区域异常 (HTTP " + code + "): " + bmcEx.getMessage());
         } catch (Exception e) {
+            canCacheRegions = false;
+            transientRegionFailureAccounts.add(accountName);
             System.err.println("获取账户 [" + accountName + "] 订阅区域失败: " + e.getMessage());
         }
         if (regions.isEmpty() && accConfig.getRegion() != null) {
             regions.add(accConfig.getRegion());
         }
-        OciCloudService.SUBSCRIBED_REGIONS_CACHE.put(accountName, regions);
+        if (canCacheRegions) {
+            OciCloudService.SUBSCRIBED_REGIONS_CACHE.put(accountName, regions);
+        }
         return regions;
     }
 

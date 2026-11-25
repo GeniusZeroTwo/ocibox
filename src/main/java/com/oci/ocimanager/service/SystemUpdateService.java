@@ -227,16 +227,16 @@ public class SystemUpdateService {
         try {
             String noticeTitle = "🚀 发现 OCIBox 新版本可用";
             StringBuilder sb = new StringBuilder();
-            sb.append("<b>检测到 OCIBox 核心程序包有新版本发布！</b><br>");
-            sb.append("• 当前运行版本：<code>").append(escapeHtml(currentVersion)).append("</code><br>");
-            sb.append("• 最新发布版本：<b>").append(escapeHtml(title != null && !title.isBlank() ? title : tag)).append("</b><br>");
+            sb.append("<b>检测到 OCIBox 核心程序包有新版本发布！</b>\n");
+            sb.append("• 当前运行版本：<code>").append(escapeHtml(currentVersion)).append("</code>\n");
+            sb.append("• 最新发布版本：<b>").append(escapeHtml(title != null && !title.isBlank() ? title : tag)).append("</b>\n");
             if (buildTime != null && !buildTime.isBlank()) {
-                sb.append("• 自动构建时间：<code>").append(escapeHtml(buildTime)).append("</code><br>");
+                sb.append("• 自动构建时间：<code>").append(escapeHtml(buildTime)).append("</code>\n");
             }
             if (sha != null && sha.length() >= 16) {
-                sb.append("• 校验 SHA-256：<code>").append(sha.substring(0, 16)).append("...</code><br>");
+                sb.append("• 校验 SHA-256：<code>").append(sha.substring(0, 16)).append("...</code>\n");
             }
-            sb.append("<br>⚡ <b>您可直接在消息中心或本卡片点击【立即一键更新】，系统将全自动下载并平滑重启。</b>");
+            sb.append("\n⚡ <b>您可直接在消息中心或本卡片点击【立即一键更新】，系统将全自动下载并平滑重启。</b>");
 
             // 🌟 纯网页控制台展示，不向 Telegram 推送造成多余打扰
             notificationService.send(noticeTitle, sb.toString(), "SUCCESS", "UPDATE", false);
@@ -268,14 +268,15 @@ public class SystemUpdateService {
                 tmpJar.delete();
             }
 
-            // 1. 获取预期的 SHA-256（强制要求合法 64 位十六进制摘要，Fail-Closed）
-            String expectedSha = (String) cachedUpdateInfo.get("remoteSha");
+            // 1. 获取预期的最新实时 SHA-256（优先实时拉取，防止缓存旧摘要与最新 Release 资产失配，Fail-Closed）
+            String expectedSha = fetchRemoteChecksum();
             if (expectedSha == null || !expectedSha.matches("(?i)^[0-9a-f]{64}$")) {
-                expectedSha = fetchRemoteChecksum();
+                expectedSha = (String) cachedUpdateInfo.get("remoteSha");
             }
             if (expectedSha == null || !expectedSha.matches("(?i)^[0-9a-f]{64}$")) {
                 throw new SecurityException("未能获取到官方 SHA-256 校验摘要，为保障系统安全已中止升级");
             }
+            cachedUpdateInfo.put("remoteSha", expectedSha.toLowerCase(Locale.ROOT));
 
             // 2. 下载核心 JAR 包（带自动重试与双 URL 故障转移）
             boolean downloaded = false;
@@ -385,7 +386,8 @@ public class SystemUpdateService {
 
                     String[] cmd;
                     if (hasSystemdRun) {
-                        cmd = new String[]{"systemd-run", "--unit=ocibox-auto-restart", "bash", "-c", restartCmd};
+                        String unitName = "ocibox-auto-restart-" + System.currentTimeMillis();
+                        cmd = new String[]{"systemd-run", "--collect", "--unit=" + unitName, "bash", "-c", restartCmd};
                     } else {
                         cmd = new String[]{"bash", "-c", "nohup bash -c '" + restartCmd + "' >/dev/null 2>&1 &"};
                     }

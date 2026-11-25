@@ -13,6 +13,71 @@ BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 STATIC_DIR = os.path.join(BASE_DIR, 'src', 'main', 'resources', 'static')
 JS_DIR = os.path.join(STATIC_DIR, 'js')
 INDEX_HTML = os.path.join(STATIC_DIR, 'index.html')
+CONTROLLER_DIR = os.path.join(BASE_DIR, 'src', 'main', 'java', 'com', 'oci', 'ocimanager', 'controller')
+
+
+def _strip_java_comments(source: str) -> str:
+    source = re.sub(r'/\*.*?\*/', '', source, flags=re.DOTALL)
+    source = re.sub(r'//[^\n]*', '', source)
+    return source
+
+
+def _extract_mapping_paths(args_str: str):
+    if not args_str or not args_str.strip():
+        return ['']
+    named = re.search(r'\b(?:value|path)\s*=\s*(\{[^}]*\}|"[^"]*")', args_str)
+    target = named.group(1) if named else args_str
+    literals = re.findall(r'"([^"]*)"', target)
+    return literals if literals else ['']
+
+
+def _join_route(prefix: str, path: str) -> str:
+    combined = ('/' + (prefix or '').strip('/') + '/' + (path or '').strip('/'))
+    normalized = re.sub(r'/+', '/', combined)
+    if len(normalized) > 1 and normalized.endswith('/'):
+        normalized = normalized[:-1]
+    return normalized
+
+
+def collect_backend_routes():
+    routes = set()
+    if not os.path.isdir(CONTROLLER_DIR):
+        return routes
+
+    mapping_re = re.compile(
+        r'@(?:RequestMapping|PostMapping|GetMapping|PutMapping|DeleteMapping|PatchMapping)\s*(?:\(([^)]*)\))?'
+    )
+    class_re = re.compile(r'\bpublic\s+class\s+[A-Za-z0-9_]+')
+
+    for root, _, files in os.walk(CONTROLLER_DIR):
+        for fname in files:
+            if not fname.endswith('.java'):
+                continue
+            fpath = os.path.join(root, fname)
+            with open(fpath, 'r', encoding='utf-8') as f:
+                raw = f.read()
+            cleaned = _strip_java_comments(raw)
+            if '@RestController' not in cleaned and '@Controller' not in cleaned:
+                continue
+
+            class_match = class_re.search(cleaned)
+            if not class_match:
+                continue
+
+            header_part = cleaned[:class_match.start()]
+            body_part = cleaned[class_match.end():]
+
+            class_prefixes = ['']
+            for m in mapping_re.finditer(header_part):
+                class_prefixes = _extract_mapping_paths(m.group(1) or '')
+
+            for m in mapping_re.finditer(body_part):
+                sub_paths = _extract_mapping_paths(m.group(1) or '')
+                for prefix in class_prefixes:
+                    for sub in sub_paths:
+                        routes.add(_join_route(prefix, sub))
+
+    return routes
 
 def verify_frontend():
     print("=" * 60)
@@ -118,15 +183,55 @@ def verify_frontend():
             if not os.path.isfile(script_full_path):
                 errors.append(f"❌ [index.html] 引用的入口脚本不存在: '{src}'")
 
+    # 4. 前后端 API 路由契约一致性校验（杜绝前端 apiCall 调用后端不存在的 404 接口）
+    print("🛣️  正在深度校验前后端 API 路由契约一致性...")
+    backend_routes = collect_backend_routes()
+    if not backend_routes:
+        errors.append(f"❌ 未能从后端 Controller 目录提取到任何 API 路由: {CONTROLLER_DIR}")
+    else:
+        api_call_re = re.compile(r'\bapiCall\(\s*[\'\"]([^\'\"]+)[\'\"]')
+        fetch_api_re = re.compile(r'\bfetch\(\s*[\'\"](/api/[^\'\"]+)[\'\"]')
+        checked_calls = 0
+
+        for filepath in js_files:
+            rel_path = os.path.relpath(filepath, JS_DIR)
+            if rel_path.startswith('vendor' + os.sep) or rel_path.startswith('vendor/'):
+                continue
+            with open(filepath, 'r', encoding='utf-8') as f:
+                js_src = f.read()
+
+            for m in api_call_re.finditer(js_src):
+                endpoint = m.group(1).split('?')[0].strip()
+                resolved = _join_route('/api/admin', endpoint)
+                checked_calls += 1
+                if resolved not in backend_routes:
+                    line_no = js_src.count('\n', 0, m.start()) + 1
+                    errors.append(
+                        f"❌ [{rel_path}:{line_no}] 前端 apiCall('{endpoint}') 对应的后端路由不存在: '{resolved}'\n"
+                        f"   原因: 后端 @RestController 中未声明该接口映射，运行期将触发 HTTP 404！"
+                    )
+
+            for m in fetch_api_re.finditer(js_src):
+                raw_url = m.group(1).split('?')[0].strip()
+                resolved = _join_route('/', raw_url)
+                checked_calls += 1
+                if resolved not in backend_routes:
+                    line_no = js_src.count('\n', 0, m.start()) + 1
+                    errors.append(
+                        f"❌ [{rel_path}:{line_no}] 前端 fetch('{raw_url}') 对应的后端路由不存在: '{resolved}'"
+                    )
+
+        print(f"   已扫描后端路由 {len(backend_routes)} 条，校验前端 API 调用 {checked_calls} 处。")
+
     print("-" * 60)
     if errors:
-        print(f"🚨 [前端校验失败] 发现 {len(errors)} 个致命模块引用错误：\n")
+        print(f"🚨 [前端校验失败] 发现 {len(errors)} 个致命模块或路由契约错误：\n")
         for err in errors:
             print(err + "\n")
-        print("💡 请修复上述模块依赖或 export 缺失后再次构建。")
+        print("💡 请修复上述模块依赖、export 缺失或前后端路由失配后再次构建。")
         sys.exit(1)
     else:
-        print("✅ [前端校验通过] 所有 ESM 模块导入/导出与入口资源 100% 完整有效！")
+        print("✅ [前端校验通过] 所有 ESM 模块导入/导出、入口资源与前后端 API 路由契约 100% 完整有效！")
         print("=" * 60)
 
 if __name__ == '__main__':

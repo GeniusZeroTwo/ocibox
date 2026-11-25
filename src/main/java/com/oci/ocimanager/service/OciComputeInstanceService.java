@@ -56,6 +56,26 @@ public class OciComputeInstanceService {
     @Autowired
     private OciClientFingerprintService fingerprintService;
 
+    @Autowired(required = false)
+    @org.springframework.context.annotation.Lazy
+    private NotificationService notificationService;
+
+    private static final long IMAGE_CACHE_TTL_MS = 6L * 3600L * 1000L;
+    private static final long SUBNET_CACHE_TTL_MS = 3600L * 1000L;
+    private static final Set<String> REINSTALLING_INSTANCES = ConcurrentHashMap.newKeySet();
+
+    private final java.util.concurrent.ScheduledExecutorService reinstallMonitorScheduler =
+            Executors.newScheduledThreadPool(1, r -> {
+                Thread t = new Thread(r, "oci-reinstall-monitor");
+                t.setDaemon(true);
+                return t;
+            });
+
+    @jakarta.annotation.PreDestroy
+    public void shutdown() {
+        reinstallMonitorScheduler.shutdownNow();
+    }
+
     /**
      * 🌟 强化重构版：初始化 OS 环境，强行放行所有底层防火墙 (iptables, firewalld, ufw)
      * 同时基于各账号专属种子多态化生成 drop-in 配置文件名与结构，消除跨账号固定 user_data Base64 指纹
@@ -87,7 +107,7 @@ public class OciComputeInstanceService {
         return SSH_PUBKEY_PATTERN.matcher(trimmed).matches();
     }
 
-    private String buildCloudInitUserData(String rootPwd, String sshKey, String accountName) {
+    String buildCloudInitUserData(String rootPwd, String sshKey, String accountName) {
         String safePwd = sanitizeCloudInitValue(rootPwd);
         String trimmedPwd = (safePwd != null) ? safePwd.trim() : "";
         String safeKey = sanitizeCloudInitValue(sshKey);
@@ -120,10 +140,12 @@ public class OciComputeInstanceService {
             cloudConfig.append("  list: |\n");
             cloudConfig.append("    root:").append(trimmedPwd).append("\n");
             cloudConfig.append("  expire: ").append((seed % 2 == 0) ? "false" : "False").append("\n");
+        } else {
+            cloudConfig.append("ssh_pwauth: false\n");
         }
 
         // 🌟 【解除锁定核心】Cloud-init 在声明 users 时默认 lock_passwd: true。
-        // 若设置了密码，必须显式指定 lock_passwd: false，防止 cloud-init 初始化时在 /etc/shadow 将 root 打上 '!' 锁定
+        // 若设置了密码，显式指定 lock_passwd: false；纯密钥模式下保持密码锁定，仅注入授权公钥。
         if (hasPwd || hasSsh) {
             cloudConfig.append("users:\n");
             cloudConfig.append("  - default\n");
@@ -138,15 +160,14 @@ public class OciComputeInstanceService {
         }
 
         cloudConfig.append("runcmd:\n");
-
-        // 1. SSH 配置强化：同时覆盖主配置文件、所有 drop-in 文件以及新建前置/后置配置
         cloudConfig.append("  - mkdir -p /etc/ssh/sshd_config.d\n");
-        cloudConfig.append("  - sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config\n");
-        cloudConfig.append("  - sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true\n");
-        cloudConfig.append("  - grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config\n");
-        cloudConfig.append("  - echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/").append(firstConf).append("\n");
 
         if (hasPwd) {
+            // 密码模式（或密码+密钥双模式）：仅设置 root 自身密码，绝不将同一密码横向覆盖到 ubuntu/opc/debian/centos/rocky 等系统账号
+            cloudConfig.append("  - sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config\n");
+            cloudConfig.append("  - sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true\n");
+            cloudConfig.append("  - grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config\n");
+            cloudConfig.append("  - echo 'PermitRootLogin yes' > /etc/ssh/sshd_config.d/").append(firstConf).append("\n");
             cloudConfig.append("  - sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config\n");
             cloudConfig.append("  - sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true\n");
             cloudConfig.append("  - grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config\n");
@@ -156,40 +177,32 @@ public class OciComputeInstanceService {
             cloudConfig.append("  - echo 'KbdInteractiveAuthentication yes' >> /etc/ssh/sshd_config.d/").append(firstConf).append("\n");
             cloudConfig.append("  - cp -f /etc/ssh/sshd_config.d/").append(firstConf).append(" /etc/ssh/sshd_config.d/").append(lastConf).append("\n");
 
-            // 2. 操作系统级强制注入密码并解锁 root 与常见发行版默认用户 (ubuntu, opc, debian 等)
-            // 使用 Base64 编码传输，杜绝特殊符号 (!@#$%^&* 等) 造成的语法断裂
             String rootAuth = "root:" + trimmedPwd;
             String b64Root = Base64.getEncoder().encodeToString(rootAuth.getBytes(StandardCharsets.UTF_8));
             cloudConfig.append("  - echo '").append(b64Root).append("' | base64 -d | chpasswd\n");
             cloudConfig.append("  - passwd -u root || true\n");
-
-            for (String u : List.of("ubuntu", "opc", "debian", "centos", "rocky")) {
-                String userAuth = u + ":" + trimmedPwd;
-                String b64User = Base64.getEncoder().encodeToString(userAuth.getBytes(StandardCharsets.UTF_8));
-                cloudConfig.append("  - if id ").append(u).append(" >/dev/null 2>&1; then echo '").append(b64User).append("' | base64 -d | chpasswd && passwd -u ").append(u).append(" || true; fi\n");
-            }
         } else {
+            // 纯 SSH 密钥安全模式：严格设为 prohibit-password 并彻底关闭密码/交互认证
+            cloudConfig.append("  - sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/g' /etc/ssh/sshd_config\n");
+            cloudConfig.append("  - sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin prohibit-password/g' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true\n");
+            cloudConfig.append("  - grep -q '^PermitRootLogin' /etc/ssh/sshd_config || echo 'PermitRootLogin prohibit-password' >> /etc/ssh/sshd_config\n");
+            cloudConfig.append("  - sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/g' /etc/ssh/sshd_config\n");
+            cloudConfig.append("  - sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication no/g' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true\n");
+            cloudConfig.append("  - grep -q '^PasswordAuthentication' /etc/ssh/sshd_config || echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config\n");
+            cloudConfig.append("  - sed -i 's/^#\\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/g' /etc/ssh/sshd_config 2>/dev/null || true\n");
+            cloudConfig.append("  - sed -i 's/^#\\?KbdInteractiveAuthentication.*/KbdInteractiveAuthentication no/g' /etc/ssh/sshd_config.d/*.conf 2>/dev/null || true\n");
+            cloudConfig.append("  - echo 'PermitRootLogin prohibit-password' > /etc/ssh/sshd_config.d/").append(firstConf).append("\n");
+            cloudConfig.append("  - echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config.d/").append(firstConf).append("\n");
+            cloudConfig.append("  - echo 'KbdInteractiveAuthentication no' >> /etc/ssh/sshd_config.d/").append(firstConf).append("\n");
             cloudConfig.append("  - cp -f /etc/ssh/sshd_config.d/").append(firstConf).append(" /etc/ssh/sshd_config.d/").append(lastConf).append("\n");
         }
 
-        // 3. 重载并重启 SSH 服务（同时兼容 ssh.service 与 Ubuntu 22.10/24.04 的 ssh.socket）
+        // 重载并重启 SSH 服务（同时兼容 ssh.service 与 Ubuntu 22.10/24.04 的 ssh.socket），保留系统原生防火墙并仅确保 22 端口可达
+        cloudConfig.append("  - if command -v ufw >/dev/null 2>&1 && ufw status | grep -q 'Status: active'; then ufw allow 22/tcp || true; fi\n");
+        cloudConfig.append("  - if command -v firewall-cmd >/dev/null 2>&1 && systemctl is-active --quiet firewalld; then firewall-cmd --permanent --add-service=ssh && firewall-cmd --reload || true; fi\n");
         cloudConfig.append("  - systemctl daemon-reload || true\n");
         cloudConfig.append("  - systemctl restart ssh || systemctl restart sshd || true\n");
         cloudConfig.append("  - systemctl restart ssh.socket || true\n");
-
-        // 4. 放行防火墙
-        cloudConfig.append("  - systemctl stop firewalld || true\n");
-        cloudConfig.append("  - systemctl disable firewalld || true\n");
-        cloudConfig.append("  - systemctl stop iptables || true\n");
-        cloudConfig.append("  - systemctl disable iptables || true\n");
-        cloudConfig.append("  - systemctl stop ufw || true\n");
-        cloudConfig.append("  - systemctl disable ufw || true\n");
-        cloudConfig.append("  - iptables -P INPUT ACCEPT\n");
-        cloudConfig.append("  - iptables -P FORWARD ACCEPT\n");
-        cloudConfig.append("  - iptables -P OUTPUT ACCEPT\n");
-        cloudConfig.append("  - iptables -F\n");
-        cloudConfig.append("  - netfilter-persistent save || true\n");
-        cloudConfig.append("  - iptables-save > /etc/iptables/rules.v4 || true\n");
 
         return Base64.getEncoder().encodeToString(cloudConfig.toString().getBytes(StandardCharsets.UTF_8));
     }
@@ -307,58 +320,72 @@ public class OciComputeInstanceService {
             }
 
             java.util.List<String> regions = clientManager.getSubscribedRegions(accName);
+            java.util.List<String> compartmentIds = clientManager.getActiveCompartmentIds(accName);
+            if (compartmentIds.isEmpty() && accConfig.getTenancy() != null) {
+                compartmentIds = java.util.List.of(accConfig.getTenancy());
+            }
+
             for (String region : regions) {
                 try {
                     var computeClient = clients.getComputeClientForRegion(region);
-                    var response = computeClient.listInstances(
-                            ListInstancesRequest.builder()
-                                    .compartmentId(accConfig.getTenancy())
-                                    .build()
-                    );
-                    billingService.recordAccountSuccess(accName);
-                    if (succeededAccountRegions != null) {
+                    boolean regionComplete = true;
+                    for (String compId : compartmentIds) {
+                        try {
+                            var response = computeClient.listInstances(
+                                    ListInstancesRequest.builder()
+                                            .compartmentId(compId)
+                                            .build()
+                            );
+                            billingService.recordAccountSuccess(accName);
+
+                            for (Instance instance : response.getItems()) {
+                                if (instance.getLifecycleState() == Instance.LifecycleState.Terminated) {
+                                    continue;
+                                }
+
+                                Map<String, String> info = new HashMap<>();
+                                info.put("name", "[" + accName + "] " + instance.getDisplayName());
+                                info.put("state", instance.getLifecycleState().getValue());
+                                info.put("account", accName);
+                                info.put("shape", instance.getShape());
+                                info.put("compartmentId", compId);
+
+                                if (instance.getShapeConfig() != null) {
+                                    Float cpu = instance.getShapeConfig().getOcpus();
+                                    Float mem = instance.getShapeConfig().getMemoryInGBs();
+                                    if (cpu != null) {
+                                        info.put("cpu", String.valueOf(cpu));
+                                    }
+                                    if (mem != null) {
+                                        info.put("memory", String.valueOf(mem));
+                                    }
+                                }
+
+                                Long disk = instanceDiskMap.get(instance.getId());
+                                if (disk != null) {
+                                    info.put("disk", String.valueOf(disk));
+                                }
+
+                                info.put("region", region);
+                                allInstances.put(instance.getId(), info);
+
+                                if (forceIp && instance.getLifecycleState() == Instance.LifecycleState.Running) {
+                                    try {
+                                        networkService.getInstanceIp(instance.getId(), accName, true);
+                                        Thread.sleep(300);
+                                    } catch (Exception e) {
+                                        System.err.println("强制刷新IP异常: " + e.getMessage());
+                                    }
+                                }
+                            }
+                        } catch (Exception compEx) {
+                            regionComplete = false;
+                            System.err.println("获取子区间实例失败 [" + accName + " - " + region + " - " + compId + "]: " + compEx.getMessage());
+                        }
+                    }
+                    if (regionComplete && succeededAccountRegions != null) {
                         succeededAccountRegions.add(accName + "|" + region);
                     }
-
-                    for (Instance instance : response.getItems()) {
-                        if (instance.getLifecycleState() == Instance.LifecycleState.Terminated) {
-                            continue;
-                        }
-
-                Map<String, String> info = new HashMap<>();
-                info.put("name", "[" + accName + "] " + instance.getDisplayName());
-                info.put("state", instance.getLifecycleState().getValue());
-                info.put("account", accName);
-                info.put("shape", instance.getShape());
-
-                if (instance.getShapeConfig() != null) {
-                    Float cpu = instance.getShapeConfig().getOcpus();
-                    Float mem = instance.getShapeConfig().getMemoryInGBs();
-                    if (cpu != null) {
-                        info.put("cpu", String.valueOf(cpu));
-                    }
-                    if (mem != null) {
-                        info.put("memory", String.valueOf(mem));
-                    }
-                }
-
-                Long disk = instanceDiskMap.get(instance.getId());
-                if (disk != null) {
-                    info.put("disk", String.valueOf(disk));
-                }
-
-                info.put("region", region);
-                allInstances.put(instance.getId(), info);
-
-                if (forceIp && instance.getLifecycleState() == Instance.LifecycleState.Running) {
-                    try {
-                        networkService.getInstanceIp(instance.getId(), accName, true);
-                        Thread.sleep(300);
-                    } catch (Exception e) {
-                        System.err.println("强制刷新IP异常: " + e.getMessage());
-                    }
-                }
-            }
                 } catch (Exception e) {
                     System.err.println("获取区域实例失败 [" + accName + " - " + region + "]: " + e.getMessage());
                 }
@@ -489,7 +516,13 @@ public class OciComputeInstanceService {
             return names;
         });
 
+        long nowMs = System.currentTimeMillis();
         String imgKey = tenancy + "|" + targetRegion + "|" + shape + "|" + osName + "|" + osVersion;
+        Long imgCachedAt = OciCloudService.IMAGE_CACHE_TIME.get(imgKey);
+        if (imgCachedAt != null && (nowMs - imgCachedAt) > IMAGE_CACHE_TTL_MS) {
+            OciCloudService.IMAGE_CACHE.remove(imgKey);
+            OciCloudService.IMAGE_CACHE_TIME.remove(imgKey);
+        }
         String imageId = OciCloudService.IMAGE_CACHE.computeIfAbsent(imgKey, k -> {
             var imgRes = computeClient.listImages(ListImagesRequest.builder()
                     .compartmentId(tenancy)
@@ -502,10 +535,21 @@ public class OciComputeInstanceService {
             if (imgRes.getItems().isEmpty()) {
                 throw new RuntimeException("在该地区未找到匹配此架构的 " + osName + " " + osVersion + " 官方镜像");
             }
+            OciCloudService.IMAGE_CACHE_TIME.put(k, System.currentTimeMillis());
             return imgRes.getItems().get(0).getId();
         });
 
-        String subnetId = OciCloudService.SUBNET_CACHE.computeIfAbsent(tenancy + "|" + targetRegion, k -> networkService.getOrCreateSubnetId(vncClient, tenancy));
+        String subnetKey = tenancy + "|" + targetRegion;
+        Long subnetCachedAt = OciCloudService.SUBNET_CACHE_TIME.get(subnetKey);
+        if (subnetCachedAt != null && (nowMs - subnetCachedAt) > SUBNET_CACHE_TTL_MS) {
+            OciCloudService.SUBNET_CACHE.remove(subnetKey);
+            OciCloudService.SUBNET_CACHE_TIME.remove(subnetKey);
+        }
+        String subnetId = OciCloudService.SUBNET_CACHE.computeIfAbsent(subnetKey, k -> {
+            String sid = networkService.getOrCreateSubnetId(vncClient, tenancy);
+            OciCloudService.SUBNET_CACHE_TIME.put(k, System.currentTimeMillis());
+            return sid;
+        });
 
         boolean hasPwd = (rootPwd != null && !rootPwd.trim().isEmpty() && !"null".equalsIgnoreCase(rootPwd.trim()));
         boolean hasSsh = isValidSshPublicKey(sshKey);
@@ -584,6 +628,12 @@ public class OciComputeInstanceService {
                 return response.getInstance().getId();
             }
         } catch (com.oracle.bmc.model.BmcException e) {
+            if (e.getStatusCode() == 404) {
+                OciCloudService.IMAGE_CACHE.remove(imgKey);
+                OciCloudService.IMAGE_CACHE_TIME.remove(imgKey);
+                OciCloudService.SUBNET_CACHE.remove(subnetKey);
+                OciCloudService.SUBNET_CACHE_TIME.remove(subnetKey);
+            }
             throw e;
         } catch (Exception e) {
             throw e;
@@ -591,79 +641,123 @@ public class OciComputeInstanceService {
     }
 
     public boolean reinstallInstance(String ocid, String accountName, String instanceName, String osName, String osVersion, String customImageOcid, String sshKey, String rootPwd) throws Exception {
-        OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
-        var clients = clientManager.getOciClients(accountName);
-        String region = OciRegionUtil.getRegionForResource(ocid);
-        var computeClient = region != null ? clients.getComputeClientForRegion(region) : clients.getCompute();
-
-        String targetImageId = customImageOcid;
-        var instanceInfo = computeClient.getInstance(GetInstanceRequest.builder().instanceId(ocid).build());
-
-        if (targetImageId == null || targetImageId.trim().isEmpty()) {
-            String shape = instanceInfo.getInstance().getShape();
-            var imgRes = computeClient.listImages(ListImagesRequest.builder()
-                    .compartmentId(accConfig.getTenancy())
-                    .operatingSystem(osName)
-                    .operatingSystemVersion(osVersion)
-                    .shape(shape)
-                    .sortBy(ListImagesRequest.SortBy.Timecreated)
-                    .sortOrder(ListImagesRequest.SortOrder.Desc)
-                    .build());
-
-            if (imgRes.getItems().isEmpty()) {
-                throw new RuntimeException("当前区域未找到适配 [" + shape + "] 架构的 " + osName + " " + osVersion + " 官方镜像");
-            }
-            targetImageId = imgRes.getItems().get(0).getId();
+        if (ocid == null || ocid.isBlank()) {
+            throw new IllegalArgumentException("缺少实例 OCID");
         }
-
-        Map<String, String> updatedMetadata = new HashMap<>();
-        if (instanceInfo.getInstance().getMetadata() != null) {
-            updatedMetadata.putAll(instanceInfo.getInstance().getMetadata());
+        if (!REINSTALLING_INSTANCES.add(ocid)) {
+            throw new IllegalStateException("该实例当前已有重装任务正在执行中，请勿重复提交");
         }
-
-        boolean hasPwdReinstall = (rootPwd != null && !rootPwd.trim().isEmpty() && !"null".equalsIgnoreCase(rootPwd.trim()));
-        boolean hasSshReinstall = isValidSshPublicKey(sshKey);
-
-        if (hasSshReinstall) {
-            updatedMetadata.put("ssh_authorized_keys", sshKey.trim());
-        } else {
-            updatedMetadata.remove("ssh_authorized_keys");
-        }
-
-        // 🔒 【重装逻辑修复】无论是否注入新密码，始终重新生成并覆盖 user_data，防止 OCI 继承原机器旧 user_data 中的密码注入脚本
-        updatedMetadata.put("user_data", buildCloudInitUserData(hasPwdReinstall ? rootPwd : null, hasSshReinstall ? sshKey : null, accountName));
-
-        Map<String, String> freeformTags = new HashMap<>();
-        if (instanceInfo.getInstance().getFreeformTags() != null) {
-            freeformTags.putAll(instanceInfo.getInstance().getFreeformTags());
-        }
-        // 🔒 【敏感信息泄漏修复】清除历史遗留的明文密码标签，且不再写入新的明文密码标签。
-        freeformTags.remove("root_password");
-
-        UpdateInstanceDetails.Builder detailsBuilder = UpdateInstanceDetails.builder()
-                .sourceDetails(UpdateInstanceSourceViaImageDetails.builder()
-                        .imageId(targetImageId)
-                        .isPreserveBootVolumeEnabled(false)
-                        .build())
-                .metadata(updatedMetadata)
-                .freeformTags(freeformTags.isEmpty() ? null : freeformTags);
-
-        if (instanceName != null && !instanceName.trim().isEmpty()) {
-            detailsBuilder.displayName(instanceName.trim());
-        }
-
         try {
-            computeClient.updateInstance(UpdateInstanceRequest.builder()
-                    .instanceId(ocid)
-                    .updateInstanceDetails(detailsBuilder.build())
-                    .build());
-            return true;
-        } catch (com.oracle.bmc.model.BmcException e) {
-            if (e.getStatusCode() == 400 && e.getMessage() != null && e.getMessage().contains("QuotaExceeded")) {
-                System.out.println("⚠️ [重装配额触顶] 检测到 UpdateInstance 触发 bootVolumeQuota 配额限制。正在执行【先解绑销毁旧卷-释放配额-后建新卷挂载】避让重装流程...");
-                return reinstallInstanceFallback(ocid, accountName, instanceName, targetImageId, updatedMetadata, freeformTags, instanceInfo.getInstance());
+            OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
+            if (accConfig == null) {
+                throw new IllegalArgumentException("账号配置不存在: " + accountName);
             }
-            throw e;
+            var clients = clientManager.getOciClients(accountName);
+            String region = OciRegionUtil.getRegionForResource(ocid);
+            var computeClient = region != null ? clients.getComputeClientForRegion(region) : clients.getCompute();
+
+            String targetImageId = (customImageOcid != null) ? customImageOcid.trim() : null;
+            var instanceInfo = computeClient.getInstance(GetInstanceRequest.builder().instanceId(ocid).build());
+            String shape = instanceInfo.getInstance().getShape();
+
+            if (targetImageId == null || targetImageId.isEmpty()) {
+                var imgRes = computeClient.listImages(ListImagesRequest.builder()
+                        .compartmentId(accConfig.getTenancy())
+                        .operatingSystem(osName)
+                        .operatingSystemVersion(osVersion)
+                        .shape(shape)
+                        .sortBy(ListImagesRequest.SortBy.Timecreated)
+                        .sortOrder(ListImagesRequest.SortOrder.Desc)
+                        .build());
+
+                if (imgRes.getItems().isEmpty()) {
+                    throw new RuntimeException("当前区域未找到适配 [" + shape + "] 架构的 " + osName + " " + osVersion + " 官方镜像");
+                }
+                targetImageId = imgRes.getItems().get(0).getId();
+            }
+
+            // 🔒 重装/卸载旧盘前强制预检目标镜像可用性与机型兼容性，彻底杜绝配额回退分支删旧盘后因镜像无效导致永久丢盘
+            var targetImgRes = computeClient.getImage(GetImageRequest.builder().imageId(targetImageId).build());
+            if (targetImgRes == null || targetImgRes.getImage() == null
+                    || targetImgRes.getImage().getLifecycleState() != Image.LifecycleState.Available) {
+                throw new IllegalArgumentException("目标镜像不可用或状态异常，已拒绝执行系统重装");
+            }
+            if (customImageOcid != null && !customImageOcid.trim().isEmpty() && shape != null && !shape.isBlank()) {
+                try {
+                    computeClient.getImageShapeCompatibilityEntry(
+                            GetImageShapeCompatibilityEntryRequest.builder()
+                                    .imageId(targetImageId)
+                                    .shapeName(shape)
+                                    .build()
+                    );
+                } catch (BmcException compatEx) {
+                    if (compatEx.getStatusCode() == 404 || compatEx.getStatusCode() == 400) {
+                        throw new IllegalArgumentException("指定的自定义镜像与当前实例架构 [" + shape + "] 不兼容，已拒绝执行系统重装");
+                    }
+                    throw compatEx;
+                }
+            }
+
+            Map<String, String> updatedMetadata = new HashMap<>();
+            if (instanceInfo.getInstance().getMetadata() != null) {
+                updatedMetadata.putAll(instanceInfo.getInstance().getMetadata());
+            }
+
+            boolean hasPwdReinstall = (rootPwd != null && !rootPwd.trim().isEmpty() && !"null".equalsIgnoreCase(rootPwd.trim()));
+            boolean hasSshReinstall = isValidSshPublicKey(sshKey);
+
+            if (hasSshReinstall) {
+                updatedMetadata.put("ssh_authorized_keys", sshKey.trim());
+            } else {
+                updatedMetadata.remove("ssh_authorized_keys");
+            }
+
+            // 🔒 【重装逻辑修复】无论是否注入新密码，始终重新生成并覆盖 user_data，防止 OCI 继承原机器旧 user_data 中的密码注入脚本
+            updatedMetadata.put("user_data", buildCloudInitUserData(hasPwdReinstall ? rootPwd : null, hasSshReinstall ? sshKey : null, accountName));
+
+            Map<String, String> freeformTags = new HashMap<>();
+            if (instanceInfo.getInstance().getFreeformTags() != null) {
+                freeformTags.putAll(instanceInfo.getInstance().getFreeformTags());
+            }
+            // 🔒 【敏感信息泄漏修复】清除历史遗留的明文密码标签，且不再写入新的明文密码标签。
+            freeformTags.remove("root_password");
+
+            String cleanDisplayName = null;
+            if (instanceName != null && !instanceName.trim().isEmpty()) {
+                cleanDisplayName = TelegramBotService.cleanInstanceDisplayName(instanceName, accountName);
+            }
+
+            UpdateInstanceDetails.Builder detailsBuilder = UpdateInstanceDetails.builder()
+                    .sourceDetails(UpdateInstanceSourceViaImageDetails.builder()
+                            .imageId(targetImageId)
+                            .isPreserveBootVolumeEnabled(false)
+                            .build())
+                    .metadata(updatedMetadata)
+                    .freeformTags(freeformTags.isEmpty() ? null : freeformTags);
+
+            if (cleanDisplayName != null && !cleanDisplayName.isEmpty()) {
+                detailsBuilder.displayName(cleanDisplayName);
+            }
+
+            // 🔒 租户级互斥锁覆盖完整重装与配额回退临界区：防止同租户并发重装在旧卷刚删除释放 200GB 配额的窗口期抢占额度导致丢盘！
+            Object tenancyLock = OciCloudService.TENANCY_LOCKS.computeIfAbsent(accConfig.getTenancy(), k -> new Object());
+            synchronized (tenancyLock) {
+                try {
+                    computeClient.updateInstance(UpdateInstanceRequest.builder()
+                            .instanceId(ocid)
+                            .updateInstanceDetails(detailsBuilder.build())
+                            .build());
+                    return true;
+                } catch (com.oracle.bmc.model.BmcException e) {
+                    if (e.getStatusCode() == 400 && e.getMessage() != null && e.getMessage().contains("QuotaExceeded")) {
+                        System.out.println("⚠️ [重装配额触顶] 检测到 UpdateInstance 触发 bootVolumeQuota 配额限制。正在执行【先解绑销毁旧卷-释放配额-后建新卷挂载】避让重装流程...");
+                        return reinstallInstanceFallback(ocid, accountName, cleanDisplayName, targetImageId, updatedMetadata, freeformTags, instanceInfo.getInstance());
+                    }
+                    throw e;
+                }
+            }
+        } finally {
+            REINSTALLING_INSTANCES.remove(ocid);
         }
     }
 
@@ -676,6 +770,8 @@ public class OciComputeInstanceService {
 
         String ad = instance.getAvailabilityDomain();
         String tenancy = accConfig.getTenancy();
+        String compId = (instance.getCompartmentId() != null && !instance.getCompartmentId().isBlank())
+                ? instance.getCompartmentId() : tenancy;
 
         // 1. Soft Stop Instance
         System.out.println("⏳ [配额避让重装] 正在软关机原实例以保留机器容量: " + ocid);
@@ -688,7 +784,7 @@ public class OciComputeInstanceService {
             System.err.println("关机指令发送异常: " + e.getMessage());
         }
 
-        // 等待关机完成 (最多等待3分钟)
+        // 等待关机完成 (最多等待3分钟；遇到瞬时网络抖动继续轮询，绝不吞错提前跳出)
         long stopStart = System.currentTimeMillis();
         boolean stopped = false;
         while (System.currentTimeMillis() - stopStart < 180000) {
@@ -699,8 +795,17 @@ public class OciComputeInstanceService {
                     stopped = true;
                     break;
                 }
-            } catch (Exception e) {
-                break;
+                if (instState == Instance.LifecycleState.Terminated || instState == Instance.LifecycleState.Terminating) {
+                    throw new RuntimeException("实例已处于终止状态，重装中止！");
+                }
+            } catch (BmcException e) {
+                if (e.getStatusCode() == 404) {
+                    throw new RuntimeException("未找到目标实例 (404)，重装中止！");
+                }
+            } catch (RuntimeException re) {
+                if (re.getMessage() != null && re.getMessage().contains("重装中止")) throw re;
+            } catch (Exception ignored) {
+                // 瞬时网络波动继续轮询直至关机或超时
             }
         }
         if (!stopped) {
@@ -712,7 +817,7 @@ public class OciComputeInstanceService {
         var attachmentsRes = computeClient.listBootVolumeAttachments(
                 ListBootVolumeAttachmentsRequest.builder()
                         .availabilityDomain(ad)
-                        .compartmentId(tenancy)
+                        .compartmentId(compId)
                         .instanceId(ocid)
                         .build()
         );
@@ -736,8 +841,9 @@ public class OciComputeInstanceService {
                 .bootVolumeAttachmentId(attachmentId)
                 .build());
         
-        // 等待分离完成 (最多等待2分钟)
+        // 等待分离完成 (最多等待2分钟；必须确切验证已分离或404后才允许删除旧卷，绝不因异常跳出误删挂载盘！)
         long detachStart = System.currentTimeMillis();
+        boolean detached = false;
         while (System.currentTimeMillis() - detachStart < 120000) {
             Thread.sleep(5000);
             try {
@@ -745,11 +851,20 @@ public class OciComputeInstanceService {
                     com.oracle.bmc.core.requests.GetBootVolumeAttachmentRequest.builder().bootVolumeAttachmentId(attachmentId).build()
                 ).getBootVolumeAttachment().getLifecycleState();
                 if (attState == BootVolumeAttachment.LifecycleState.Detached) {
+                    detached = true;
                     break;
                 }
-            } catch (Exception e) {
-                break;
+            } catch (BmcException e) {
+                if (e.getStatusCode() == 404) {
+                    detached = true;
+                    break;
+                }
+            } catch (Exception ignored) {
+                // 瞬时网络异常继续轮询，严禁 break 后直接删盘！
             }
+        }
+        if (!detached) {
+            throw new RuntimeException("等待旧引导卷分离超时或状态未确认，为防止损坏数据已安全中止删盘与重装流程！");
         }
 
         // 3. 删除旧引导卷以释放 200GB 免费配额
@@ -758,6 +873,7 @@ public class OciComputeInstanceService {
             blockClient.deleteBootVolume(DeleteBootVolumeRequest.builder()
                     .bootVolumeId(oldBootVolumeId)
                     .build());
+            bootVolumeService.invalidateBootVolumeCache(accountName);
         } catch (Exception e) {
             System.err.println("删除旧引导卷失败: " + e.getMessage());
             throw new RuntimeException("未能删除旧引导卷，配额无法释放，重装中止！");
@@ -796,7 +912,7 @@ public class OciComputeInstanceService {
                 var attRes = computeClient.listBootVolumeAttachments(
                         ListBootVolumeAttachmentsRequest.builder()
                                 .availabilityDomain(ad)
-                                .compartmentId(tenancy)
+                                .compartmentId(compId)
                                 .instanceId(ocid)
                                 .build()
                 );
@@ -934,6 +1050,9 @@ public class OciComputeInstanceService {
         info.put("name", "[" + accountName + "] " + instance.getDisplayName());
         info.put("state", instance.getLifecycleState().getValue());
         info.put("shape", instance.getShape());
+        if (instance.getCompartmentId() != null && !instance.getCompartmentId().isBlank()) {
+            info.put("compartmentId", instance.getCompartmentId());
+        }
         if (region != null && !region.isBlank()) {
             info.put("region", region);
         }
@@ -952,10 +1071,11 @@ public class OciComputeInstanceService {
         // 同步引导卷大小 (disk)
         try {
             String ad = instance.getAvailabilityDomain();
-            String tenancy = accConfig.getTenancy();
+            String compId = (instance.getCompartmentId() != null && !instance.getCompartmentId().isBlank())
+                    ? instance.getCompartmentId() : accConfig.getTenancy();
             var attListReq = ListBootVolumeAttachmentsRequest.builder()
                     .availabilityDomain(ad)
-                    .compartmentId(tenancy)
+                    .compartmentId(compId)
                     .instanceId(ocid)
                     .build();
             var attRes = computeClient.listBootVolumeAttachments(attListReq);
@@ -990,7 +1110,7 @@ public class OciComputeInstanceService {
             ip = "未分配 IP";
         }
         info.put("ip", ip);
-        info.put("location", networkService.getIpLocation(ip));
+        info.put("location", networkService.getInstanceLocation(ip, region));
         info.put("is500m", (ip != null && (ip.contains("(NAT)") || ip.contains("500M") || ip.contains("(原)"))) ? "true" : "false");
 
         // 同步 IPv6
@@ -1009,6 +1129,89 @@ public class OciComputeInstanceService {
         }
 
         return info;
+    }
+
+    /**
+     * Web 与 Telegram 共用的系统重装后台跟进与旧引导卷自动回收任务。
+     */
+    public void startReinstallMonitor(String ocid, String account, String instanceName, String rootPwd, String oldBootVolumeId, boolean sendInitialNotice) {
+        String safePwd = (rootPwd != null) ? rootPwd.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") : "";
+        String safeInstance = (instanceName != null) ? instanceName.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") : "";
+        String safeAcc = (account != null) ? account.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") : "";
+
+        if (sendInitialNotice && notificationService != null) {
+            String pwdInfo = (rootPwd != null && !rootPwd.isEmpty())
+                    ? "🔑 临时密码: <tg-spoiler><code>" + safePwd + "</code></tg-spoiler>"
+                    : "🔑 登录方式: SSH 密钥";
+            notificationService.send("系统重装任务开始",
+                    "⏳ <b>系统重装任务开始</b>\n\n实例: <code>" + safeInstance + "</code>\n账号: <code>" + safeAcc + "</code>\n" + pwdInfo + "\n\n正在替换引导卷，将在后台自动跟进开机状态...",
+                    "INFO", "INSTANCE");
+        }
+        scheduleReinstallMonitorTask(ocid, account, instanceName, rootPwd, oldBootVolumeId, 0);
+    }
+
+    private void scheduleReinstallMonitorTask(String ocid, String account, String instanceName, String rootPwd, String oldBootVolumeId, int attempt) {
+        String safePwd = (rootPwd != null) ? rootPwd.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") : "";
+        String safeInstance = (instanceName != null) ? instanceName.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;") : "";
+
+        if (attempt >= 40) {
+            if (notificationService != null) {
+                notificationService.send("系统重装监控超时",
+                        "💿 ⚠️ <b>系统重装监控超时</b>\n\n实例: <code>" + safeInstance + "</code>\n状态: 超过20分钟未能启动，请前往 OCI 控制台检查机器是否卡住。",
+                        "WARNING", "INSTANCE");
+            }
+            return;
+        }
+
+        reinstallMonitorScheduler.schedule(() -> {
+            try {
+                String state = getInstanceStatus(ocid, account);
+                if ("RUNNING".equalsIgnoreCase(state)) {
+                    try { Thread.sleep(8000); } catch (InterruptedException ignored) {}
+                    String newIp = networkService.getInstanceIp(ocid, account, true);
+                    if (newIp == null || newIp.contains("无") || newIp.contains("未")) {
+                        newIp = "分配较慢，请稍后在面板查看";
+                    }
+                    String safeIp = newIp.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+
+                    String successPwdInfo = (rootPwd != null && !rootPwd.isEmpty())
+                            ? "🔑 Root 密码: <tg-spoiler><code>" + safePwd + "</code></tg-spoiler>"
+                            : "🔑 登录方式: SSH 密钥";
+
+                    String volumeCleanupInfo = "";
+                    if (oldBootVolumeId != null && !oldBootVolumeId.isEmpty()) {
+                        boolean deleted = bootVolumeService.deleteBootVolume(oldBootVolumeId, account);
+                        if (deleted) {
+                            volumeCleanupInfo = "\n\n♻️ <b>存储空间自动释放</b>\n换下来的旧引导卷已自动为您成功销毁。";
+                        } else {
+                            volumeCleanupInfo = "\n\n⚠️ <b>存储空间释放失败</b>\n尝试销毁旧引导卷失败，这可能是由于甲骨文尚未完全解除其占用状态，请稍后在面板手动清理闲置引导卷。";
+                        }
+                    }
+
+                    try {
+                        refreshSingleInstance(ocid, account);
+                    } catch (Exception ignored) {}
+
+                    if (notificationService != null) {
+                        notificationService.send("系统重装成功",
+                                "💿 ✅ <b>系统重装成功</b>\n\n实例: <code>" + safeInstance + "</code>\n🌐 公网 IP: <code>" + safeIp + "</code>\n状态: 引导卷替换完成，<b>已成功开机运行！</b>\n" + successPwdInfo + "\n系统已更新。" + volumeCleanupInfo,
+                                "SUCCESS", "INSTANCE");
+                    }
+                } else {
+                    if ("STOPPED".equalsIgnoreCase(state)) {
+                        instanceAction(ocid, "START", account);
+                    }
+                    scheduleReinstallMonitorTask(ocid, account, instanceName, rootPwd, oldBootVolumeId, attempt + 1);
+                }
+            } catch (Exception e) {
+                System.err.println("系统重装监控异常: " + e.getMessage());
+                if (notificationService != null) {
+                    notificationService.send("系统重装监控异常",
+                            "💿 ❌ <b>系统重装监控异常</b>\n\n实例: <code>" + safeInstance + "</code>\n请到网页后台或服务日志查看详情。",
+                            "DANGER", "INSTANCE");
+                }
+            }
+        }, 30, TimeUnit.SECONDS);
     }
 }
 

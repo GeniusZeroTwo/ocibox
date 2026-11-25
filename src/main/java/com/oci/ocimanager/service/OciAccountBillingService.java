@@ -29,7 +29,6 @@ import org.springframework.stereotype.Service;
 import java.net.URI;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.text.SimpleDateFormat;
 import java.time.Duration;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
@@ -70,6 +69,11 @@ public class OciAccountBillingService {
     private AccountYamlService accountYamlService;
 
     private static final Set<String> ACTIVE_REG_FETCH_TASKS = ConcurrentHashMap.newKeySet();
+    private static final DateTimeFormatter UTC_DATE_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd").withZone(ZoneOffset.UTC);
+
+    private static String formatDateUtc(Date date) {
+        return date != null ? UTC_DATE_FORMATTER.format(date.toInstant()) : null;
+    }
 
     public boolean isValidRegisterTime(String time) {
         return time != null && time.trim().matches("\\d{4}-\\d{2}-\\d{2}");
@@ -281,6 +285,87 @@ public class OciAccountBillingService {
     public void clearBannedCache() {
         bannedCache.clear();
         bannedCacheTime.clear();
+    }
+
+    public synchronized void migrateAccountState(String oldKey, String newKey) {
+        if (oldKey == null || newKey == null || oldKey.equals(newKey)) return;
+        String cleanOld = cleanAccountName(oldKey);
+        String cleanNew = cleanAccountName(newKey);
+
+        String tag = accountTagCache.remove(oldKey);
+        if (tag == null) {
+            try {
+                tag = systemConfigRepository.findById("ACCOUNT_TAG_" + oldKey).map(SystemConfig::getConfigValue).orElse(null);
+            } catch (Exception ignored) {}
+        }
+        try {
+            systemConfigRepository.deleteById("ACCOUNT_TAG_" + oldKey);
+            if (tag != null && !tag.isBlank()) {
+                accountTagCache.put(newKey, tag);
+                systemConfigRepository.save(new SystemConfig("ACCOUNT_TAG_" + newKey, tag));
+            }
+        } catch (Exception ignored) {}
+
+        String bill = billCache.remove(oldKey);
+        if (bill != null) billCache.put(newKey, bill);
+        Long bTime = billCacheTime.remove(oldKey);
+        if (bTime != null) billCacheTime.put(newKey, bTime);
+
+        Boolean banned = bannedCache.remove(oldKey);
+        if (banned != null) bannedCache.put(newKey, banned);
+        Long banTime = bannedCacheTime.remove(oldKey);
+        if (banTime != null) bannedCacheTime.put(newKey, banTime);
+
+        Boolean payg = paygCache.remove(oldKey);
+        Boolean cleanPayg = paygCache.remove(cleanOld);
+        Boolean effectivePayg = payg != null ? payg : cleanPayg;
+        if (effectivePayg != null) {
+            paygCache.put(newKey, effectivePayg);
+            paygCache.put(cleanNew, effectivePayg);
+        }
+        Long pTime = paygCheckTime.remove(oldKey);
+        if (pTime != null) paygCheckTime.put(newKey, pTime);
+
+        try {
+            for (String prefix : List.of("PAYG_STATUS_", "PAYG_MANUAL_")) {
+                String oldDb1 = prefix + oldKey;
+                String oldDb2 = prefix + cleanOld;
+                String val = systemConfigRepository.findById(oldDb1).map(SystemConfig::getConfigValue)
+                        .orElseGet(() -> systemConfigRepository.findById(oldDb2).map(SystemConfig::getConfigValue).orElse(null));
+                systemConfigRepository.deleteById(oldDb1);
+                systemConfigRepository.deleteById(oldDb2);
+                if (val != null) {
+                    systemConfigRepository.save(new SystemConfig(prefix + newKey, val));
+                    systemConfigRepository.save(new SystemConfig(prefix + cleanNew, val));
+                }
+            }
+        } catch (Exception ignored) {}
+
+        saveBillsToDatabase();
+    }
+
+    public synchronized void purgeAccountState(String accountKey) {
+        if (accountKey == null || accountKey.isBlank()) return;
+        String clean = cleanAccountName(accountKey);
+
+        accountTagCache.remove(accountKey);
+        billCache.remove(accountKey);
+        billCacheTime.remove(accountKey);
+        bannedCache.remove(accountKey);
+        bannedCacheTime.remove(accountKey);
+        paygCache.remove(accountKey);
+        paygCache.remove(clean);
+        paygCheckTime.remove(accountKey);
+
+        try {
+            systemConfigRepository.deleteById("ACCOUNT_TAG_" + accountKey);
+            systemConfigRepository.deleteById("PAYG_STATUS_" + accountKey);
+            systemConfigRepository.deleteById("PAYG_STATUS_" + clean);
+            systemConfigRepository.deleteById("PAYG_MANUAL_" + accountKey);
+            systemConfigRepository.deleteById("PAYG_MANUAL_" + clean);
+        } catch (Exception ignored) {}
+
+        saveBillsToDatabase();
     }
 
     public String cleanAccountName(String accountName) {
@@ -631,8 +716,7 @@ public class OciAccountBillingService {
                                     try {
                                         OciProperties.Account targetAcc = ociProperties.getAccounts().get(accountName);
                                         if (targetAcc != null && !isValidRegisterTime(targetAcc.getRegisterTime())) {
-                                            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
-                                            String formattedTime = sdf.format(timeStart);
+                                            String formattedTime = formatDateUtc(timeStart);
                                             targetAcc.setRegisterTime(formattedTime);
                                             if (accountYamlService != null) {
                                                 accountYamlService.persistRegisterTimeToYaml(accountName, formattedTime);
@@ -729,7 +813,7 @@ public class OciAccountBillingService {
                                 }
                                 if (sLower.contains("a1")) {
                                     try {
-                                        String ocpusStr = inst.get("ocpus");
+                                        String ocpusStr = inst.getOrDefault("cpu", inst.get("ocpus"));
                                         String memStr = inst.get("memory");
                                         if (ocpusStr != null) totalA1Ocpus += Double.parseDouble(ocpusStr);
                                         if (memStr != null) totalA1Memory += Double.parseDouble(memStr);
@@ -817,115 +901,6 @@ public class OciAccountBillingService {
         purgeContaminatedPaygCache();
         for (String accountName : ociProperties.getAccounts().keySet()) {
             enqueuePaygCheck(accountName);
-        }
-    }
-
-    private void autoConfigureSubscriptionPolicy(String accountName, OciProperties.Account accConfig, com.oracle.bmc.identity.IdentityClient identityClient) {
-        try {
-            String tenancyId = accConfig.getTenancy();
-            String userId = accConfig.getUser();
-            
-            // 1. 获取当前 API Key 所属用户加入的所有组
-            var memberships = identityClient.listUserGroupMemberships(
-                com.oracle.bmc.identity.requests.ListUserGroupMembershipsRequest.builder()
-                    .compartmentId(tenancyId)
-                    .userId(userId)
-                    .build()
-            ).getItems();
-            
-            if (memberships.isEmpty()) {
-                System.err.println("用户未加入任何组，无法自动生成组策略。");
-                return;
-            }
-            
-            // 获取第一个所在的组 ID 和名称
-            String groupId = memberships.get(0).getGroupId();
-            var group = identityClient.getGroup(
-                com.oracle.bmc.identity.requests.GetGroupRequest.builder()
-                    .groupId(groupId)
-                    .build()
-            ).getGroup();
-            
-            String groupName = group.getName();
-            String policyName = "OCI_Manager_Subscription_Policy";
-
-            // 甲骨文 IAM 写操作（如创建/更新策略）必须在租户的 Home Region 执行
-            var clients = clientManager.getOciClients(accountName);
-            String homeReg = null;
-            try {
-                var regionSubs = identityClient.listRegionSubscriptions(
-                    com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest.builder()
-                        .tenancyId(tenancyId)
-                        .build()
-                ).getItems();
-                for (var rs : regionSubs) {
-                    if (Boolean.TRUE.equals(rs.getIsHomeRegion())) {
-                        homeReg = rs.getRegionName();
-                        break;
-                    }
-                }
-            } catch (Exception ignored) {}
-
-            var targetIdentityClient = (homeReg != null) ? clients.getIdentityClientForRegion(homeReg) : identityClient;
-
-            java.util.List<String> statements = new java.util.ArrayList<>();
-            statements.add("Allow group '" + groupName + "' to read subscriptions in tenancy");
-            statements.add("Allow group '" + groupName + "' to read subscription in tenancy");
-            statements.add("Allow group '" + groupName + "' to inspect subscriptions in tenancy");
-            statements.add("Allow group '" + groupName + "' to inspect subscription in tenancy");
-            statements.add("Allow group '" + groupName + "' to read subscribed-services in tenancy");
-            statements.add("Allow group '" + groupName + "' to inspect subscribed-services in tenancy");
-            statements.add("Allow group '" + groupName + "' to read organizations-subscriptions in tenancy");
-            statements.add("Allow group '" + groupName + "' to inspect organizations-subscriptions in tenancy");
-            statements.add("Allow group '" + groupName + "' to read usage-reports in tenancy");
-            statements.add("Allow group '" + groupName + "' to read usage-budgets in tenancy");
-            statements.add("Allow group '" + groupName + "' to inspect usage-budgets in tenancy");
-            statements.add("Allow group '" + groupName + "' to inspect compartments in tenancy");
-            statements.add("Allow group '" + groupName + "' to inspect tenancies in tenancy");
-
-            // 检查策略是否已存在
-            var policies = targetIdentityClient.listPolicies(
-                com.oracle.bmc.identity.requests.ListPoliciesRequest.builder()
-                    .compartmentId(tenancyId)
-                    .build()
-            ).getItems();
-
-            for (var p : policies) {
-                if (policyName.equalsIgnoreCase(p.getName())) {
-                    try {
-                        targetIdentityClient.updatePolicy(
-                            com.oracle.bmc.identity.requests.UpdatePolicyRequest.builder()
-                                .policyId(p.getId())
-                                .updatePolicyDetails(
-                                    com.oracle.bmc.identity.model.UpdatePolicyDetails.builder()
-                                        .statements(statements)
-                                        .build()
-                                )
-                                .build()
-                        );
-                        System.out.println("成功为账户 [" + accountName + "] 的组 [" + groupName + "] 增补更新了订阅与使用量读取策略！");
-                    } catch (Exception ignored) {
-                        System.out.println("策略已存在，等待 OCI 权限同步...");
-                    }
-                    return;
-                }
-            }
-
-            targetIdentityClient.createPolicy(
-                com.oracle.bmc.identity.requests.CreatePolicyRequest.builder()
-                    .createPolicyDetails(
-                        com.oracle.bmc.identity.model.CreatePolicyDetails.builder()
-                            .compartmentId(tenancyId)
-                            .name(policyName)
-                            .description("Auto-generated policy for OCI-Manager to read subscriptions and usage")
-                            .statements(statements)
-                            .build()
-                    )
-                    .build()
-            );
-            System.out.println("成功为账户 [" + accountName + "] 的组 [" + groupName + "] 自动配置了订阅、账单与使用量读取策略！(生效后后续巡检即可自动精准识别)");
-        } catch (Exception e) {
-            System.err.println("自动配置策略失败 [" + accountName + "]，请确认您具有创建策略的管理权限: " + e.getMessage());
         }
     }
 
@@ -1344,8 +1319,8 @@ public class OciAccountBillingService {
                 return resultItems;
             } catch (com.oracle.bmc.model.BmcException bmcEx) {
                 if (bmcEx.getStatusCode() == 404 || bmcEx.getStatusCode() == 401 || (bmcEx.getMessage() != null && bmcEx.getMessage().contains("NotAuthorizedOrNotFound"))) {
-                    System.err.println("Usage API 权限不足或未找到 [" + accountName + "]，尝试配置策略: " + bmcEx.getMessage());
-                    autoConfigureSubscriptionPolicy(accountName, accConfig, clients.getIdentity());
+                    // 仅记录日志并回退免费/零账单兜底，绝不在后台静默创建或覆写租户根区间 IAM 策略
+                    System.err.println("Usage API 权限受限或未启用 [" + accountName + "]，跳过 Usage 查询 (HTTP " + bmcEx.getStatusCode() + ")");
                 } else {
                     System.err.println("Usage API 查询异常 [" + accountName + "]: " + bmcEx.getMessage());
                 }
@@ -1373,7 +1348,6 @@ public class OciAccountBillingService {
 
             clients = clientManager.getOciClients(accountName);
             String tenancyId = accConfig.getTenancy();
-            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd");
 
             // 1. 探测 Home Region (listRegionSubscriptions 允许在任何订阅区域调用)
             String homeRegion = null;
@@ -1413,7 +1387,7 @@ public class OciAccountBillingService {
                         if (items != null && !items.isEmpty()) {
                             Date t = items.get(0).getTimeStart();
                             if (t != null) {
-                                return sdf.format(t);
+                                return formatDateUtc(t);
                             }
                         }
                     }
@@ -1432,7 +1406,7 @@ public class OciAccountBillingService {
                     if (compResp != null && compResp.getCompartment() != null) {
                         Date timeCreated = compResp.getCompartment().getTimeCreated();
                         if (timeCreated != null) {
-                            return sdf.format(timeCreated);
+                            return formatDateUtc(timeCreated);
                         }
                     }
                 } catch (Exception ignored) {}
@@ -1446,7 +1420,7 @@ public class OciAccountBillingService {
                         if (userResp != null && userResp.getUser() != null) {
                             Date timeCreated = userResp.getUser().getTimeCreated();
                             if (timeCreated != null) {
-                                return sdf.format(timeCreated);
+                                return formatDateUtc(timeCreated);
                             }
                         }
                     } catch (Exception ignored) {}
@@ -1466,7 +1440,7 @@ public class OciAccountBillingService {
                             }
                         }
                         if (earliest != null) {
-                            return sdf.format(earliest);
+                            return formatDateUtc(earliest);
                         }
                     }
                 } catch (Exception ignored) {}
@@ -1487,7 +1461,7 @@ public class OciAccountBillingService {
                         }
                     }
                     if (earliest != null) {
-                        return sdf.format(earliest);
+                        return formatDateUtc(earliest);
                     }
                 }
             } catch (Exception ignored) {}
@@ -1572,6 +1546,10 @@ public class OciAccountBillingService {
 
             var clients = clientManager.getOciClients(accountName);
             java.util.List<String> regions = clientManager.getSubscribedRegions(accountName);
+            if (clientManager.hasTransientRegionDiscoveryFailure(accountName)) {
+                System.err.println("获取流量中止 [" + accountName + "]: 订阅区域列表探测发生瞬时异常，拒绝仅按单主区域汇总部分流量");
+                return -1.0;
+            }
             if (regions == null || regions.isEmpty()) {
                 System.err.println("获取流量失败 [" + accountName + "]: 订阅区域列表为空");
                 return -1.0;
@@ -1615,8 +1593,9 @@ public class OciAccountBillingService {
                 }
             }
 
-            // 若所有区域均查询失败，或者有区域失败且总字节为 0，不能视作真实 0 字节，应返回 -1 标示失败
-            if (!anyRegionSuccess || (anyRegionFailure && totalBytes <= 0)) {
+            // 🔒 多区域全成功原子要求：只要无任何区域成功，或存在任意一个订阅区域查询失败，一律返回 -1.0，
+            // 严禁返回部分区域的残缺流量和，防止绕过单调保护误触发“解除当月熔断自动开机”！
+            if (!anyRegionSuccess || anyRegionFailure) {
                 return -1.0;
             }
 

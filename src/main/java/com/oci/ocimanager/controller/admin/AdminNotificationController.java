@@ -116,6 +116,10 @@ public class AdminNotificationController {
         if (!checkAuth(request, payload)) {
             return Map.of("success", false, "error", "会话已过期，请重新登录");
         }
+        Map<String, Object> stepUp = adminAuthService.verifyOrRequireStepUp(request, payload);
+        if (!Boolean.TRUE.equals(stepUp.get("success"))) {
+            return stepUp;
+        }
         return systemUpdateService.executeUpdate();
     }
 }

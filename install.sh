@@ -116,45 +116,38 @@ yaml_single_quote() {
     printf "'%s'" "$s"
 }
 
-# 哈希不是登录密码。明文只在安装结束时从本次输入打印一次，不写入磁盘。
-save_admin_password_plain() {
-    local pwd="$1"
-    local conf="$2"
-    local file
-    if [[ -z "$pwd" || -z "$conf" || "$pwd" == pbkdf2sha256\$* || "$pwd" == \$\{* ]]; then
-        return 0
+# 明文管理员密码仅在本次交互设置时终端回显一次，绝不落盘存储 .admin-password 副本
+cleanup_legacy_password_files() {
+    local conf="$1"
+    if [[ -n "$conf" ]]; then
+        rm -f "$(dirname "$conf")/.admin-password" "${conf}.bak.password" 2>/dev/null || true
     fi
-    file="$(dirname "$conf")/.admin-password"
-    (umask 077 && printf '%s\n' "$pwd" > "$file")
-    chmod 600 "$file" 2>/dev/null || true
-}
-
-resolve_admin_password() {
-    local pwd="$1"
-    local conf="$2"
-    local plain_file plain
-    if [[ "$pwd" == pbkdf2sha256\$* && -n "$conf" ]]; then
-        plain_file="$(dirname "$conf")/.admin-password"
-        if [[ -f "$plain_file" ]]; then
-            IFS= read -r plain < "$plain_file" || true
-            plain="${plain//$'\r'/}"
-            if [[ -n "$plain" && "$plain" != pbkdf2sha256\$* ]]; then
-                printf '%s' "$plain"
-                return
-            fi
-        fi
-    fi
-    printf '%s' "$pwd"
 }
 
 show_admin_password() {
     local pwd="$1"
+    local allow_plain="${2:-false}"
     if [[ "$pwd" == pbkdf2sha256\$* ]]; then
-        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已加密保存 (终端运行 'oci password' 可一键重置为新密码)${PLAIN}"
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已安全哈希存储 (终端运行 'ocibox password' 可交互式重置)${PLAIN}"
     elif [[ -z "$pwd" || "$pwd" == \$\{* ]]; then
-        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}未设置 (终端运行 'oci password' 可立即设置)${PLAIN}"
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}未设置 (终端运行 'ocibox password' 可立即设置)${PLAIN}"
+    elif [[ "$allow_plain" == "true" ]]; then
+        printf '🔑 %b管理登录密码%b : %b%s%b (仅本次显示，请立即妥善保存)\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$pwd" "${PLAIN}"
     else
-        printf '🔑 %b管理登录密码%b : %b%s%b\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$pwd" "${PLAIN}"
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已配置保护 (首次启动自动升级哈希，运行 'ocibox password' 可重置)${PLAIN}"
+    fi
+}
+
+safe_link_cli_alias() {
+    local target="$1"
+    if [[ ! -e "$target" && ! -L "$target" ]]; then
+        ln -sf /usr/local/bin/ocibox "$target" 2>/dev/null || true
+    elif [[ -L "$target" ]]; then
+        local resolved
+        resolved=$(readlink "$target" 2>/dev/null || true)
+        if [[ "$resolved" == *"ocibox"* || "$resolved" == *"oci-personal"* ]]; then
+            ln -sf /usr/local/bin/ocibox "$target" 2>/dev/null || true
+        fi
     fi
 }
 
@@ -223,11 +216,13 @@ if [[ ! -f "${EXISTING_CONFIG}" && -f "/root/oci-personal/application.yml" ]]; t
     EXISTING_CONFIG="/root/oci-personal/application.yml"
 fi
 EXISTING_PORT=""
+EXISTING_ADDRESS=""
 EXISTING_ADMIN_USER=""
 EXISTING_ADMIN_PWD=""
 EXISTING_BOT_TOKEN=""
 EXISTING_ADMIN_ID=""
 EXISTING_DOMAIN=""
+SHOW_INITIAL_PASSWORD=false
 
 if [[ -f "${INSTALL_DIR}/domain.conf" ]]; then
     EXISTING_DOMAIN=$(grep -E '^[[:space:]]*DOMAIN=' "${INSTALL_DIR}/domain.conf" 2>/dev/null | head -n 1 | cut -d '=' -f 2 | tr -d ' "\r')
@@ -238,6 +233,7 @@ fi
 HAS_EXISTING=false
 if [[ -f "${EXISTING_CONFIG}" ]]; then
     EXISTING_PORT=$(get_yaml_val "port" "${EXISTING_CONFIG}")
+    EXISTING_ADDRESS=$(get_yaml_val "address" "${EXISTING_CONFIG}")
     EXISTING_ADMIN_USER=$(get_yaml_val "admin-username" "${EXISTING_CONFIG}")
     EXISTING_ADMIN_PWD=$(get_yaml_val "admin-password" "${EXISTING_CONFIG}")
     EXISTING_BOT_TOKEN=$(get_yaml_val "bot-token" "${EXISTING_CONFIG}")
@@ -269,7 +265,6 @@ fi
 
 if [[ "${SKIP_INTERACTIVE}" == "true" ]]; then
     PORT="${EXISTING_PORT:-5000}"
-    open_port "${PORT}"
 
     ADMIN_USER="${EXISTING_ADMIN_USER:-admin}"
     ADMIN_PWD="${EXISTING_ADMIN_PWD}"
@@ -309,9 +304,6 @@ else
         fi
     done
 
-    # 🛡️ 自动放行设置的服务端口
-    open_port "${PORT}"
-
     # 管理员账户名配置
     if is_configured "${EXISTING_ADMIN_USER}"; then
         read -rp "👉 请输入管理员账户名 [检测到原配置: ${EXISTING_ADMIN_USER}, 回车直接沿用]: " INPUT_USER
@@ -323,9 +315,16 @@ else
 
     # 管理员密码配置 (自动生成32位带符号高强度密码)
     if is_configured "${EXISTING_ADMIN_PWD}"; then
-        read -rp "👉 请设置管理员登录密码 [检测到已有密码, 回车保留原密码不修改]: " INPUT_PWD
-        ADMIN_PWD="${INPUT_PWD:-${EXISTING_ADMIN_PWD}}"
+        read -rsp "👉 请设置管理员登录密码 [检测到已有密码, 回车保留原密码不修改]: " INPUT_PWD
+        echo ""
+        if [[ -n "${INPUT_PWD}" ]]; then
+            ADMIN_PWD="${INPUT_PWD}"
+            SHOW_INITIAL_PASSWORD=true
+        else
+            ADMIN_PWD="${EXISTING_ADMIN_PWD}"
+        fi
     else
+        SHOW_INITIAL_PASSWORD=true
         DEFAULT_PWD=$(LC_ALL=C tr -dc 'A-Za-z0-9@#$%&*!_=+' < /dev/urandom 2>/dev/null | head -c 32)
         [[ -z "${DEFAULT_PWD}" || ${#DEFAULT_PWD} -lt 32 ]] && DEFAULT_PWD=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9@#$%&*!_=+' | head -c 32)
         read -rp "👉 请设置管理员登录密码 [回车自动生成32位带符号密码: ${DEFAULT_PWD}]: " INPUT_PWD
@@ -466,7 +465,31 @@ else
             BIND_DOMAIN=false
             DOMAIN=""
             DOMAIN_STATUS="未绑定"
-            echo -e "  ${CYAN}ℹ️ 您选择了不绑定域名，将跳过证书申请，通过 http://${SERVER_IP}:${PORT} 直接访问。${PLAIN}"
+        fi
+    fi
+
+    if [[ "${BIND_DOMAIN}" != "true" ]]; then
+        DEFAULT_EXPOSE="N"
+        if [[ "${EXISTING_ADDRESS}" == "0.0.0.0" ]]; then
+            DEFAULT_EXPOSE="Y"
+        fi
+        if [[ "${DEFAULT_EXPOSE}" == "Y" ]]; then
+            read -rp "👉 未配置 HTTPS 域名，是否继续向公网暴露明文 HTTP (${PORT})？(Y/n, 默认 Y 保持原监听，推荐选 n 仅本机 127.0.0.1 安全监听): " ASK_PUBLIC_HTTP
+            ASK_PUBLIC_HTTP="${ASK_PUBLIC_HTTP:-Y}"
+        else
+            read -rp "👉 未配置 HTTPS 域名，是否仅监听本机 127.0.0.1 (推荐配合 SSH 隧道/自有反代，避免公网明文 HTTP 裸奔)？(Y/n, 默认 Y 安全本机监听): " ASK_LOCAL_ONLY
+            if [[ -z "${ASK_LOCAL_ONLY}" || "${ASK_LOCAL_ONLY}" =~ ^[Yy]$ ]]; then
+                ASK_PUBLIC_HTTP="N"
+            else
+                ASK_PUBLIC_HTTP="Y"
+            fi
+        fi
+        if [[ "${ASK_PUBLIC_HTTP}" =~ ^[Yy]$ ]]; then
+            DESIRED_BIND_ADDR="0.0.0.0"
+            echo -e "  ${YELLOW}⚠️ 已选择明文 HTTP 公网直连监听 (0.0.0.0:${PORT})，建议尽快通过 'ocibox cert' 绑定 HTTPS！${PLAIN}"
+        else
+            DESIRED_BIND_ADDR="127.0.0.1"
+            echo -e "  ${GREEN}✅ 已启用安全本机回环监听 (127.0.0.1:${PORT})，公网防火墙不开放后端端口。${PLAIN}"
         fi
     fi
 fi
@@ -511,13 +534,24 @@ echo -e "${GREEN}✅ Java 运行环境就绪: $(java -version 2>&1 | head -n 1)$
 # 4. 生成 application.yml (保留已有 OCI 账号与高阶配置)
 echo -e "\n${CYAN}------------------- [ 配置文件生成 ] -------------------${PLAIN}"
 
-# 根据是否绑定域名确定监听地址与反代信任配置
+# 根据是否绑定域名确定监听地址与反代信任配置（默认安全监听 127.0.0.1，仅在显式选择公网暴露时才监听 0.0.0.0）
 if [[ "${BIND_DOMAIN}" == "true" ]]; then
     SERVER_ADDRESS="127.0.0.1"
     TRUST_FORWARDED="true"
-else
-    SERVER_ADDRESS="0.0.0.0"
+elif [[ "${SKIP_INTERACTIVE}" == "true" ]]; then
+    if is_configured "${EXISTING_ADDRESS}"; then
+        SERVER_ADDRESS="${EXISTING_ADDRESS}"
+    else
+        SERVER_ADDRESS="127.0.0.1"
+    fi
     TRUST_FORWARDED="false"
+else
+    SERVER_ADDRESS="${DESIRED_BIND_ADDR:-127.0.0.1}"
+    TRUST_FORWARDED="false"
+fi
+
+if [[ "${BIND_DOMAIN}" != "true" && "${SERVER_ADDRESS}" == "0.0.0.0" ]]; then
+    open_port "${PORT}"
 fi
 
 # 保存域名绑定状态至 domain.conf 供全局快捷指令及后续维护
@@ -548,8 +582,8 @@ systemctl stop ocibox >/dev/null 2>&1 || true
 systemctl stop oci-personal >/dev/null 2>&1 || true
 PASSWORD_BACKUP=""
 if [[ -f "${INSTALL_DIR}/application.yml" ]]; then
-    PASSWORD_BACKUP="${INSTALL_DIR}/application.yml.bak.password"
-    cp -f "${INSTALL_DIR}/application.yml" "${PASSWORD_BACKUP}" 2>/dev/null || true
+    PASSWORD_BACKUP="${INSTALL_DIR}/application.yml.tmpbak.$$"
+    (umask 077 && cp -f "${INSTALL_DIR}/application.yml" "${PASSWORD_BACKUP}" 2>/dev/null) || true
     chmod 600 "${PASSWORD_BACKUP}" 2>/dev/null || true
 fi
 
@@ -558,7 +592,7 @@ ADMIN_PWD_YAML=$(yaml_single_quote "${ADMIN_PWD}")
 BOT_TOKEN_YAML=$(yaml_single_quote "${BOT_TOKEN}")
 ADMIN_ID_YAML=$(yaml_single_quote "${ADMIN_ID}")
 
-cat << YAML > "${INSTALL_DIR}/application.yml"
+(umask 077 && cat << YAML > "${INSTALL_DIR}/application.yml"
 server:
   port: ${PORT}
   address: ${SERVER_ADDRESS}
@@ -575,6 +609,9 @@ server:
     accept-count: 20
     connection-timeout: 15000
     keep-alive-timeout: 30000
+    processor-cache: 10
+    max-http-form-post-size: 2MB
+    max-swallow-size: 2MB
 
 spring:
   main:
@@ -617,19 +654,21 @@ app:
 
 ${OCI_SECTION}
 YAML
+)
 
 chmod 600 "${INSTALL_DIR}/application.yml"
 chmod 700 "${INSTALL_DIR}/keys" "${INSTALL_DIR}/data"
 WRITTEN_ADMIN_PWD="$(get_yaml_val "admin-password" "${INSTALL_DIR}/application.yml")"
 if [[ "${WRITTEN_ADMIN_PWD}" != "${ADMIN_PWD}" ]]; then
     if [[ -n "${PASSWORD_BACKUP}" && -f "${PASSWORD_BACKUP}" ]]; then
-        cp -f "${PASSWORD_BACKUP}" "${INSTALL_DIR}/application.yml" 2>/dev/null || true
+        mv -f "${PASSWORD_BACKUP}" "${INSTALL_DIR}/application.yml" 2>/dev/null || true
         chmod 600 "${INSTALL_DIR}/application.yml" 2>/dev/null || true
     fi
     echo -e "${RED}❌ 管理员密码写入后读回不一致，已恢复原配置并中止。请换一个不含异常控制字符的密码后重试。${PLAIN}"
     exit 1
 fi
-save_admin_password_plain "${ADMIN_PWD}" "${INSTALL_DIR}/application.yml"
+rm -f "${PASSWORD_BACKUP}" 2>/dev/null || true
+cleanup_legacy_password_files "${INSTALL_DIR}/application.yml"
 echo -e "${GREEN}✅ 配置文件已安全生成至 ${INSTALL_DIR}/application.yml${PLAIN}"
 
 # 5. 安装核心程序 JAR 包
@@ -746,7 +785,7 @@ fi
 # 1G 小机长驻：堆顶仍是 384m。G1 提前做并发回收，每 10 分钟把空闲页还给系统。
 # 元空间、代码缓存、直接内存单独封顶，避免原生内存把整机吃满。OOM 直接退出，交给 systemd 拉起。
 mkdir -p "${INSTALL_DIR}/logs"
-OCIBOX_JAVA_OPTS="-Xms128m -Xmx384m -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1ReservePercent=15 -XX:+ExplicitGCInvokesConcurrent -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication -XX:G1PeriodicGCInterval=600000 -XX:MetaspaceSize=96m -XX:MaxMetaspaceSize=256m -XX:CompressedClassSpaceSize=128m -XX:ReservedCodeCacheSize=128m -XX:MaxDirectMemorySize=128m -XX:CICompilerCount=2 -XX:SoftRefLRUPolicyMSPerMB=50 -XX:+ExitOnOutOfMemoryError -Djava.awt.headless=true -Dfile.encoding=UTF-8 -Dnetworkaddress.cache.ttl=60 -Dio.netty.eventLoopThreads=2 -Dio.netty.maxDirectMemory=33554432 -Xlog:gc*:file=${INSTALL_DIR}/logs/gc.log:time,uptime,level,tags:filecount=3,filesize=2M"
+OCIBOX_JAVA_OPTS="-Xms128m -Xmx384m -Xss512k -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:InitiatingHeapOccupancyPercent=35 -XX:G1ReservePercent=15 -XX:+ExplicitGCInvokesConcurrent -XX:+ParallelRefProcEnabled -XX:+UseStringDeduplication -XX:G1PeriodicGCInterval=600000 -XX:MetaspaceSize=96m -XX:MaxMetaspaceSize=256m -XX:CompressedClassSpaceSize=128m -XX:ReservedCodeCacheSize=128m -XX:MaxDirectMemorySize=128m -XX:CICompilerCount=2 -XX:SoftRefLRUPolicyMSPerMB=50 -XX:+ExitOnOutOfMemoryError -Djava.awt.headless=true -Dfile.encoding=UTF-8 -Dnetworkaddress.cache.ttl=60 -Xlog:gc*:file=${INSTALL_DIR}/logs/gc.log:time,uptime,level,tags:filecount=3,filesize=2M"
 
 cat << SERVICE > /etc/systemd/system/ocibox.service
 [Unit]
@@ -758,6 +797,7 @@ Type=simple
 User=root
 WorkingDirectory=${INSTALL_DIR}
 Environment=MALLOC_ARENA_MAX=2
+Environment=OCI_JAVASDK_JERSEY_CLIENT_DEFAULT_CONNECTOR_ENABLED=true
 ExecStart=$(command -v java) ${OCIBOX_JAVA_OPTS} -jar ${INSTALL_DIR}/app.jar
 Restart=always
 RestartSec=5
@@ -783,18 +823,21 @@ if [[ "${BIND_DOMAIN}" == "true" && -n "${DOMAIN}" ]]; then
     SELF_CRT="${INSTALL_DIR}/ssl/${DOMAIN}.crt"
     if [[ ! -f "${SELF_KEY}" || ! -f "${SELF_CRT}" ]]; then
         echo -e "🛡️ 正在生成自签名 SSL 临时安全证书以做兜底保障..."
-        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        (umask 077 && openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
             -keyout "${SELF_KEY}" \
             -out "${SELF_CRT}" \
-            -subj "/C=CN/ST=Cloud/L=OCIBox/O=OCIBox/CN=${DOMAIN}" >/dev/null 2>&1 || true
+            -subj "/C=CN/ST=Cloud/L=OCIBox/O=OCIBox/CN=${DOMAIN}" >/dev/null 2>&1) || true
     fi
+    chmod 600 "${SELF_KEY}" 2>/dev/null || true
 
     # 2. 检查系统是否已有现成的 Let's Encrypt 证书
     CERT_FILE="${SELF_CRT}"
     KEY_FILE="${SELF_KEY}"
+    HSTS_DIRECTIVE=""
     if [[ -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" && -f "/etc/letsencrypt/live/${DOMAIN}/privkey.pem" ]]; then
         CERT_FILE="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
         KEY_FILE="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+        HSTS_DIRECTIVE='    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
         echo -e "  ${GREEN}🔍 检测到已有 Let's Encrypt 官方证书，将优先挂载！${PLAIN}"
     fi
 
@@ -828,8 +871,9 @@ server {
     ssl_prefer_server_ciphers on;
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;
+${HSTS_DIRECTIVE}
 
-    client_max_body_size 50M;
+    client_max_body_size 5M;
 
     location / {
         proxy_pass http://127.0.0.1:${PORT};
@@ -871,6 +915,9 @@ NGINX_CONF
         if [[ "${CERT_APPLIED}" == "true" && -f "/etc/letsencrypt/live/${DOMAIN}/fullchain.pem" ]]; then
             sed -i.bak -E "s|ssl_certificate .*;|ssl_certificate /etc/letsencrypt/live/${DOMAIN}/fullchain.pem;|g" /etc/nginx/conf.d/ocibox.conf
             sed -i.bak -E "s|ssl_certificate_key .*;|ssl_certificate_key /etc/letsencrypt/live/${DOMAIN}/privkey.pem;|g" /etc/nginx/conf.d/ocibox.conf
+            if ! grep -q "Strict-Transport-Security" /etc/nginx/conf.d/ocibox.conf; then
+                awk '{print} /ssl_session_timeout 1d;/ {print "    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;"}' /etc/nginx/conf.d/ocibox.conf > /etc/nginx/conf.d/ocibox.conf.tmp && mv -f /etc/nginx/conf.d/ocibox.conf.tmp /etc/nginx/conf.d/ocibox.conf
+            fi
             rm -f /etc/nginx/conf.d/ocibox.conf.bak 2>/dev/null || true
             nginx -s reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || true
             echo -e "  ${GREEN}✅ Let's Encrypt 官方 SSL 证书已成功签发并自动激活！${PLAIN}"
@@ -892,9 +939,9 @@ cat << 'CLI' > /usr/local/bin/ocibox
 #  OCIBox - 个人专属云管理面板 系统快捷指令
 # ================================================================
 
-# 自动处理普通用户/无 root 权限问题 (如 instabox、ubuntu、debian 默认免密 sudo 用户)
+# 仅允许 root 运维执行；若非 root 调用固定安装路径提权，绝不回显任何磁盘明文密码
 if [ "$(id -u)" -ne 0 ]; then
-    exec sudo bash "$0" "$@"
+    exec sudo /usr/local/bin/ocibox "$@"
 fi
 
 INSTALL_DIR="/root/ocibox"
@@ -985,44 +1032,12 @@ read_admin_password() {
     printf '%s' "$val"
 }
 
-save_admin_password_plain() {
-    local pwd="$1"
-    local conf="$2"
-    local file
-    if [[ -z "$pwd" || -z "$conf" || "$pwd" == pbkdf2sha256\$* || "$pwd" == \$\{* ]]; then
-        return 0
-    fi
-    file="$(dirname "$conf")/.admin-password"
-    (umask 077 && printf '%s\n' "$pwd" > "$file")
-    chmod 600 "$file" 2>/dev/null || true
-}
-
-resolve_admin_password() {
-    local pwd="$1"
-    local conf="$2"
-    local plain_file plain
-    if [[ "$pwd" == pbkdf2sha256\$* && -n "$conf" ]]; then
-        plain_file="$(dirname "$conf")/.admin-password"
-        if [[ -f "$plain_file" ]]; then
-            IFS= read -r plain < "$plain_file" || true
-            plain="${plain//$'\r'/}"
-            if [[ -n "$plain" && "$plain" != pbkdf2sha256\$* ]]; then
-                printf '%s' "$plain"
-                return
-            fi
-        fi
-    fi
-    printf '%s' "$pwd"
-}
-
 show_admin_password() {
     local pwd="$1"
-    if [[ "$pwd" == pbkdf2sha256\$* ]]; then
-        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已加密保存 (终端运行 'oci password' 可一键重置为新密码)${PLAIN}"
-    elif [[ -z "$pwd" || "$pwd" == \$\{* ]]; then
-        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}未设置 (终端运行 'oci password' 可立即设置)${PLAIN}"
+    if [[ -z "$pwd" || "$pwd" == \$\{* ]]; then
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}未设置 (终端运行 'ocibox password' 可立即设置)${PLAIN}"
     else
-        printf '🔑 %b管理登录密码%b : %b%s%b\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$pwd" "${PLAIN}"
+        echo -e "🔑 ${CYAN}管理登录密码${PLAIN} : ${YELLOW}已安全加密保护 (终端运行 'ocibox password' 可交互式重置)${PLAIN}"
     fi
 }
 
@@ -1035,8 +1050,9 @@ ocibox_info() {
         return
     fi
     local base_dir=$(dirname "$conf")
+    rm -f "${base_dir}/.admin-password" "${conf}.bak.password" 2>/dev/null || true
     local user=$(grep -E '^[[:space:]]*admin-username:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-username:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
-    local pwd=$(resolve_admin_password "$(read_admin_password "$conf")" "$conf")
+    local pwd=$(read_admin_password "$conf")
     local bot=$(grep -E '^[[:space:]]*bot-token:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*bot-token:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local admin_id=$(grep -E '^[[:space:]]*admin-id:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*admin-id:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
     local port=$(grep -E '^[[:space:]]*port:' "$conf" | head -n 1 | sed -E 's/^[[:space:]]*port:[[:space:]]*"?(.*)"?[[:space:]]*$/\1/' | sed 's/"//g')
@@ -1165,9 +1181,12 @@ ocibox_port() {
         return 1
     fi
 
+    local bind_addr=$(grep -E '^[[:space:]]*address:' "$conf" | head -n 1 | awk '{print $2}' | tr -d ' "\047\r')
     if [[ "$new_port" == "$current_port" ]]; then
-        echo -e "${YELLOW}当前端口已为 ${new_port}，正在重新确保防火墙放行...${PLAIN}"
-        open_port "$new_port"
+        if [[ "$bind_addr" == "0.0.0.0" && ! -f "/etc/nginx/conf.d/ocibox.conf" ]]; then
+            echo -e "${YELLOW}当前端口已为 ${new_port}，正在重新确保防火墙放行...${PLAIN}"
+            open_port "$new_port"
+        fi
         return 0
     fi
 
@@ -1175,8 +1194,10 @@ ocibox_port() {
     sed -i.bak -E "s/^([[:space:]]*port:[[:space:]]*).*$/\1${new_port}/" "$conf" 2>/dev/null || sed -i -E "s/^([[:space:]]*port:[[:space:]]*).*$/\1${new_port}/" "$conf"
     rm -f "${conf}.bak" 2>/dev/null || true
 
-    # 自动开放新端口
-    open_port "$new_port"
+    # 仅在未绑定 Nginx 反向代理且监听全网卡时放通公网端口
+    if [[ "$bind_addr" == "0.0.0.0" && ! -f "/etc/nginx/conf.d/ocibox.conf" ]]; then
+        open_port "$new_port"
+    fi
 
     local svc=$(get_service_name)
     echo -e "${GREEN}正在重启 ${svc} 面板服务以使新端口生效...${PLAIN}"
@@ -1266,16 +1287,19 @@ ocibox_cert() {
     local self_key="${INSTALL_DIR}/ssl/${target_domain}.key"
     local self_crt="${INSTALL_DIR}/ssl/${target_domain}.crt"
     if [[ ! -f "$self_key" || ! -f "$self_crt" ]]; then
-        openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        (umask 077 && openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
             -keyout "$self_key" -out "$self_crt" \
-            -subj "/C=CN/ST=Cloud/L=OCIBox/O=OCIBox/CN=${target_domain}" >/dev/null 2>&1 || true
+            -subj "/C=CN/ST=Cloud/L=OCIBox/O=OCIBox/CN=${target_domain}" >/dev/null 2>&1) || true
     fi
+    chmod 600 "$self_key" 2>/dev/null || true
 
     local cert_file="$self_crt"
     local key_file="$self_key"
+    local hsts_line=""
     if [[ -f "/etc/letsencrypt/live/${target_domain}/fullchain.pem" && -f "/etc/letsencrypt/live/${target_domain}/privkey.pem" ]]; then
         cert_file="/etc/letsencrypt/live/${target_domain}/fullchain.pem"
         key_file="/etc/letsencrypt/live/${target_domain}/privkey.pem"
+        hsts_line='    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;'
     fi
 
     cat << NGINX_CONF > /etc/nginx/conf.d/ocibox.conf
@@ -1307,8 +1331,9 @@ server {
     ssl_prefer_server_ciphers on;
     ssl_session_cache shared:SSL:10m;
     ssl_session_timeout 1d;
+${hsts_line}
 
-    client_max_body_size 50M;
+    client_max_body_size 5M;
 
     location / {
         proxy_pass http://127.0.0.1:${port};
@@ -1344,6 +1369,9 @@ NGINX_CONF
         if [[ "$cert_ok" == "true" && -f "/etc/letsencrypt/live/${target_domain}/fullchain.pem" ]]; then
             sed -i.bak -E "s|ssl_certificate .*;|ssl_certificate /etc/letsencrypt/live/${target_domain}/fullchain.pem;|g" /etc/nginx/conf.d/ocibox.conf
             sed -i.bak -E "s|ssl_certificate_key .*;|ssl_certificate_key /etc/letsencrypt/live/${target_domain}/privkey.pem;|g" /etc/nginx/conf.d/ocibox.conf
+            if ! grep -q "Strict-Transport-Security" /etc/nginx/conf.d/ocibox.conf; then
+                awk '{print} /ssl_session_timeout 1d;/ {print "    add_header Strict-Transport-Security \"max-age=31536000; includeSubDomains\" always;"}' /etc/nginx/conf.d/ocibox.conf > /etc/nginx/conf.d/ocibox.conf.tmp && mv -f /etc/nginx/conf.d/ocibox.conf.tmp /etc/nginx/conf.d/ocibox.conf
+            fi
             rm -f /etc/nginx/conf.d/ocibox.conf.bak 2>/dev/null || true
             nginx -s reload >/dev/null 2>&1 || systemctl reload nginx >/dev/null 2>&1 || systemctl restart nginx >/dev/null 2>&1 || true
             echo -e "  ${GREEN}✅ Let's Encrypt 官方证书申请并部署成功！${PLAIN}"
@@ -1367,11 +1395,16 @@ NGINX_CONF
 
     echo -e "\n${GREEN}🎉 域名与 SSL 证书配置已完成！${PLAIN}"
     echo -e "🌐 ${CYAN}管理后台新地址${PLAIN} : ${GREEN}https://${target_domain}${PLAIN}"
-    echo -e "🔗 ${CYAN}本地备用地址${PLAIN}   : ${CYAN}http://${server_ip}:${port}${PLAIN}\n"
+    echo -e "🔗 ${CYAN}本机反代地址${PLAIN}   : ${CYAN}http://127.0.0.1:${port}${PLAIN}\n"
 }
 
 ocibox_password() {
-    local new_pwd="${1:-}"
+    if [[ -n "${1:-}" ]]; then
+        echo -e "${RED}❌ 安全拦截：禁止通过命令行参数传入明文密码（会暴露于系统进程列表 ps）！${PLAIN}"
+        echo -e "${CYAN}👉 请直接执行 'ocibox password' 按提示交互式静默输入。${PLAIN}"
+        return 1
+    fi
+    local new_pwd=""
     local conf="${INSTALL_DIR}/application.yml"
     [[ ! -f "$conf" && -f "/root/oci-personal/application.yml" ]] && conf="/root/oci-personal/application.yml"
     [[ ! -f "$conf" && -f "/root/ocibox/application.yml" ]] && conf="/root/ocibox/application.yml"
@@ -1379,16 +1412,15 @@ ocibox_password() {
         echo -e "${RED}未找到配置文件: $conf${PLAIN}"
         return 1
     fi
-    if [[ -z "$new_pwd" ]]; then
-        echo -e "\n${CYAN}================================================================${PLAIN}"
-        echo -e "${GREEN}🔑 OCIBox 管理员登录密码重置${PLAIN}"
-        echo -e "${CYAN}================================================================${PLAIN}"
-        local default_new_pwd
-        default_new_pwd=$(LC_ALL=C tr -dc 'A-Za-z0-9@#$%&*!_=+' < /dev/urandom 2>/dev/null | head -c 32)
-        [[ -z "${default_new_pwd}" || ${#default_new_pwd} -lt 32 ]] && default_new_pwd=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9@#$%&*!_=+' | head -c 32)
-        read -rp "👉 请输入新密码 [直接回车自动生成 32 位强密码: ${default_new_pwd}]: " input_new_pwd
-        new_pwd="${input_new_pwd:-${default_new_pwd}}"
-    fi
+    echo -e "\n${CYAN}================================================================${PLAIN}"
+    echo -e "${GREEN}🔑 OCIBox 管理员登录密码重置${PLAIN}"
+    echo -e "${CYAN}================================================================${PLAIN}"
+    local default_new_pwd
+    default_new_pwd=$(LC_ALL=C tr -dc 'A-Za-z0-9@#$%&*!_=+' < /dev/urandom 2>/dev/null | head -c 32)
+    [[ -z "${default_new_pwd}" || ${#default_new_pwd} -lt 32 ]] && default_new_pwd=$(openssl rand -base64 48 | tr -dc 'A-Za-z0-9@#$%&*!_=+' | head -c 32)
+    read -rsp "👉 请输入新密码 (输入时不回显；直接回车自动生成 32 位高强度随机密码): " input_new_pwd
+    echo ""
+    new_pwd="${input_new_pwd:-${default_new_pwd}}"
 
     if [[ -z "$new_pwd" ]]; then
         echo -e "${RED}❌ 密码不能为空！${PLAIN}"
@@ -1430,12 +1462,9 @@ ocibox_password() {
         systemctl restart "$svc" >/dev/null 2>&1 || true
         return 1
     fi
-    rm -f "$bak_conf" 2>/dev/null || true
+    rm -f "$bak_conf" "$(dirname "$conf")/.admin-password" "${conf}.bak.password" 2>/dev/null || true
 
-    # 安全留存副本至 .admin-password (chmod 600，仅 root 可读)
-    save_admin_password_plain "$new_pwd" "$conf"
-
-    # 重启服务
+    # 重启服务（启动时后端自动将新密码升级为 PBKDF2 慢哈希落盘，绝不留存明文副本）
     systemctl restart "$svc" >/dev/null 2>&1 || true
     sleep 2
 
@@ -1446,8 +1475,8 @@ ocibox_password() {
     if [[ -n "$user" && ! "$user" =~ ^\$\{ ]]; then
         echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${user}${PLAIN}"
     fi
-    printf '🔑 %b管理登录密码%b : %b%s%b\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$new_pwd" "${PLAIN}"
-    echo -e "💡 提示: 凭据已持久化，随时输入 ${GREEN}oci${PLAIN} 即可呼出管理面板。"
+    printf '🔑 %b管理登录密码%b : %b%s%b (仅本次显示，请立即妥善保存)\n' "${CYAN}" "${PLAIN}" "${YELLOW}" "$new_pwd" "${PLAIN}"
+    echo -e "💡 提示: 密码已在后台自动哈希加固，随时输入 ${GREEN}ocibox${PLAIN} 即可呼出管理面板。"
     echo -e "================================================================\n"
 }
 
@@ -1463,9 +1492,9 @@ case "${1:-}" in
     password|passwd|pwd) ocibox_password "${2:-}" ;;
     info) ocibox_info ;;
     help|--help|-h)
-        echo "用法: oci [status|restart|start|stop|logs|update|port|cert|password|info]"
-        echo "   - oci password [新密码] : 查看/一键重置管理员登录密码"
-        echo "   - oci update            : 一键保持客户默认选项更新"
+        echo "用法: ocibox [status|restart|start|stop|logs|update|port|cert|password|info]"
+        echo "   - ocibox password       : 交互式安全重置管理员登录密码"
+        echo "   - ocibox update         : 一键保持客户默认选项更新"
         ;;
     *)
         ocibox_info
@@ -1487,10 +1516,13 @@ case "${1:-}" in
 esac
 CLI
 chmod +x /usr/local/bin/ocibox
-ln -sf /usr/local/bin/ocibox /usr/local/bin/oci 2>/dev/null || true
-ln -sf /usr/local/bin/ocibox /usr/bin/oci 2>/dev/null || true
 ln -sf /usr/local/bin/ocibox /usr/bin/ocibox 2>/dev/null || true
-ln -sf /usr/local/bin/ocibox /usr/local/bin/oci-personal 2>/dev/null || true
+if [[ -L /usr/bin/oci ]] && [[ "$(readlink /usr/bin/oci 2>/dev/null || true)" == *"ocibox"* ]]; then
+    rm -f /usr/bin/oci 2>/dev/null || true
+fi
+safe_link_cli_alias /usr/local/bin/oci-personal
+# 🔒 仅当系统尚未安装官方 Oracle Cloud CLI (oci) 时才创建软链别名，严禁覆盖现有非 ocibox 二进制！
+safe_link_cli_alias /usr/local/bin/oci
 
 # 9. 获取公网 IP 与展示最终面板地址
 SERVER_IP=$(curl -s4 --max-time 3 https://api.ipify.org 2>/dev/null || curl -s4 --max-time 3 https://ifconfig.me 2>/dev/null || curl -s4 --max-time 3 https://icanhazip.com 2>/dev/null || echo "127.0.0.1")
@@ -1500,12 +1532,14 @@ echo -e "${GREEN}       🎉 OCIBox 个人专属管理面板 部署成功！${PL
 echo -e "${GREEN}================================================================${PLAIN}"
 if [[ "${BIND_DOMAIN}" == "true" && -n "${DOMAIN}" ]]; then
     echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}https://${DOMAIN}${PLAIN}"
-    echo -e "🔗 ${CYAN}本地直连备用${PLAIN} : ${CYAN}http://${SERVER_IP}:${PORT}${PLAIN}"
+    echo -e "🔗 ${CYAN}本机反代地址${PLAIN} : ${CYAN}http://127.0.0.1:${PORT}${PLAIN}"
+elif [[ "${SERVER_ADDRESS}" == "127.0.0.1" ]]; then
+    echo -e "🌐 ${CYAN}本机安全地址${PLAIN} : ${GREEN}http://127.0.0.1:${PORT}${PLAIN} (推荐 SSH 隧道或 Nginx 反代访问)"
 else
     echo -e "🌐 ${CYAN}管理后台地址${PLAIN} : ${GREEN}http://${SERVER_IP}:${PORT}${PLAIN}"
 fi
 echo -e "👤 ${CYAN}管理登录账号${PLAIN} : ${GREEN}${ADMIN_USER}${PLAIN}"
-show_admin_password "$(resolve_admin_password "${ADMIN_PWD}" "${INSTALL_DIR}/application.yml")"
+show_admin_password "${ADMIN_PWD}" "${SHOW_INITIAL_PASSWORD}"
 if ! systemctl is-active --quiet ocibox; then
     echo -e "${RED}⚠️ 面板服务当前没有在运行，上面的密码要等服务启动成功后才会生效。请执行 systemctl status ocibox 查看原因。${PLAIN}"
 fi

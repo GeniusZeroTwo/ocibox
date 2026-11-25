@@ -1,6 +1,5 @@
 package com.oci.ocimanager.controller.admin;
 
-import com.oci.ocimanager.repository.CreationTaskRepository;
 import com.oci.ocimanager.service.AdminAuthService;
 import com.oci.ocimanager.service.CreationTaskService;
 import com.oci.ocimanager.service.OciCloudService;
@@ -27,7 +26,6 @@ public class AdminCreationController {
 
     @Autowired private OciCloudService ociCloudService;
     @Autowired private CreationTaskService creationTaskService;
-    @Autowired private CreationTaskRepository creationTaskRepository;
     @Autowired private AdminAuthService adminAuthService;
 
     private boolean checkAuth(HttpServletRequest request, Map<String, ?> payload) {
@@ -115,7 +113,13 @@ public class AdminCreationController {
             String safeSsh = hasSsh ? sshKey : null;
 
             String taskId = creationTaskService.startTask(account, instanceName, region, shape, osName, osVersion, cpu, ram, disk, count, interval, ipv4, ipv6, rootLogin, safeRootPwd, safeSsh);
-            return Map.of("success", true, "taskId", taskId);
+            return Map.of(
+                    "success", true,
+                    "taskId", taskId,
+                    "message", "✅ 抢机任务已持久化并开始运行，服务器重启也不会丢失。"
+            );
+        } catch (IllegalStateException ise) {
+            return Map.of("success", false, "error", ise.getMessage());
         } catch (Exception e) {
             return com.oci.ocimanager.controller.ApiErrors.fail("创建任务参数无效", e);
         }
@@ -126,10 +130,9 @@ public class AdminCreationController {
         if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String taskId = payload.get("taskId");
-        creationTaskService.stopTask(taskId);
-        try {
-            creationTaskRepository.deleteById(taskId);
-        } catch (Exception ignored) {}
+        if (taskId != null && !taskId.isBlank()) {
+            creationTaskService.stopTask(taskId);
+        }
         return Map.of("success", true);
     }
 
@@ -139,10 +142,8 @@ public class AdminCreationController {
         if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
         String taskId = payload.get("taskId");
-        if (taskId != null) {
-            try {
-                creationTaskRepository.deleteById(taskId);
-            } catch (Exception ignored) {}
+        if (taskId != null && !taskId.isBlank()) {
+            creationTaskService.stopTask(taskId);
         }
         return Map.of("success", true);
     }

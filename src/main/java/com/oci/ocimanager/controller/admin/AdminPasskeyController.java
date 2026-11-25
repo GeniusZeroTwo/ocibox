@@ -102,6 +102,10 @@ public class AdminPasskeyController {
         if (!checkAuth(token)) {
             return Map.of("success", false, "error", "会话已过期或未登录，请重新登录！");
         }
+        Map<String, Object> stepUp = adminAuthService.verifyOrRequireStepUp(request, payload);
+        if (!Boolean.TRUE.equals(stepUp.get("success"))) {
+            return stepUp;
+        }
         Long id = parsePasskeyId(payload);
         if (id == null) {
             return Map.of("success", false, "error", "参数 id 无效或格式不合法");
@@ -126,6 +130,20 @@ public class AdminPasskeyController {
         }
         String name = payload != null && payload.get("name") != null ? String.valueOf(payload.get("name")) : null;
         return adminPasskeyService.renamePasskey(token, id, name);
+    }
+
+    /**
+     * 8. 已登录会话使用通行密钥完成二次验证 Step-Up (需要管理员 Token)
+     */
+    @PostMapping("/step-up")
+    public Map<String, Object> stepUpWithPasskey(
+            @RequestBody(required = false) Map<String, Object> payload,
+            HttpServletRequest request) {
+        String token = adminAuthService.resolveToken(request, payload);
+        if (!checkAuth(token)) {
+            return Map.of("success", false, "error", "会话已过期或未登录，请重新登录！");
+        }
+        return adminPasskeyService.verifyStepUp(token, payload, request);
     }
 
     private Long parsePasskeyId(Map<String, Object> payload) {

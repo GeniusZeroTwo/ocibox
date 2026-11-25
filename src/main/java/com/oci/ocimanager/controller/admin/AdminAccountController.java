@@ -192,87 +192,90 @@ public class AdminAccountController {
 
         synchronized (accountYamlService.lock()) {
             try {
-                File file = accountYamlService.getConfigFile();
-                
-                if (file != null && file.exists()) {
-                    List<String> lines = Files.readAllLines(file.toPath());
-                    List<String> newLines = new ArrayList<>();
-                    boolean accountFound = false;
-
-                    for (String line : lines) {
-                        if (accountYamlService.isTargetYamlKey(line, cleanOld)) {
-                            int colonIndex = line.indexOf(':');
-                            String beforeKey = line.substring(0, line.indexOf(line.trim()));
-                            String newKeyLine = beforeKey + "\"[" + cleanNew + "]\"" + line.substring(colonIndex);
-                            newLines.add(newKeyLine);
-                            accountFound = true;
-                        } else {
-                            newLines.add(line);
-                        }
-                    }
-                    
-                    if (accountFound) {
-                        Files.write(file.toPath(), newLines);
-                        accountYamlService.enforceStrictFilePermissions(file.toPath());
-                    } else {
-                        return Map.of("success", false, "error", "YAML 中未能精准定位到账号节点 [" + oldAccount + "]");
-                    }
-                } else {
-                    return Map.of("success", false, "error", "找不到 application.yml 配置文件");
-                }
-
-                // 1. Memory update
+                // 🔒 1. 先校验内存权威账号表是否确有该账号，杜绝未命中时先改坏 YAML 再触发 NPE！
                 String matchedOldKey = null;
                 for (String k : ociProperties.getAccounts().keySet()) {
-                    if (k.replaceAll("[\"'\\s\\[\\]\\r\\n]", "").equals(cleanOld)) {
+                    if (AccountYamlService.normalizeAccountKey(k).equals(cleanOld)) {
                         matchedOldKey = k;
                         break;
                     }
                 }
-                
-                if (matchedOldKey != null) {
-                    OciProperties.Account acc = ociProperties.getAccounts().get(matchedOldKey);
-                    Map<String, OciProperties.Account> newMap = new LinkedHashMap<>();
-                    for (Map.Entry<String, OciProperties.Account> e : ociProperties.getAccounts().entrySet()) {
-                        if (e.getKey().equals(matchedOldKey)) {
-                            newMap.put(cleanNew, acc);
-                        } else {
-                            newMap.put(e.getKey(), e.getValue());
-                        }
-                    }
-                    ociProperties.setAccounts(newMap);
+                if (matchedOldKey == null) {
+                    return Map.of("success", false, "error", "未找到原账号: " + oldAccount);
                 }
 
-                // Caches
-                Double oldTraffic = ScheduledTasksService.TRAFFIC_CACHE.remove(matchedOldKey);
-                if (oldTraffic != null) ScheduledTasksService.TRAFFIC_CACHE.put(cleanNew, oldTraffic);
-                
-                String oldUpdateTime = ScheduledTasksService.UPDATE_TIME_CACHE.remove(matchedOldKey);
-                if (oldUpdateTime != null) ScheduledTasksService.UPDATE_TIME_CACHE.put(cleanNew, oldUpdateTime);
+                // 🔒 2. 在 oci.accounts 严格缩进作用域内原子重命名 YAML 键
+                File file = accountYamlService.getConfigFile();
+                if (file == null || !file.exists()) {
+                    return Map.of("success", false, "error", "找不到 application.yml 配置文件");
+                }
+                boolean renamedInYaml = accountYamlService.renameAccountInYaml(file, matchedOldKey, cleanNew);
+                if (!renamedInYaml) {
+                    return Map.of("success", false, "error", "YAML 中未能精准定位到账号节点 [" + oldAccount + "]");
+                }
 
-                // DB limits
+                // 3. 更新内存账号顺序表
+                OciProperties.Account acc = ociProperties.getAccounts().get(matchedOldKey);
+                Map<String, OciProperties.Account> newMap = new LinkedHashMap<>();
+                for (Map.Entry<String, OciProperties.Account> e : ociProperties.getAccounts().entrySet()) {
+                    if (e.getKey().equals(matchedOldKey)) {
+                        newMap.put(cleanNew, acc);
+                    } else {
+                        newMap.put(e.getKey(), e.getValue());
+                    }
+                }
+                ociProperties.setAccounts(newMap);
+
+                // 4. 完整迁移流量缓存、熔断锁 (_meltdown)、标签、PAYG、账单与封禁状态缓存
+                if (ScheduledTasksService.getInstance() != null) {
+                    ScheduledTasksService.getInstance().migrateAccountRecords(matchedOldKey, cleanNew);
+                } else {
+                    Double oldTraffic = ScheduledTasksService.TRAFFIC_CACHE.remove(matchedOldKey);
+                    if (oldTraffic != null) ScheduledTasksService.TRAFFIC_CACHE.put(cleanNew, oldTraffic);
+                    String oldUpdateTime = ScheduledTasksService.UPDATE_TIME_CACHE.remove(matchedOldKey);
+                    if (oldUpdateTime != null) ScheduledTasksService.UPDATE_TIME_CACHE.put(cleanNew, oldUpdateTime);
+                    String oldMelt = ScheduledTasksService.WARNING_SENT_RECORD.remove(matchedOldKey + "_meltdown");
+                    if (oldMelt != null) ScheduledTasksService.WARNING_SENT_RECORD.put(cleanNew + "_meltdown", oldMelt);
+                }
+                ociCloudService.migrateAccountBillingState(matchedOldKey, cleanNew);
+
+                // 5. 迁移数据库流量限额
                 if (trafficLimitRepository != null) {
                     Optional<TrafficLimit> tlOpt = trafficLimitRepository.findById(matchedOldKey);
                     if (tlOpt.isPresent()) {
                         TrafficLimit tl = tlOpt.get();
                         trafficLimitRepository.deleteById(matchedOldKey);
-                        tl.setAccountName(cleanNew);
-                        trafficLimitRepository.save(tl);
+                        TrafficLimit migrated = new TrafficLimit();
+                        migrated.setAccountName(cleanNew);
+                        migrated.setLimitGb(tl.getLimitGb());
+                        migrated.setLastWarningMonth(tl.getLastWarningMonth());
+                        trafficLimitRepository.save(migrated);
                     }
                 }
 
-                // DB tasks
-                if (creationTaskRepository != null) {
-                    List<CreationTaskRecord> allTasks = creationTaskRepository.findAll();
-                    for (CreationTaskRecord t : allTasks) {
-                        if (t.getAccount() != null && t.getAccount().replaceAll("[\"'\\s\\[\\]\\r\\n]", "").equals(cleanOld)) {
-                            t.setAccount(cleanNew);
-                            creationTaskRepository.save(t);
+                // 6. 同步更新运行中抢机线程内存对象与数据库任务记录
+                if (creationTaskService != null) {
+                    creationTaskService.onAccountRenamed(matchedOldKey, cleanNew);
+                    if (!matchedOldKey.equals(cleanOld)) {
+                        creationTaskService.onAccountRenamed(cleanOld, cleanNew);
+                    }
+                }
+
+                // 7. 同步迁移实例缓存中的所属账号与展示前缀，防止轮询清理或显示断档
+                for (Map<String, String> inst : OciCloudService.INSTANCE_CACHE.values()) {
+                    if (inst != null && matchedOldKey.equals(inst.get("account"))) {
+                        inst.put("account", cleanNew);
+                        String rawName = inst.get("name");
+                        if (rawName != null && rawName.startsWith("[" + matchedOldKey + "] ")) {
+                            inst.put("name", "[" + cleanNew + "] " + rawName.substring(("[" + matchedOldKey + "] ").length()));
                         }
                     }
                 }
 
-                ociCloudService.clearProviderCache();
+                ociCloudService.clearClientCacheForAccount(matchedOldKey);
+                if (ScheduledTasksService.getInstance() != null) {
+                    ScheduledTasksService.getInstance().saveSystemCache();
+                }
                 return Map.of("success", true);
 
             } catch (Exception e) {
@@ -282,122 +285,112 @@ public class AdminAccountController {
         }
     }
 
-    // 🌟 物理抹杀版：无视所有标点、方括号和隐藏换行符陷阱的终极代码
     @PostMapping("/account-delete")
     @Transactional
-    public Map<String, Object> deleteAccount(HttpServletRequest request, @RequestBody(required = false) Map<String, String> payload) {
+    public Map<String, Object> deleteAccount(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
         if (!checkAuth(request, payload)) return Map.of("success", false, "error", "会话已过期，请重新登录");
         if (payload == null) return Map.of("success", false, "error", "缺少请求参数");
-        String rawAccount = payload.get("account");
+        Object rawAccObj = payload.get("account");
+        String rawAccount = rawAccObj != null ? String.valueOf(rawAccObj) : null;
         if (rawAccount == null || rawAccount.trim().isEmpty()) return Map.of("success", false, "error", "账号名不能为空");
+
+        Map<String, Object> stepUp = adminAuthService.verifyOrRequireStepUp(request, payload);
+        if (!Boolean.TRUE.equals(stepUp.get("success"))) {
+            return stepUp;
+        }
+
+        String cleanTarget = AccountYamlService.normalizeAccountKey(rawAccount);
+        if (cleanTarget.isEmpty()) {
+            return Map.of("success", false, "error", "无效的账号名称");
+        }
 
         synchronized (accountYamlService.lock()) {
             try {
-                File file = accountYamlService.getConfigFile();
-                
-                if (file != null && file.exists()) {
-                    List<String> lines = Files.readAllLines(file.toPath());
-                    List<String> newLines = new ArrayList<>();
-                    boolean inTarget = false;
-                    int targetIndent = -1;
-                    boolean accountFoundAndDeleted = false;
-
-                    for (String line : lines) {
-                        // 使用全新的降维匹配逻辑，命中率100%
-                        if (!inTarget && accountYamlService.isTargetYamlKey(line, rawAccount)) {
-                            inTarget = true;
-                            targetIndent = accountYamlService.getLeadingWhitespaceCount(line);
-                            accountFoundAndDeleted = true;
-                            continue; // 精准吞噬第一行键
-                        }
-                        
-                        if (inTarget) {
-                            if (line.trim().isEmpty()) continue; // 吞噬空行
-                            
-                            int currentIndent = accountYamlService.getLeadingWhitespaceCount(line);
-                            
-                            // 只要不比目标缩进更深且不是纯注释，说明目标的辖区结束了
-                            if (currentIndent <= targetIndent && !line.trim().startsWith("#")) {
-                                inTarget = false;
-                                newLines.add(line); // 保留下一个兄弟节点或外层节点
-                            }
-                            continue; // 继续吞噬目标辖区内的属性
-                        }
-                        newLines.add(line);
-                    }
-                    
-                    if (accountFoundAndDeleted) {
-                        Files.write(file.toPath(), newLines);
-                        accountYamlService.enforceStrictFilePermissions(file.toPath());
-                        System.out.println("✅ 终极胜利：已成功对 application.yml 中的 [" + rawAccount + "] 节点执行物理级抹除！");
-                    } else {
-                        System.err.println("⚠️ 警告: YAML 中未能精准定位到账号节点 [" + rawAccount + "]，可能是该节点之前已被损坏。即将进入内存和数据库肃清阶段...");
-                    }
-                } else {
-                    return Map.of("success", false, "error", "找不到 application.yml 配置文件");
-                }
-
-                // ==========================
-                // 以下开始全量、深度的关联内存和数据库抹杀！
-                // ==========================
-                
-                // 彻底砸碎干扰符，生成纯净的通缉令指纹
-                String cleanTarget = rawAccount.replaceAll("[\"'\\s\\[\\]\\r\\n]", "");
-                
-                // 1. 无死角内存肃清
+                // 🔒 1. 先检查内存账号表是否确有该账号，杜绝未命中时误改写 application.yml！
                 List<String> keysToRemove = new ArrayList<>();
                 for (String k : ociProperties.getAccounts().keySet()) {
-                    if (k.replaceAll("[\"'\\s\\[\\]\\r\\n]", "").equals(cleanTarget)) {
+                    if (AccountYamlService.normalizeAccountKey(k).equals(cleanTarget)) {
                         keysToRemove.add(k);
                     }
                 }
-                
+                if (keysToRemove.isEmpty()) {
+                    return Map.of("success", false, "error", "未找到账号: " + rawAccount);
+                }
+
+                File file = accountYamlService.getConfigFile();
+                if (file != null && file.exists()) {
+                    accountYamlService.deleteAccountFromYaml(file, cleanTarget);
+                }
+
+                Map<String, OciProperties.Account> updatedAccounts = new LinkedHashMap<>(ociProperties.getAccounts());
+                List<String> candidateKeyFiles = new ArrayList<>();
                 for (String key : keysToRemove) {
-                    OciProperties.Account acc = ociProperties.getAccounts().remove(key);
+                    OciProperties.Account acc = updatedAccounts.remove(key);
                     if (acc != null && acc.getKeyFile() != null) {
-                        File keyFile = new File(acc.getKeyFile());
-                        if (keyFile.exists() && isSafeKeyFileToDelete(keyFile)) {
-                            keyFile.delete();
-                        }
+                        candidateKeyFiles.add(acc.getKeyFile());
                     }
-                    ScheduledTasksService.TRAFFIC_CACHE.remove(key);
-                    ScheduledTasksService.UPDATE_TIME_CACHE.remove(key);
+                    if (ScheduledTasksService.getInstance() != null) {
+                        ScheduledTasksService.getInstance().purgeAccountRecords(key);
+                    } else {
+                        ScheduledTasksService.TRAFFIC_CACHE.remove(key);
+                        ScheduledTasksService.UPDATE_TIME_CACHE.remove(key);
+                        ScheduledTasksService.WARNING_SENT_RECORD.remove(key);
+                        ScheduledTasksService.WARNING_SENT_RECORD.remove(key + "_meltdown");
+                    }
+                    ociCloudService.purgeAccountBillingState(key);
+                    ociCloudService.clearClientCacheForAccount(key);
                     if (trafficLimitRepository != null) trafficLimitRepository.deleteById(key);
                 }
-                ociCloudService.clearProviderCache();
+                for (String kf : candidateKeyFiles) {
+                    File keyFile = new File(kf);
+                    if (keyFile.exists()
+                            && !isKeyFileReferencedByAnyAccount(keyFile, updatedAccounts)
+                            && isSafeKeyFileToDelete(keyFile, file)) {
+                        keyFile.delete();
+                    }
+                }
+                ociProperties.setAccounts(updatedAccounts);
+                if (ScheduledTasksService.getInstance() != null) {
+                    ScheduledTasksService.getInstance().purgeAccountRecords(cleanTarget);
+                }
+                ociCloudService.purgeAccountBillingState(cleanTarget);
 
-                // 2. 强力停止并彻底抹除数据库中所有属于该账户的任务记录
+                // 强力停止并清理数据库中属于该账户的任务记录
                 if (creationTaskService != null) {
                     List<CreationTaskRecord> allTasks = creationTaskService.getAllTasks();
                     for (CreationTaskRecord t : allTasks) {
-                        if (t.getAccount() != null && t.getAccount().replaceAll("[\"'\\s\\[\\]\\r\\n]", "").equals(cleanTarget)) {
+                        if (t.getAccount() != null && AccountYamlService.normalizeAccountKey(t.getAccount()).equals(cleanTarget)) {
                             creationTaskService.stopTask(t.getId());
                         }
                     }
                 }
                 if (creationTaskRepository != null) {
-                    List<com.oci.ocimanager.entity.CreationTaskRecord> accountTasks = creationTaskRepository.findAll().stream()
-                            .filter(t -> t.getAccount() != null && t.getAccount().replaceAll("[\"'\\s\\[\\]\\r\\n]", "").equals(cleanTarget))
+                    List<CreationTaskRecord> accountTasks = creationTaskRepository.findAll().stream()
+                            .filter(t -> t.getAccount() != null && AccountYamlService.normalizeAccountKey(t.getAccount()).equals(cleanTarget))
                             .collect(Collectors.toList());
                     creationTaskRepository.deleteAll(accountTasks);
                 }
 
-                // 3. 清理内存中属于该账户的实例缓存，并收集 OCID 以供解绑
+                // 清理内存中属于该账户的实例缓存及熔断跟踪记录
                 List<String> accountOcids = new ArrayList<>();
                 Map<String, Map<String, String>> instances = ociCloudService.syncAllInstances();
                 if (instances != null) {
                     for (Map.Entry<String, Map<String, String>> entry : instances.entrySet()) {
                         String accVal = entry.getValue().get("account");
-                        if (accVal != null && accVal.replaceAll("[\"'\\s\\[\\]\\r\\n]", "").equals(cleanTarget)) {
+                        if (accVal != null && AccountYamlService.normalizeAccountKey(accVal).equals(cleanTarget)) {
                             accountOcids.add(entry.getKey());
                         }
                     }
-                    accountOcids.forEach(instances::remove);
+                    for (String ocid : accountOcids) {
+                        instances.remove(ocid);
+                        ScheduledTasksService.MELTDOWN_STOPPED_OCIDS.remove(ocid);
+                    }
                 }
 
-                // 4. 账号删除级联处理完成
+                if (ScheduledTasksService.getInstance() != null) {
+                    ScheduledTasksService.getInstance().saveSystemCache();
+                }
 
-                // 5. 闭环：重新同步内存镜像到 Redis
                 CompletableFuture.runAsync(() -> {
                     try {
                         ociCloudService.updateInstancesCache(true);
@@ -408,7 +401,7 @@ public class AdminAccountController {
                         System.err.println("账户抹除后缓存同步异常: " + e.getMessage());
                     }
                 });
-                
+
                 return Map.of("success", true);
             } catch (Exception e) {
                 return com.oci.ocimanager.controller.ApiErrors.fail("账号清理失败", e);
@@ -505,92 +498,66 @@ public class AdminAccountController {
             newAcc.setTenancy(tenancy);
             newAcc.setRegion(region);
             newAcc.setKeyFile(keyFilePath);
-            // 确保若存在同名账号先剔除再追加，保持 LinkedHashMap 尾部有序追加
-            Map<String, OciProperties.Account> currentAccounts = new LinkedHashMap<>(ociProperties.getAccounts());
-            for (String k : new ArrayList<>(currentAccounts.keySet())) {
-                if (k.replaceAll("[\"'\\s\\[\\]\\r\\n]", "").equals(cleanAccountName)) {
-                    currentAccounts.remove(k);
-                }
-            }
-            currentAccounts.put(cleanAccountName, newAcc);
-            ociProperties.setAccounts(currentAccounts);
 
             synchronized (accountYamlService.lock()) {
-                File ymlFile = accountYamlService.getConfigFile();
-
-                if (ymlFile != null && ymlFile.exists()) {
-                    List<String> lines = new ArrayList<>(Files.readAllLines(ymlFile.toPath()));
-                    
-                    List<String> cleanedLines = new ArrayList<>();
-                    boolean inTarget = false;
-                    int targetIndent = -1;
-
-                    for (String line : lines) {
-                        if (!inTarget && accountYamlService.isTargetYamlKey(line, cleanAccountName)) {
-                            inTarget = true;
-                            targetIndent = accountYamlService.getLeadingWhitespaceCount(line);
-                            continue;
-                        }
-
-                        if (inTarget) {
-                            if (line.trim().isEmpty()) continue;
-
-                            int currentIndent = accountYamlService.getLeadingWhitespaceCount(line);
-
-                            if (currentIndent <= targetIndent && !line.trim().startsWith("#")) {
-                                inTarget = false;
-                                cleanedLines.add(line);
+                File ymlFile = accountYamlService.getOrCreateWritableConfigFile();
+                List<String> oldKeyFilesToCleanup = new ArrayList<>();
+                Map<String, OciProperties.Account> currentAccounts = new LinkedHashMap<>(ociProperties.getAccounts());
+                String preservedProxy = null;
+                String preservedClientId = null;
+                String preservedRegTime = null;
+                for (String k : new ArrayList<>(currentAccounts.keySet())) {
+                    if (AccountYamlService.normalizeAccountKey(k).equals(cleanAccountName)) {
+                        OciProperties.Account prevAcc = currentAccounts.remove(k);
+                        if (prevAcc != null) {
+                            if (prevAcc.getKeyFile() != null && !prevAcc.getKeyFile().equals(keyFilePath)) {
+                                oldKeyFilesToCleanup.add(prevAcc.getKeyFile());
                             }
-                            continue;
+                            if (prevAcc.getProxy() != null && !prevAcc.getProxy().isBlank()) {
+                                preservedProxy = prevAcc.getProxy();
+                            }
+                            if (prevAcc.getClientIdentifier() != null && !prevAcc.getClientIdentifier().isBlank()) {
+                                preservedClientId = prevAcc.getClientIdentifier();
+                            }
+                            if (tenancy.equals(prevAcc.getTenancy())
+                                    && prevAcc.getRegisterTime() != null
+                                    && !prevAcc.getRegisterTime().isBlank()) {
+                                preservedRegTime = prevAcc.getRegisterTime();
+                            }
                         }
-                        cleanedLines.add(line);
+                        ociCloudService.clearClientCacheForAccount(k);
                     }
-                    
-                    lines = cleanedLines;
+                }
+                if (preservedProxy != null) newAcc.setProxy(preservedProxy);
+                if (preservedClientId != null) newAcc.setClientIdentifier(preservedClientId);
+                if (preservedRegTime != null) newAcc.setRegisterTime(preservedRegTime);
 
-                    int accountsLine = -1;
-                    for (int i = 0; i < lines.size(); i++) {
-                        if (lines.get(i).matches("^\\s*accounts:.*")) {
-                            accountsLine = i;
-                            break;
-                        }
+                try {
+                    accountYamlService.upsertAccountInYaml(ymlFile, cleanAccountName, user, fingerprint, tenancy, region, keyFilePath);
+                    if (preservedProxy != null) {
+                        accountYamlService.persistAccountPropertyToYaml(ymlFile, cleanAccountName, "proxy", preservedProxy);
                     }
-                    
-                    if (accountsLine != -1) {
-                        // 确保 accounts 节点后若带有 {} 则清除，避免追加子节点后破坏 YAML 语法
-                        lines.set(accountsLine, lines.get(accountsLine).replaceFirst(":\\s*\\{\\}\\s*$", ":"));
+                    if (preservedClientId != null) {
+                        accountYamlService.persistAccountPropertyToYaml(ymlFile, cleanAccountName, "client-identifier", preservedClientId);
+                    }
+                    if (preservedRegTime != null) {
+                        accountYamlService.persistAccountPropertyToYaml(ymlFile, cleanAccountName, "register-time", preservedRegTime);
+                    }
+                } catch (Exception yamlEx) {
+                    try { Files.deleteIfExists(keyPath); } catch (Exception ignored) {}
+                    throw yamlEx;
+                }
 
-                        int accountsIndent = accountYamlService.getLeadingWhitespaceCount(lines.get(accountsLine));
-                        int insertIndex = accountsLine + 1;
-                        
-                        // 寻找 accounts 节点下最后一个子项的末尾行，追加在最后，保持添加时间正序一致
-                        for (int i = accountsLine + 1; i < lines.size(); i++) {
-                            String l = lines.get(i);
-                            String trimmed = l.trim();
-                            if (trimmed.isEmpty() || trimmed.startsWith("#")) {
-                                continue;
-                            }
-                            int indent = accountYamlService.getLeadingWhitespaceCount(l);
-                            if (indent > accountsIndent) {
-                                insertIndex = i + 1;
-                            } else {
-                                break;
-                            }
-                        }
+                currentAccounts.put(cleanAccountName, newAcc);
+                ociProperties.setAccounts(accountYamlService.reorderAccounts(currentAccounts));
+                ociCloudService.clearClientCacheForAccount(cleanAccountName);
 
-                        String newYamlNode = String.format("    \"[%s]\":\n      user: \"%s\"\n      fingerprint: \"%s\"\n      tenancy: \"%s\"\n      region: \"%s\"\n      key-file: \"%s\"",
-                                cleanAccountName, user, fingerprint, tenancy, region, keyFilePath);
-
-                        // 如果插入位置前面不是空行且不是 accounts: 声明行，增加空行分隔
-                        if (insertIndex > accountsLine + 1 && insertIndex <= lines.size() && !lines.get(insertIndex - 1).trim().isEmpty()) {
-                            newYamlNode = "\n" + newYamlNode;
-                        }
-
-                        lines.add(insertIndex, newYamlNode);
-                        Files.write(ymlFile.toPath(), String.join("\n", lines).getBytes(java.nio.charset.StandardCharsets.UTF_8));
-                        accountYamlService.enforceStrictFilePermissions(ymlFile.toPath());
-                        // 同步刷新内存账号拓扑顺序，确保新号稳固排列在最新位置
-                        ociProperties.setAccounts(accountYamlService.reorderAccounts(ociProperties.getAccounts()));
+                for (String oldKf : oldKeyFilesToCleanup) {
+                    File oldFile = new File(oldKf);
+                    if (oldFile.exists()
+                            && !isKeyFileReferencedByAnyAccount(oldFile, ociProperties.getAccounts())
+                            && isSafeKeyFileToDelete(oldFile, ymlFile)) {
+                        oldFile.delete();
                     }
                 }
             }
@@ -617,8 +584,14 @@ public class AdminAccountController {
                     }
 
                     if (usage >= 0) {
-                        ScheduledTasksService.TRAFFIC_CACHE.put(cleanAccountName, usage);
-                        ScheduledTasksService.UPDATE_TIME_CACHE.put(cleanAccountName, java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " UTC");
+                        if (ScheduledTasksService.getInstance() != null) {
+                            String currentMonth = java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC)
+                                    .format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM"));
+                            ScheduledTasksService.getInstance().evaluateAndRecordTrafficUsage(cleanAccountName, usage, currentMonth);
+                        } else {
+                            ScheduledTasksService.TRAFFIC_CACHE.put(cleanAccountName, usage);
+                            ScheduledTasksService.UPDATE_TIME_CACHE.put(cleanAccountName, java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + " UTC");
+                        }
                     }
                 } catch (Exception e) {
                     System.err.println("导入新账号预热异常 [" + cleanAccountName + "]: " + e.getMessage());
@@ -663,19 +636,57 @@ public class AdminAccountController {
         return res;
     }
 
+    private static boolean isKeyFileReferencedByAnyAccount(File targetKeyFile, Map<String, OciProperties.Account> accounts) {
+        if (targetKeyFile == null || accounts == null || accounts.isEmpty()) return false;
+        try {
+            java.nio.file.Path targetReal = targetKeyFile.toPath().toRealPath();
+            for (OciProperties.Account acc : accounts.values()) {
+                if (acc == null || acc.getKeyFile() == null || acc.getKeyFile().isBlank()) continue;
+                try {
+                    File other = new File(acc.getKeyFile());
+                    if (other.exists() && targetReal.equals(other.toPath().toRealPath())) {
+                        return true;
+                    }
+                } catch (Exception ignored) {}
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
     /**
-     * 🔒 防御纵深校验：仅允许删除位于 keys 目录下的私钥文件 (.pem / .key)，防止因配置被污染误删系统关键文件
+     * 🔒 防御纵深校验：仅允许删除严格位于本程序工作目录/配置目录专属 keys 子目录下的私钥文件 (.pem / .key)，
+     * 绝不允许通过构造任意 `/somewhere/keys/foo.key` 越界删除外部目录文件！
      */
-    private boolean isSafeKeyFileToDelete(File keyFile) {
+    public static boolean isSafeKeyFileToDelete(File keyFile, File configFile) {
         if (keyFile == null || !keyFile.isFile()) return false;
         try {
             java.nio.file.Path canonicalTarget = keyFile.toPath().toRealPath();
-            String fileName = canonicalTarget.getFileName().toString().toLowerCase();
+            String fileName = canonicalTarget.getFileName().toString().toLowerCase(Locale.ROOT);
             if (!fileName.endsWith(".pem") && !fileName.endsWith(".key")) {
                 return false;
             }
             java.nio.file.Path parentDir = canonicalTarget.getParent();
-            return parentDir != null && "keys".equals(parentDir.getFileName().toString());
+            if (parentDir == null || !"keys".equals(parentDir.getFileName().toString())) {
+                return false;
+            }
+
+            List<java.nio.file.Path> allowedKeyDirs = new ArrayList<>();
+            allowedKeyDirs.add(Paths.get(".", "keys"));
+            allowedKeyDirs.add(Paths.get("/root/ocibox/keys"));
+            allowedKeyDirs.add(Paths.get("/root/oci-personal/keys"));
+            allowedKeyDirs.add(Paths.get("/root/oci-manager/keys"));
+            if (configFile != null && configFile.getAbsoluteFile().getParentFile() != null) {
+                allowedKeyDirs.add(configFile.getAbsoluteFile().getParentFile().toPath().resolve("keys"));
+            }
+
+            for (java.nio.file.Path candidate : allowedKeyDirs) {
+                try {
+                    if (Files.exists(candidate) && parentDir.equals(candidate.toRealPath())) {
+                        return true;
+                    }
+                } catch (Exception ignored) {}
+            }
+            return false;
         } catch (Exception e) {
             return false;
         }

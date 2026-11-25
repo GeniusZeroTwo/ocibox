@@ -5,20 +5,26 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
- * 后台鉴权接口：验证码签发与登录。原属 AdminController，URL 保持不变。
+ * 后台鉴权接口：登录前公开配置探测、验证码签发、登录、二次确认(Step-Up)与登出。
  */
 @RestController
 @RequestMapping("/api/admin")
 public class AdminAuthController {
 
     @Autowired private AdminAuthService adminAuthService;
+
+    @RequestMapping(value = "/auth-config", method = {RequestMethod.GET, RequestMethod.POST})
+    public Map<String, Object> authConfig() {
+        return adminAuthService.getPublicAuthConfig();
+    }
 
     @PostMapping("/send-code")
     public Map<String, Object> sendCode(HttpServletRequest request) {
@@ -35,18 +41,39 @@ public class AdminAuthController {
         return adminAuthService.login(username, password, adminAuthService.resolveClientIp(request));
     }
 
+    @PostMapping("/step-up")
+    public Map<String, Object> stepUp(@RequestBody(required = false) Map<String, Object> payload, HttpServletRequest request) {
+        String token = adminAuthService.resolveToken(request, payload);
+        if (!adminAuthService.checkAuth(token)) {
+            return Map.of("success", false, "error", "会话已过期，请重新登录");
+        }
+        String secret = null;
+        if (payload != null) {
+            Object raw = payload.get("stepUpSecret");
+            if (raw == null) raw = payload.get("password");
+            if (raw == null) raw = payload.get("code");
+            if (raw != null) secret = String.valueOf(raw);
+        }
+        if (secret == null || secret.isBlank()) {
+            Map<String, Object> res = new HashMap<>();
+            res.put("success", false);
+            res.put("stepUpRequired", true);
+            res.put("error", "请输入管理员密码或动态码");
+            return res;
+        }
+        Map<String, Object> confirmed = adminAuthService.confirmStepUpCredential(secret, adminAuthService.resolveClientIp(request));
+        if (Boolean.TRUE.equals(confirmed.get("success"))) {
+            adminAuthService.markStepUp(token);
+            return Map.of("success", true);
+        }
+        Map<String, Object> denied = new HashMap<>(confirmed);
+        denied.put("stepUpRequired", true);
+        return denied;
+    }
+
     @PostMapping("/logout")
-    public Map<String, Object> logout(
-            @RequestHeader(value = "X-Admin-Token", required = false) String xAdminToken,
-            @RequestHeader(value = "Authorization", required = false) String authHeader,
-            @RequestBody(required = false) Map<String, String> payload) {
-        String token = xAdminToken;
-        if ((token == null || token.isBlank()) && authHeader != null && !authHeader.isBlank()) {
-            token = authHeader.startsWith("Bearer ") ? authHeader.substring(7).trim() : authHeader.trim();
-        }
-        if ((token == null || token.isBlank()) && payload != null) {
-            token = payload.get("token");
-        }
+    public Map<String, Object> logout(HttpServletRequest request, @RequestBody(required = false) Map<String, Object> payload) {
+        String token = adminAuthService.resolveToken(request, payload);
         boolean ok = adminAuthService.logout(token);
         return Map.of("success", true, "message", ok ? "已成功退出登录并注销服务端会话" : "会话已关闭");
     }

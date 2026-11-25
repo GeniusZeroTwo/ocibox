@@ -43,13 +43,13 @@ export function triggerFastPolling(durationMs = 600000) {
             const data = await apiCall('poll');
             if (data && data.success) {
                 if (data.instances) {
+                    const nextInstances = {};
                     for (const [ocid, newInfo] of Object.entries(data.instances)) {
-                        if (globalInstances.value[ocid]) {
-                            Object.assign(globalInstances.value[ocid], newInfo);
-                        } else {
-                            globalInstances.value[ocid] = newInfo;
-                        }
+                        nextInstances[ocid] = globalInstances.value[ocid]
+                            ? { ...globalInstances.value[ocid], ...newInfo }
+                            : newInfo;
                     }
+                    globalInstances.value = nextInstances;
                 }
                 if (data.accountDetails) {
                     accountDetails.value = formatAccountDetails(data.accountDetails, globalInstances.value);
@@ -170,13 +170,13 @@ export function startGlobalPolling() {
                 const data = await apiCall('poll');
                 if (data && data.success) {
                     if (data.instances) {
+                        const nextInstances = {};
                         for (const [ocid, newInfo] of Object.entries(data.instances)) {
-                            if (globalInstances.value[ocid]) {
-                                Object.assign(globalInstances.value[ocid], newInfo);
-                            } else {
-                                globalInstances.value[ocid] = newInfo;
-                            }
+                            nextInstances[ocid] = globalInstances.value[ocid]
+                                ? { ...globalInstances.value[ocid], ...newInfo }
+                                : newInfo;
                         }
+                        globalInstances.value = nextInstances;
                     }
                     if (data.accountDetails) {
                         accountDetails.value = formatAccountDetails(data.accountDetails, globalInstances.value);
@@ -189,10 +189,18 @@ export function startGlobalPolling() {
                         globalAccounts.value = data.accounts;
                     }
                     if (data.traffic && currentTab.value === 'auth') {
+                        for (const existingKey of Object.keys(trafficData.value)) {
+                            if (!(existingKey in data.traffic)) {
+                                delete trafficData.value[existingKey];
+                            }
+                        }
                         for (const k in data.traffic) {
                             if (trafficData.value[k]) {
                                 trafficData.value[k].usage_gb = data.traffic[k].usage_gb;
                                 trafficData.value[k].update_time = data.traffic[k].update_time;
+                                if (!trafficData.value[k].showEdit && data.traffic[k].limit_gb !== undefined) {
+                                    trafficData.value[k].limit_gb = data.traffic[k].limit_gb;
+                                }
                                 if (data.traffic[k].isPayg !== undefined) {
                                     trafficData.value[k].isPayg = data.traffic[k].isPayg;
                                 }
@@ -260,4 +268,9 @@ export function clearAllTimers() {
         clearInterval(bootVolumeWatcherTimer);
         bootVolumeWatcherTimer = null;
     }
+}
+
+export function resetPollingState() {
+    seenNoticeIds.clear();
+    initialPollDone = false;
 }

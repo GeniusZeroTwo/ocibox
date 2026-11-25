@@ -10,14 +10,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -40,178 +37,206 @@ public class OciNetworkService {
     @Autowired
     private OciClientFingerprintService fingerprintService;
 
+    private String resolveInstanceCompartmentId(String ocid, String fallbackTenancy) {
+        if (ocid != null) {
+            Map<String, String> cached = OciCloudService.INSTANCE_CACHE.get(ocid);
+            if (cached != null) {
+                String compId = cached.get("compartmentId");
+                if (compId != null && !compId.isBlank()) {
+                    return compId;
+                }
+            }
+        }
+        return fallbackTenancy;
+    }
+
     public void fixRouteTables(String accountName) throws Exception {
         OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
         if (accConfig == null) {
-            throw new IllegalArgumentException("账号不存在");
+            throw new IllegalArgumentException("账号不存在: " + accountName);
         }
 
         var clients = clientManager.getOciClients(accountName);
-        var vncClient = clients.getVnc();
         String tenancy = accConfig.getTenancy();
+        List<String> regions = clientManager.getSubscribedRegions(accountName);
+        List<String> compIds = clientManager.getActiveCompartmentIds(accountName);
+        if (compIds.isEmpty() && tenancy != null) {
+            compIds = List.of(tenancy);
+        }
 
-        var vcnRes = vncClient.listVcns(ListVcnsRequest.builder().compartmentId(tenancy).build());
-        for (Vcn vcn : vcnRes.getItems()) {
-            if (vcn.getLifecycleState() != Vcn.LifecycleState.Available) continue;
-            
-            String vcnId = vcn.getId();
-            String routeTableId = vcn.getDefaultRouteTableId();
-            List<String> securityListIds = java.util.Arrays.asList(vcn.getDefaultSecurityListId());
+        for (String region : regions) {
+            var vncClient = clients.getVncClientForRegion(region);
+            for (String compId : compIds) {
+                try {
+                    var vcnRes = vncClient.listVcns(ListVcnsRequest.builder().compartmentId(compId).build());
+                    for (Vcn vcn : vcnRes.getItems()) {
+                        if (vcn.getLifecycleState() != Vcn.LifecycleState.Available) continue;
 
-            try {
-                // 1. IGW
-                var igws = vncClient.listInternetGateways(ListInternetGatewaysRequest.builder()
-                        .compartmentId(tenancy).vcnId(vcnId).build()).getItems();
-                String igwId = null;
-                for (var igwCandidate : igws) {
-                    if (igwCandidate.getLifecycleState() == InternetGateway.LifecycleState.Available
-                            && Boolean.TRUE.equals(igwCandidate.getIsEnabled())) {
-                        igwId = igwCandidate.getId();
-                        break;
+                        String vcnId = vcn.getId();
+                        String routeTableId = vcn.getDefaultRouteTableId();
+
+                        try {
+                            var igws = vncClient.listInternetGateways(ListInternetGatewaysRequest.builder()
+                                    .compartmentId(compId).vcnId(vcnId).build()).getItems();
+                            String igwId = null;
+                            for (var igwCandidate : igws) {
+                                if (igwCandidate.getLifecycleState() == InternetGateway.LifecycleState.Available
+                                        && Boolean.TRUE.equals(igwCandidate.getIsEnabled())) {
+                                    igwId = igwCandidate.getId();
+                                    break;
+                                }
+                            }
+                            if (igwId == null) {
+                                String igwName = fingerprintService.getAccountIgwName(accountName, tenancy);
+                                InternetGateway igw = vncClient.createInternetGateway(CreateInternetGatewayRequest.builder()
+                                        .createInternetGatewayDetails(CreateInternetGatewayDetails.builder()
+                                                .compartmentId(compId).vcnId(vcnId).isEnabled(true).displayName(igwName).build())
+                                        .build()).getInternetGateway();
+                                igwId = igw.getId();
+                            }
+
+                            if (routeTableId != null) {
+                                var rt = vncClient.getRouteTable(GetRouteTableRequest.builder().rtId(routeTableId).build()).getRouteTable();
+                                // 跳过 500M 专用 NAT 路由表，防止破坏高速转发通道
+                                if (rt.getDisplayName() != null && "nat-route-500m".equalsIgnoreCase(rt.getDisplayName())) {
+                                    continue;
+                                }
+                                List<RouteRule> rules = new java.util.ArrayList<>();
+                                if (rt.getRouteRules() != null) rules.addAll(rt.getRouteRules());
+
+                                final String finalIgwId = igwId;
+                                boolean hasCorrectDefaultRoute = rules.stream().anyMatch(r ->
+                                        ("0.0.0.0/0".equals(r.getDestination()) || "0.0.0.0/0".equals(r.getCidrBlock()))
+                                                && finalIgwId.equals(r.getNetworkEntityId())
+                                );
+
+                                if (!hasCorrectDefaultRoute) {
+                                    rules.removeIf(r -> "0.0.0.0/0".equals(r.getDestination()) || "0.0.0.0/0".equals(r.getCidrBlock()));
+                                    rules.add(RouteRule.builder()
+                                            .networkEntityId(finalIgwId)
+                                            .destination("0.0.0.0/0")
+                                            .destinationType(RouteRule.DestinationType.CidrBlock)
+                                            .build());
+
+                                    vncClient.updateRouteTable(UpdateRouteTableRequest.builder().rtId(routeTableId)
+                                            .updateRouteTableDetails(UpdateRouteTableDetails.builder().routeRules(rules).build()).build());
+                                }
+                            }
+                        } catch (Exception e) {
+                            System.err.println("修复 VCN [" + region + " / " + vcnId + "] 失败 - " + e.getMessage());
+                        }
                     }
+                } catch (Exception regionEx) {
+                    System.err.println("扫描区段路由失败 [" + accountName + " - " + region + " - " + compId + "]: " + regionEx.getMessage());
                 }
-                if (igwId == null) {
-                    String igwName = fingerprintService.getAccountIgwName(accountName, tenancy);
-                    InternetGateway igw = vncClient.createInternetGateway(CreateInternetGatewayRequest.builder()
-                            .createInternetGatewayDetails(CreateInternetGatewayDetails.builder()
-                                    .compartmentId(tenancy).vcnId(vcnId).isEnabled(true).displayName(igwName).build())
-                            .build()).getInternetGateway();
-                    igwId = igw.getId();
-                }
-
-                // 2. Route Table
-                var rt = vncClient.getRouteTable(GetRouteTableRequest.builder().rtId(routeTableId).build()).getRouteTable();
-                List<RouteRule> rules = new java.util.ArrayList<>();
-                if (rt.getRouteRules() != null) rules.addAll(rt.getRouteRules());
-
-                final String finalIgwId = igwId;
-                boolean hasCorrectDefaultRoute = rules.stream().anyMatch(r -> 
-                    "0.0.0.0/0".equals(r.getDestination()) && finalIgwId.equals(r.getNetworkEntityId())
-                );
-                
-                if (!hasCorrectDefaultRoute) {
-                    rules.removeIf(r -> "0.0.0.0/0".equals(r.getDestination()));
-                    rules.add(RouteRule.builder()
-                            .networkEntityId(finalIgwId)
-                            .destination("0.0.0.0/0")
-                            .destinationType(RouteRule.DestinationType.CidrBlock)
-                            .build());
-                            
-                    vncClient.updateRouteTable(UpdateRouteTableRequest.builder().rtId(routeTableId)
-                            .updateRouteTableDetails(UpdateRouteTableDetails.builder().routeRules(rules).build()).build());
-                }
-
-                // 3. Security List
-                for (String slId : securityListIds) {
-                    var sl = vncClient.getSecurityList(GetSecurityListRequest.builder().securityListId(slId).build()).getSecurityList();
-                    List<IngressSecurityRule> inRules = new java.util.ArrayList<>();
-                    if (sl.getIngressSecurityRules() != null) inRules.addAll(sl.getIngressSecurityRules());
-                    
-                    List<EgressSecurityRule> egRules = new java.util.ArrayList<>();
-                    if (sl.getEgressSecurityRules() != null) egRules.addAll(sl.getEgressSecurityRules());
-
-                    boolean hasAllIn = inRules.stream().anyMatch(r -> "0.0.0.0/0".equals(r.getSource()) && "all".equalsIgnoreCase(r.getProtocol()));
-                    if (!hasAllIn) inRules.add(IngressSecurityRule.builder().source("0.0.0.0/0").protocol("all").isStateless(false).build());
-
-                    boolean hasEg = egRules.stream().anyMatch(r -> "0.0.0.0/0".equals(r.getDestination()) && "all".equalsIgnoreCase(r.getProtocol()));
-                    if (!hasEg) egRules.add(EgressSecurityRule.builder().destination("0.0.0.0/0").protocol("all").isStateless(false).build());
-
-                    vncClient.updateSecurityList(UpdateSecurityListRequest.builder().securityListId(slId)
-                            .updateSecurityListDetails(UpdateSecurityListDetails.builder().ingressSecurityRules(inRules).egressSecurityRules(egRules).build()).build());
-                }
-            } catch (Exception e) {
-                System.err.println("修复 VCN: " + vcnId + " 失败 - " + e.getMessage());
             }
         }
     }
 
     public void openAllPorts(String accountName) throws Exception {
         OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
+        if (accConfig == null) {
+            throw new IllegalArgumentException("账号不存在: " + accountName);
+        }
         var clients = clientManager.getOciClients(accountName);
         String tenancy = accConfig.getTenancy();
-        var vncClient = clients.getVnc();
-        var identityClient = clients.getIdentity();
 
-        List<String> compIds = new ArrayList<>();
-        compIds.add(tenancy);
-
-        try {
-            var compRes = identityClient.listCompartments(com.oracle.bmc.identity.requests.ListCompartmentsRequest.builder()
-                    .compartmentId(tenancy)
-                    .compartmentIdInSubtree(true)
-                    .accessLevel(com.oracle.bmc.identity.requests.ListCompartmentsRequest.AccessLevel.Any)
-                    .build());
-            for (com.oracle.bmc.identity.model.Compartment c : compRes.getItems()) {
-                if (c.getLifecycleState() == com.oracle.bmc.identity.model.Compartment.LifecycleState.Active) {
-                    compIds.add(c.getId());
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("获取子区段失败 (将仅尝试根区段): " + e.getMessage());
+        List<String> regions = clientManager.getSubscribedRegions(accountName);
+        List<String> compIds = clientManager.getActiveCompartmentIds(accountName);
+        if (compIds.isEmpty() && tenancy != null) {
+            compIds = List.of(tenancy);
         }
 
         int updatedCount = 0;
         List<String> errorList = new ArrayList<>();
 
-        for (String compId : compIds) {
-            try {
-                var vcnRes = vncClient.listVcns(ListVcnsRequest.builder().compartmentId(compId).build());
-                for (Vcn vcn : vcnRes.getItems()) {
-                    if (vcn.getLifecycleState() == Vcn.LifecycleState.Terminated || vcn.getLifecycleState() == Vcn.LifecycleState.Terminating) {
-                        continue;
-                    }
-
-                    var slRes = vncClient.listSecurityLists(ListSecurityListsRequest.builder()
-                            .compartmentId(compId).vcnId(vcn.getId()).build());
-
-                    for (SecurityList sl : slRes.getItems()) {
-                        if (sl.getLifecycleState() == SecurityList.LifecycleState.Terminated || sl.getLifecycleState() == SecurityList.LifecycleState.Terminating) {
+        for (String region : regions) {
+            var vncClient = clients.getVncClientForRegion(region);
+            for (String compId : compIds) {
+                try {
+                    var vcnRes = vncClient.listVcns(ListVcnsRequest.builder().compartmentId(compId).build());
+                    for (Vcn vcn : vcnRes.getItems()) {
+                        if (vcn.getLifecycleState() == Vcn.LifecycleState.Terminated || vcn.getLifecycleState() == Vcn.LifecycleState.Terminating) {
                             continue;
                         }
 
-                        List<IngressSecurityRule> ingressRules = new ArrayList<>();
-                        ingressRules.add(IngressSecurityRule.builder()
-                                .source("0.0.0.0/0")
-                                .protocol("all")
-                                .isStateless(false)
-                                .build());
-                        ingressRules.add(IngressSecurityRule.builder()
-                                .source("::/0")
-                                .protocol("all")
-                                .isStateless(false)
-                                .build());
+                        var slRes = vncClient.listSecurityLists(ListSecurityListsRequest.builder()
+                                .compartmentId(compId).vcnId(vcn.getId()).build());
 
-                        List<EgressSecurityRule> egressRules = new ArrayList<>();
-                        egressRules.add(EgressSecurityRule.builder()
-                                .destination("0.0.0.0/0")
-                                .protocol("all")
-                                .isStateless(false)
-                                .build());
-                        egressRules.add(EgressSecurityRule.builder()
-                                .destination("::/0")
-                                .protocol("all")
-                                .isStateless(false)
-                                .build());
+                        for (SecurityList sl : slRes.getItems()) {
+                            if (sl.getLifecycleState() == SecurityList.LifecycleState.Terminated || sl.getLifecycleState() == SecurityList.LifecycleState.Terminating) {
+                                continue;
+                            }
 
-                        vncClient.updateSecurityList(UpdateSecurityListRequest.builder()
-                                .securityListId(sl.getId())
-                                .updateSecurityListDetails(UpdateSecurityListDetails.builder()
-                                        .ingressSecurityRules(ingressRules)
-                                        .egressSecurityRules(egressRules)
-                                        .build())
-                                .build());
+                            // 🔒 保留并合并原有自定义安全规则，仅增量补齐全端口入站/出站规则，绝不清空客户既有精细化白名单
+                            List<IngressSecurityRule> ingressRules = new ArrayList<>();
+                            if (sl.getIngressSecurityRules() != null) {
+                                ingressRules.addAll(sl.getIngressSecurityRules());
+                            }
+                            boolean hasIpv4AllIn = ingressRules.stream().anyMatch(r ->
+                                    "0.0.0.0/0".equals(r.getSource()) && "all".equalsIgnoreCase(r.getProtocol()));
+                            if (!hasIpv4AllIn) {
+                                ingressRules.add(IngressSecurityRule.builder()
+                                        .source("0.0.0.0/0")
+                                        .protocol("all")
+                                        .isStateless(false)
+                                        .build());
+                            }
+                            boolean hasIpv6AllIn = ingressRules.stream().anyMatch(r ->
+                                    "::/0".equals(r.getSource()) && "all".equalsIgnoreCase(r.getProtocol()));
+                            if (!hasIpv6AllIn) {
+                                ingressRules.add(IngressSecurityRule.builder()
+                                        .source("::/0")
+                                        .protocol("all")
+                                        .isStateless(false)
+                                        .build());
+                            }
 
-                        updatedCount++;
+                            List<EgressSecurityRule> egressRules = new ArrayList<>();
+                            if (sl.getEgressSecurityRules() != null) {
+                                egressRules.addAll(sl.getEgressSecurityRules());
+                            }
+                            boolean hasIpv4AllEg = egressRules.stream().anyMatch(r ->
+                                    "0.0.0.0/0".equals(r.getDestination()) && "all".equalsIgnoreCase(r.getProtocol()));
+                            if (!hasIpv4AllEg) {
+                                egressRules.add(EgressSecurityRule.builder()
+                                        .destination("0.0.0.0/0")
+                                        .protocol("all")
+                                        .isStateless(false)
+                                        .build());
+                            }
+                            boolean hasIpv6AllEg = egressRules.stream().anyMatch(r ->
+                                    "::/0".equals(r.getDestination()) && "all".equalsIgnoreCase(r.getProtocol()));
+                            if (!hasIpv6AllEg) {
+                                egressRules.add(EgressSecurityRule.builder()
+                                        .destination("::/0")
+                                        .protocol("all")
+                                        .isStateless(false)
+                                        .build());
+                            }
+
+                            if (!hasIpv4AllIn || !hasIpv6AllIn || !hasIpv4AllEg || !hasIpv6AllEg) {
+                                vncClient.updateSecurityList(UpdateSecurityListRequest.builder()
+                                        .securityListId(sl.getId())
+                                        .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                                .ingressSecurityRules(ingressRules)
+                                                .egressSecurityRules(egressRules)
+                                                .build())
+                                        .build());
+                            }
+
+                            updatedCount++;
+                        }
                     }
+                } catch (Exception e) {
+                    errorList.add(region + "/" + compId + " 错误: " + e.getMessage());
                 }
-            } catch (Exception e) {
-                errorList.add("区段 " + compId + " 错误: " + e.getMessage());
             }
         }
 
         if (updatedCount == 0) {
             String errorMsg = String.join(" | ", errorList);
-            throw new RuntimeException("未能更新任何防火墙规则！您配置的 Region 是【" + accConfig.getRegion() + "】，该区域内可能没有VCN网络资源！详细异常: " + errorMsg);
+            throw new RuntimeException("未能更新任何防火墙规则！已扫描订阅区域 " + regions + "，可能尚无任何 VCN 网络资源。详细异常: " + errorMsg);
         }
     }
 
@@ -245,7 +270,9 @@ public class OciNetworkService {
             }
 
             // 若无 VCN，则新建一个（各账号采用独立哈希生成的官方风格 VCN 名称与 DNS 标签，彻底抹除 oci-manager-auto-vcn 特征）
+            boolean createdNewVcn = false;
             if (selectedVcn == null) {
+                createdNewVcn = true;
                 String vcnDisplayName = fingerprintService.getAccountVcnName(null, tenancy);
                 String vcnDns = fingerprintService.getAccountVcnDnsLabel(null, tenancy);
                 selectedVcn = vncClient.createVcn(CreateVcnRequest.builder()
@@ -271,7 +298,6 @@ public class OciNetworkService {
 
             try {
                 // 1. 嗅探或创建 Internet Gateway (IGW)
-                // 🌟 关键修复：必须过滤掉已终止/不可用/被禁用的 IGW，否则路由规则会指向一个死网关，导致实例无法联网！
                 var igws = vncClient.listInternetGateways(ListInternetGatewaysRequest.builder().compartmentId(tenancy).vcnId(vcnId).build()).getItems();
                 String igwId = null;
                 for (var igwCandidate : igws) {
@@ -282,7 +308,6 @@ public class OciNetworkService {
                     }
                 }
                 if (igwId == null) {
-                    // 没有可用的 IGW，新建一个（采用账号专属官方风格命名）
                     String igwDisplayName = fingerprintService.getAccountIgwName(null, tenancy);
                     InternetGateway igw = vncClient.createInternetGateway(CreateInternetGatewayRequest.builder()
                             .createInternetGatewayDetails(CreateInternetGatewayDetails.builder()
@@ -291,53 +316,80 @@ public class OciNetworkService {
                     igwId = igw.getId();
                 }
 
-                // 2. 检查并打通出海路由表：灵活动态修复
-                var rt = vncClient.getRouteTable(GetRouteTableRequest.builder().rtId(routeTableId).build()).getRouteTable();
-                List<RouteRule> rules = new ArrayList<>();
-                if (rt.getRouteRules() != null) rules.addAll(rt.getRouteRules());
-                
-                final String finalIgwId = igwId;
-                // 判断是否有一条正确的路由规则：0.0.0.0/0 指向我们的 IGW
-                boolean hasCorrectDefaultRoute = rules.stream().anyMatch(r -> 
-                    "0.0.0.0/0".equals(r.getDestination()) && finalIgwId.equals(r.getNetworkEntityId())
-                );
-                
-                if (!hasCorrectDefaultRoute) {
-                    // 🌟 拔除毒瘤：如果之前有错误的 0.0.0.0/0 规则（比如错误指向了局域网或死网关），强行抹除！
-                    rules.removeIf(r -> "0.0.0.0/0".equals(r.getDestination()));
-                    
-                    // 注入正确的 IGW 路由，打通出海通道
-                    rules.add(RouteRule.builder()
-                            .networkEntityId(finalIgwId)
-                            .destination("0.0.0.0/0")
-                            .destinationType(RouteRule.DestinationType.CidrBlock)
-                            .build());
-                            
-                    vncClient.updateRouteTable(UpdateRouteTableRequest.builder().rtId(routeTableId)
-                            .updateRouteTableDetails(UpdateRouteTableDetails.builder().routeRules(rules).build()).build());
+                // 2. 检查并打通出海路由表（跳过 500M 专用 NAT 路由表）
+                if (routeTableId != null) {
+                    var rt = vncClient.getRouteTable(GetRouteTableRequest.builder().rtId(routeTableId).build()).getRouteTable();
+                    if (rt.getDisplayName() == null || !"nat-route-500m".equalsIgnoreCase(rt.getDisplayName())) {
+                        List<RouteRule> rules = new ArrayList<>();
+                        if (rt.getRouteRules() != null) rules.addAll(rt.getRouteRules());
+
+                        final String finalIgwId = igwId;
+                        boolean hasCorrectDefaultRoute = rules.stream().anyMatch(r ->
+                                ("0.0.0.0/0".equals(r.getDestination()) || "0.0.0.0/0".equals(r.getCidrBlock()))
+                                        && finalIgwId.equals(r.getNetworkEntityId())
+                        );
+
+                        if (!hasCorrectDefaultRoute) {
+                            rules.removeIf(r -> "0.0.0.0/0".equals(r.getDestination()) || "0.0.0.0/0".equals(r.getCidrBlock()));
+                            rules.add(RouteRule.builder()
+                                    .networkEntityId(finalIgwId)
+                                    .destination("0.0.0.0/0")
+                                    .destinationType(RouteRule.DestinationType.CidrBlock)
+                                    .build());
+
+                            vncClient.updateRouteTable(UpdateRouteTableRequest.builder().rtId(routeTableId)
+                                    .updateRouteTableDetails(UpdateRouteTableDetails.builder().routeRules(rules).build()).build());
+                        }
+                    }
                 }
 
-                // 3. 检查并强制放行该子网绑定的所有安全列表（Security Lists）
-                for (String slId : securityListIds) {
-                    var sl = vncClient.getSecurityList(GetSecurityListRequest.builder().securityListId(slId).build()).getSecurityList();
-                    List<IngressSecurityRule> inRules = new ArrayList<>();
-                    if (sl.getIngressSecurityRules() != null) inRules.addAll(sl.getIngressSecurityRules());
-                    
-                    List<EgressSecurityRule> egRules = new ArrayList<>();
-                    if (sl.getEgressSecurityRules() != null) egRules.addAll(sl.getEgressSecurityRules());
+                // 3. 🔒 最小权限安全列表原则：仅在新建 VCN 时初始化默认安全列表（仅放通 TCP/22、Path MTU ICMP 与出站），绝不静默篡改已有子网的自定义 SecurityList！
+                if (createdNewVcn) {
+                    for (String slId : securityListIds) {
+                        if (slId == null) continue;
+                        var sl = vncClient.getSecurityList(GetSecurityListRequest.builder().securityListId(slId).build()).getSecurityList();
+                        List<IngressSecurityRule> inRules = new ArrayList<>();
+                        if (sl.getIngressSecurityRules() != null) inRules.addAll(sl.getIngressSecurityRules());
 
-                    // 🌟 关键修复：必须确保存在 protocol="all" 的全放行入站规则，仅有 TCP(6) 规则不够（会导致 ICMP/UDP 被阻断，ping 不通、DNS 查询超时）
-                    boolean hasAllIn = inRules.stream().anyMatch(r -> "0.0.0.0/0".equals(r.getSource()) && "all".equalsIgnoreCase(r.getProtocol()));
-                    if (!hasAllIn) inRules.add(IngressSecurityRule.builder().source("0.0.0.0/0").protocol("all").isStateless(false).build());
+                        List<EgressSecurityRule> egRules = new ArrayList<>();
+                        if (sl.getEgressSecurityRules() != null) egRules.addAll(sl.getEgressSecurityRules());
 
-                    boolean hasEg = egRules.stream().anyMatch(r -> "0.0.0.0/0".equals(r.getDestination()) && "all".equalsIgnoreCase(r.getProtocol()));
-                    if (!hasEg) egRules.add(EgressSecurityRule.builder().destination("0.0.0.0/0").protocol("all").isStateless(false).build());
+                        boolean hasSshIn = inRules.stream().anyMatch(r ->
+                                "0.0.0.0/0".equals(r.getSource())
+                                        && ("all".equalsIgnoreCase(r.getProtocol())
+                                        || ("6".equals(r.getProtocol())
+                                        && (r.getTcpOptions() == null
+                                        || r.getTcpOptions().getDestinationPortRange() == null
+                                        || (r.getTcpOptions().getDestinationPortRange().getMin() <= 22
+                                        && r.getTcpOptions().getDestinationPortRange().getMax() >= 22)))));
+                        if (!hasSshIn) {
+                            inRules.add(IngressSecurityRule.builder()
+                                    .source("0.0.0.0/0")
+                                    .protocol("6")
+                                    .isStateless(false)
+                                    .tcpOptions(TcpOptions.builder()
+                                            .destinationPortRange(PortRange.builder().min(22).max(22).build())
+                                            .build())
+                                    .build());
+                        }
 
-                    vncClient.updateSecurityList(UpdateSecurityListRequest.builder().securityListId(slId)
-                            .updateSecurityListDetails(UpdateSecurityListDetails.builder().ingressSecurityRules(inRules).egressSecurityRules(egRules).build()).build());
+                        boolean hasEg = egRules.stream().anyMatch(r -> "0.0.0.0/0".equals(r.getDestination()) && "all".equalsIgnoreCase(r.getProtocol()));
+                        if (!hasEg) {
+                            egRules.add(EgressSecurityRule.builder().destination("0.0.0.0/0").protocol("all").isStateless(false).build());
+                        }
+
+                        if (!hasSshIn || !hasEg) {
+                            vncClient.updateSecurityList(UpdateSecurityListRequest.builder().securityListId(slId)
+                                    .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                            .ingressSecurityRules(inRules)
+                                            .egressSecurityRules(egRules)
+                                            .build())
+                                    .build());
+                        }
+                    }
                 }
             } catch (Exception e) {
-                System.err.println("修复VCN网络组件(IGW/路由/防火墙)异常，这可能是权限受限所致: " + e.getMessage());
+                System.err.println("修复VCN网络组件(IGW/路由/安全列表)异常，这可能是权限受限所致: " + e.getMessage());
             }
 
             // 如果此前已找到了健康的子网，直接返回
@@ -412,14 +464,17 @@ public class OciNetworkService {
 
         try {
             OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
+            if (accConfig == null) {
+                return "未知账号";
+            }
             var clients = clientManager.getOciClients(accountName);
             String region = OciRegionUtil.getRegionForResource(ocid);
             var computeClient = region != null ? clients.getComputeClientForRegion(region) : clients.getCompute();
             var vncClient = region != null ? clients.getVncClientForRegion(region) : clients.getVnc();
+            String compId = resolveInstanceCompartmentId(ocid, accConfig.getTenancy());
 
-            var vnicResponse = computeClient.listVnicAttachments(ListVnicAttachmentsRequest.builder().compartmentId(accConfig.getTenancy()).instanceId(ocid).build());
+            var vnicResponse = computeClient.listVnicAttachments(ListVnicAttachmentsRequest.builder().compartmentId(compId).instanceId(ocid).build());
             if (vnicResponse.getItems().isEmpty()) {
-                // 🚀 【陈旧缓存修复】瞬时/负面状态只短期缓存，避免机器重新运行后 30 天内一直显示错误 IP。
                 redisTemplate.opsForValue().set("oci:ip:" + ocid, "无网卡", 10, TimeUnit.MINUTES);
                 return "无网卡";
             }
@@ -448,7 +503,7 @@ public class OciNetworkService {
             try {
                 var nlbClient = region != null ? clients.getNetworkLoadBalancerClientForRegion(region) : clients.getNetworkLoadBalancer();
                 var nlbs = nlbClient.listNetworkLoadBalancers(com.oracle.bmc.networkloadbalancer.requests.ListNetworkLoadBalancersRequest.builder()
-                        .compartmentId(accConfig.getTenancy()).build())
+                        .compartmentId(compId).build())
                         .getNetworkLoadBalancerCollection().getItems();
                 for (var nlb : nlbs) {
                     if (nlb.getLifecycleState() == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Active && nlb.getDisplayName() != null && nlb.getDisplayName().startsWith("nlb-500m")) {
@@ -508,16 +563,26 @@ public class OciNetworkService {
     }
 
     public String changeInstanceIp(String ocid, String accountName) {
+        if (ocid == null || ocid.isBlank()) {
+            throw new IllegalArgumentException("缺少实例 OCID");
+        }
+        OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
+        if (accConfig == null) {
+            throw new IllegalArgumentException("账号配置不存在: " + accountName);
+        }
+
+        boolean removedOldEphemeral = false;
+        String newIp = null;
         try {
-            OciProperties.Account accConfig = ociProperties.getAccounts().get(accountName);
             var clients = clientManager.getOciClients(accountName);
             String region = OciRegionUtil.getRegionForResource(ocid);
             var computeClient = region != null ? clients.getComputeClientForRegion(region) : clients.getCompute();
             var vncClient = region != null ? clients.getVncClientForRegion(region) : clients.getVnc();
+            String compId = resolveInstanceCompartmentId(ocid, accConfig.getTenancy());
 
             var vnicResponse = computeClient.listVnicAttachments(
                     ListVnicAttachmentsRequest.builder()
-                            .compartmentId(accConfig.getTenancy())
+                            .compartmentId(compId)
                             .instanceId(ocid).build());
             if (vnicResponse.getItems().isEmpty()) {
                 return null;
@@ -529,7 +594,10 @@ public class OciNetworkService {
             if (pIps.getItems().isEmpty()) {
                 return null;
             }
-            String privateIpId = pIps.getItems().get(0).getId();
+            PrivateIp primaryPrivateIp = pIps.getItems().get(0);
+            String privateIpId = primaryPrivateIp.getId();
+            String privateIpCompId = (primaryPrivateIp.getCompartmentId() != null && !primaryPrivateIp.getCompartmentId().isBlank())
+                    ? primaryPrivateIp.getCompartmentId() : compId;
 
             try {
                 var pubIpResp = vncClient.getPublicIpByPrivateIpId(
@@ -537,114 +605,131 @@ public class OciNetworkService {
                                 .getPublicIpByPrivateIpIdDetails(
                                         GetPublicIpByPrivateIpIdDetails.builder()
                                                 .privateIpId(privateIpId).build()).build());
-                String pubIpId = pubIpResp.getPublicIp().getId();
-                if (pubIpResp.getPublicIp().getLifetime() == PublicIp.Lifetime.Reserved) {
-                    vncClient.updatePublicIp(UpdatePublicIpRequest.builder()
-                            .publicIpId(pubIpId)
-                            .updatePublicIpDetails(
-                                    UpdatePublicIpDetails.builder().privateIpId("").build())
-                            .build());
-                } else {
+                PublicIp existingPubIp = pubIpResp.getPublicIp();
+                if (existingPubIp != null) {
+                    if (existingPubIp.getLifetime() == PublicIp.Lifetime.Reserved) {
+                        // 🔒 保护预留静态公网 IP (Reserved IP)，严禁在自动换 IP 流程中解绑降级为临时 IP！
+                        throw new IllegalStateException("该实例当前绑定的是预留静态公网 IP (Reserved IP: " + existingPubIp.getIpAddress() + ")，系统已自动拦截解绑与降级操作；如需更换请前往 OCI 控制台管理。");
+                    }
                     vncClient.deletePublicIp(
-                            DeletePublicIpRequest.builder().publicIpId(pubIpId).build());
+                            DeletePublicIpRequest.builder().publicIpId(existingPubIp.getId()).build());
+                    removedOldEphemeral = true;
                 }
-            } catch (Exception e) {
-                System.err.println("删除/解绑旧IP异常: " + e.getMessage());
+            } catch (IllegalStateException ise) {
+                throw ise;
+            } catch (com.oracle.bmc.model.BmcException bmcEx) {
+                if (bmcEx.getStatusCode() != 404) {
+                    throw new RuntimeException("释放旧临时公网 IP 失败: " + bmcEx.getMessage(), bmcEx);
+                }
             }
 
-            for (int i = 0; i < 10; i++) {
+            if (removedOldEphemeral) {
+                for (int i = 0; i < 16; i++) {
+                    try {
+                        vncClient.getPublicIpByPrivateIpId(
+                                GetPublicIpByPrivateIpIdRequest.builder()
+                                        .getPublicIpByPrivateIpIdDetails(
+                                                GetPublicIpByPrivateIpIdDetails.builder()
+                                                        .privateIpId(privateIpId).build()).build());
+                        Thread.sleep(600);
+                    } catch (com.oracle.bmc.model.BmcException bmcEx) {
+                        if (bmcEx.getStatusCode() == 404) {
+                            break;
+                        }
+                        Thread.sleep(600);
+                    }
+                }
+            }
+
+            // 带退避重试申请新临时公网 IP，规避 OCI 后端释放结算瞬时延迟 (LimitExceeded / Conflict 409)
+            Exception lastCreateError = null;
+            int[] backoffMs = {0, 2000, 4000, 6000};
+            for (int attempt = 0; attempt < backoffMs.length; attempt++) {
+                if (backoffMs[attempt] > 0) {
+                    Thread.sleep(backoffMs[attempt]);
+                }
                 try {
-                    vncClient.getPublicIpByPrivateIpId(
-                            GetPublicIpByPrivateIpIdRequest.builder()
-                                    .getPublicIpByPrivateIpIdDetails(
-                                            GetPublicIpByPrivateIpIdDetails.builder()
+                    var createResp = vncClient.createPublicIp(
+                            CreatePublicIpRequest.builder()
+                                    .createPublicIpDetails(
+                                            CreatePublicIpDetails.builder()
+                                                    .compartmentId(privateIpCompId)
+                                                    .lifetime(CreatePublicIpDetails.Lifetime.Ephemeral)
                                                     .privateIpId(privateIpId).build()).build());
-                    Thread.sleep(500);
-                } catch (Exception e) {
-                    break;
+                    newIp = createResp.getPublicIp().getIpAddress();
+                    if (newIp != null && !newIp.isBlank()) {
+                        break;
+                    }
+                } catch (Exception ce) {
+                    lastCreateError = ce;
+                    System.err.println("申请新公网 IP 第 " + (attempt + 1) + " 次尝试异常: " + ce.getMessage());
                 }
             }
-
-            var createResp = vncClient.createPublicIp(
-                    CreatePublicIpRequest.builder()
-                            .createPublicIpDetails(
-                                    CreatePublicIpDetails.builder()
-                                            .compartmentId(accConfig.getTenancy())
-                                            .lifetime(CreatePublicIpDetails.Lifetime.Ephemeral)
-                                            .privateIpId(privateIpId).build()).build());
-            String newIp = createResp.getPublicIp().getIpAddress();
-            redisTemplate.opsForValue().set("oci:ip:" + ocid, newIp, 30, TimeUnit.DAYS);
+            if (newIp == null && lastCreateError != null) {
+                System.err.println("申请新公网 IP 最终失败: " + lastCreateError.getMessage());
+            }
             return newIp;
+        } catch (IllegalStateException ise) {
+            throw ise;
         } catch (Exception e) {
             System.err.println("换IP执行过程中发生异常: " + e.getMessage());
             return null;
+        } finally {
+            if (newIp != null && !newIp.isBlank()) {
+                redisTemplate.opsForValue().set("oci:ip:" + ocid, newIp, 30, TimeUnit.DAYS);
+                Map<String, String> inst = OciCloudService.INSTANCE_CACHE.get(ocid);
+                if (inst != null) {
+                    inst.put("ip", newIp);
+                }
+            } else if (removedOldEphemeral) {
+                // 旧 IP 已释放但新 IP 创建失败：立即清除旧 IP 缓存，杜绝面板继续展示失效死 IP 达 30 天！
+                redisTemplate.delete("oci:ip:" + ocid);
+                Map<String, String> inst = OciCloudService.INSTANCE_CACHE.get(ocid);
+                if (inst != null) {
+                    inst.put("ip", "未分配 IP");
+                }
+            }
         }
     }
 
     // 🚀 预编译正则，避免每次调用重复编译。
     private static final java.util.regex.Pattern IPV4_PATTERN = java.util.regex.Pattern.compile("\\d+\\.\\d+\\.\\d+\\.\\d+");
-    private static final java.util.regex.Pattern IPLOC_COUNTRY_PATTERN = java.util.regex.Pattern.compile("\"country\":\"(.*?)\"");
-    private static final java.util.regex.Pattern IPLOC_CITY_PATTERN = java.util.regex.Pattern.compile("\"city\":\"(.*?)\"");
+
+    /**
+     * 零外联本地归属地解析：直接基于 OCI 权威区域元数据推导地理归属，彻底切断明文 HTTP ip-api.com 隐私泄漏与 429 阻塞！
+     */
+    public String getInstanceLocation(String ip, String region) {
+        if (region != null && !region.isBlank()) {
+            return OciRegionUtil.getRegionDisplayLocation(region);
+        }
+        return getIpLocation(ip);
+    }
 
     public String getIpLocation(String ip) {
         if (ip == null || ip.isEmpty()) {
             return "未知地区";
         }
-        String searchIp = ip;
-        if (ip.contains(" ")) {
-            searchIp = ip.split(" ")[0].trim();
-        }
-        if (!IPV4_PATTERN.matcher(searchIp).matches()) {
+        String searchIp = ip.contains(" ") ? ip.split(" ")[0].trim() : ip.trim();
+        if (!IPV4_PATTERN.matcher(searchIp).matches() && !ip.startsWith("出站")) {
             return "未知地区";
         }
 
         String cachedLoc = redisTemplate.opsForValue().get("oci:ip_loc:" + searchIp);
-        if (cachedLoc != null) {
+        if (cachedLoc != null && !cachedLoc.isBlank() && !cachedLoc.contains("API限流")) {
             return cachedLoc;
         }
 
-        try {
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("http://ip-api.com/json/" + searchIp + "?lang=zh-CN"))
-                    .timeout(Duration.ofSeconds(3))
-                    .GET()
-                    .build();
-
-            HttpResponse<String> response = OciCloudService.HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
-
-            if (response.statusCode() == 429) {
-                return "未知地区(API限流)";
+        for (Map<String, String> info : OciCloudService.INSTANCE_CACHE.values()) {
+            if (info == null) continue;
+            String instIp = info.get("ip");
+            String region = info.get("region");
+            if (region != null && !region.isBlank() && instIp != null && instIp.contains(searchIp)) {
+                String loc = OciRegionUtil.getRegionDisplayLocation(region);
+                redisTemplate.opsForValue().set("oci:ip_loc:" + searchIp, loc, 24, TimeUnit.HOURS);
+                return loc;
             }
-
-            String body = response.body();
-            java.util.regex.Matcher mCountry = IPLOC_COUNTRY_PATTERN.matcher(body);
-            java.util.regex.Matcher mCity = IPLOC_CITY_PATTERN.matcher(body);
-
-            String country = mCountry.find() ? sanitizeGeoText(mCountry.group(1)) : "";
-            String city = mCity.find() ? sanitizeGeoText(mCity.group(1)) : "";
-            String loc = country + (city.isEmpty() ? "" : " " + city);
-
-            if (loc.trim().isEmpty()) {
-                loc = "未知地区";
-            }
-
-            // 🚀 【缓存穿透修复】写入用与读取一致的 searchIp 键（原来写 ip、读 searchIp，
-            // 对带 " (NAT)" 后缀的 IP 永远命中不到缓存，每次都打 ip-api.com，易触发限流）。
-            redisTemplate.opsForValue().set("oci:ip_loc:" + searchIp, loc, 24, TimeUnit.HOURS);
-            return loc;
-        } catch (Exception e) {
-            System.err.println("获取IP归属地异常: " + e.getMessage());
-            return "未知地区";
         }
-    }
-
-    private static String sanitizeGeoText(String raw) {
-        if (raw == null || raw.isBlank()) return "";
-        String cleaned = raw.replaceAll("[<>\"'`&\\r\\n\\t\\p{Cntrl}]", "").trim();
-        if (cleaned.length() > 32) {
-            cleaned = cleaned.substring(0, 32);
-        }
-        return cleaned;
+        return "未知地区";
     }
 
     public String enableAmd500Mbps(String ocid, String account) throws Exception {
@@ -656,9 +741,12 @@ public class OciNetworkService {
         
         OciProperties.Account accConfig = ociProperties.getAccounts().get(account);
         if (accConfig == null) throw new RuntimeException("账号不存在");
-        String compartmentId = accConfig.getTenancy();
+        String compartmentId = resolveInstanceCompartmentId(ocid, accConfig.getTenancy());
 
         var instanceInfo = computeClient.getInstance(GetInstanceRequest.builder().instanceId(ocid).build()).getInstance();
+        if (instanceInfo.getCompartmentId() != null && !instanceInfo.getCompartmentId().isBlank()) {
+            compartmentId = instanceInfo.getCompartmentId();
+        }
         if (instanceInfo.getShape() == null || (!instanceInfo.getShape().contains("E2.1.Micro") && !instanceInfo.getShape().contains("A1.Flex") && !instanceInfo.getShape().contains("A1"))) {
             throw new RuntimeException("该实例不支持一键开启下行500Mbps (仅支持 AMD Micro 和 ARM Flex 免费实例)");
         }
@@ -671,28 +759,44 @@ public class OciNetworkService {
         String subnetId = vnic.getSubnetId();
         var subnet = vncClient.getSubnet(GetSubnetRequest.builder().subnetId(subnetId).build()).getSubnet();
         String vcnId = subnet.getVcnId();
+        String vcnCompId = subnet.getCompartmentId() != null ? subnet.getCompartmentId() : compartmentId;
 
         NatGateway natGateway = null;
         var natGateways = vncClient.listNatGateways(ListNatGatewaysRequest.builder()
-                .compartmentId(compartmentId).vcnId(vcnId).lifecycleState(NatGateway.LifecycleState.Available).build()).getItems();
+                .compartmentId(vcnCompId).vcnId(vcnId).lifecycleState(NatGateway.LifecycleState.Available).build()).getItems();
         if (!natGateways.isEmpty()) {
             natGateway = natGateways.get(0);
         } else {
             natGateway = vncClient.createNatGateway(CreateNatGatewayRequest.builder()
                     .createNatGatewayDetails(CreateNatGatewayDetails.builder()
-                            .compartmentId(compartmentId).vcnId(vcnId).displayName("nat-gateway-500m").build()).build()).getNatGateway();
-            while (!vncClient.getNatGateway(GetNatGatewayRequest.builder().natGatewayId(natGateway.getId()).build())
-                    .getNatGateway().getLifecycleState().getValue().equals(NatGateway.LifecycleState.Available.getValue())) {
-                Thread.sleep(1000);
+                            .compartmentId(vcnCompId).vcnId(vcnId).displayName("nat-gateway-500m").build()).build()).getNatGateway();
+            long natDeadline = System.currentTimeMillis() + 90_000L;
+            boolean natReady = false;
+            while (System.currentTimeMillis() < natDeadline) {
+                var natState = vncClient.getNatGateway(GetNatGatewayRequest.builder().natGatewayId(natGateway.getId()).build())
+                        .getNatGateway().getLifecycleState();
+                if (natState == NatGateway.LifecycleState.Available) {
+                    natReady = true;
+                    break;
+                }
+                if (natState == NatGateway.LifecycleState.Terminated || natState == NatGateway.LifecycleState.Terminating) {
+                    throw new RuntimeException("NAT 网关创建异常终止，状态: " + natState);
+                }
+                Thread.sleep(1500);
+            }
+            if (!natReady) {
+                throw new RuntimeException("等待 NAT 网关就绪超时 (90s)");
             }
         }
 
         RouteTable routeTable = null;
         var rts = vncClient.listRouteTables(ListRouteTablesRequest.builder()
-                .compartmentId(compartmentId).vcnId(vcnId).lifecycleState(RouteTable.LifecycleState.Available).build()).getItems();
+                .compartmentId(vcnCompId).vcnId(vcnId).lifecycleState(RouteTable.LifecycleState.Available).build()).getItems();
         for (RouteTable rt : rts) {
+            if (rt.getRouteRules() == null) continue;
             for (RouteRule rr : rt.getRouteRules()) {
-                if (rr.getNetworkEntityId().equals(natGateway.getId()) && "0.0.0.0/0".equals(rr.getCidrBlock())) {
+                if (rr != null && natGateway.getId().equals(rr.getNetworkEntityId())
+                        && ("0.0.0.0/0".equals(rr.getDestination()) || "0.0.0.0/0".equals(rr.getCidrBlock()))) {
                     routeTable = rt;
                     break;
                 }
@@ -703,14 +807,28 @@ public class OciNetworkService {
         if (routeTable == null) {
             routeTable = vncClient.createRouteTable(CreateRouteTableRequest.builder()
                     .createRouteTableDetails(CreateRouteTableDetails.builder()
-                            .compartmentId(compartmentId).vcnId(vcnId).displayName("nat-route-500m")
+                            .compartmentId(vcnCompId).vcnId(vcnId).displayName("nat-route-500m")
                             .routeRules(java.util.Collections.singletonList(RouteRule.builder()
-                                     .cidrBlock("0.0.0.0/0").networkEntityId(natGateway.getId())
-                                     .destinationType(RouteRule.DestinationType.CidrBlock).build()))
+                                    .destination("0.0.0.0/0")
+                                    .networkEntityId(natGateway.getId())
+                                    .destinationType(RouteRule.DestinationType.CidrBlock).build()))
                             .build()).build()).getRouteTable();
-            while (!vncClient.getRouteTable(GetRouteTableRequest.builder().rtId(routeTable.getId()).build())
-                    .getRouteTable().getLifecycleState().getValue().equals(RouteTable.LifecycleState.Available.getValue())) {
-                Thread.sleep(1000);
+            long rtDeadline = System.currentTimeMillis() + 60_000L;
+            boolean rtReady = false;
+            while (System.currentTimeMillis() < rtDeadline) {
+                var rtState = vncClient.getRouteTable(GetRouteTableRequest.builder().rtId(routeTable.getId()).build())
+                        .getRouteTable().getLifecycleState();
+                if (rtState == RouteTable.LifecycleState.Available) {
+                    rtReady = true;
+                    break;
+                }
+                if (rtState == RouteTable.LifecycleState.Terminated || rtState == RouteTable.LifecycleState.Terminating) {
+                    throw new RuntimeException("500M 专用路由表创建异常终止，状态: " + rtState);
+                }
+                Thread.sleep(1500);
+            }
+            if (!rtReady) {
+                throw new RuntimeException("等待 500M 专用路由表就绪超时 (60s)");
             }
         }
 
@@ -724,15 +842,39 @@ public class OciNetworkService {
             if (existingNlb.getLifecycleState() == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Deleted) {
                 continue;
             }
-            if (existingNlb.getDisplayName() != null && existingNlb.getDisplayName().startsWith("nlb-500m")) {
+            // 🔒 仅清理归属【当前实例】的历史同名/同后端 NLB，严禁按 startsWith("nlb-500m") 误删同账号其他机器的活动 NLB！
+            boolean belongsToCurrentInstance = false;
+            if (existingNlb.getDisplayName() != null) {
+                if (nlbName.equals(existingNlb.getDisplayName())) {
+                    belongsToCurrentInstance = true;
+                } else if (existingNlb.getDisplayName().startsWith("nlb-500m")) {
+                    try {
+                        var detailedNlb = nlbClient.getNetworkLoadBalancer(GetNetworkLoadBalancerRequest.builder()
+                                .networkLoadBalancerId(existingNlb.getId()).build()).getNetworkLoadBalancer();
+                        if (detailedNlb.getBackendSets() != null) {
+                            for (var bs : detailedNlb.getBackendSets().values()) {
+                                if (bs.getBackends() != null) {
+                                    for (var backend : bs.getBackends()) {
+                                        if (ocid.equals(backend.getTargetId())
+                                                || (vnic.getPrivateIp() != null && vnic.getPrivateIp().equals(backend.getIpAddress()))) {
+                                            belongsToCurrentInstance = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (belongsToCurrentInstance) break;
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            if (belongsToCurrentInstance) {
                 try {
                     nlbClient.deleteNetworkLoadBalancer(DeleteNetworkLoadBalancerRequest.builder()
                             .networkLoadBalancerId(existingNlb.getId()).build());
                 } catch (Exception e) {}
-                
-                // 🚀 【CPU 空转/无限循环修复】原 while(true) 在遇到非 404 的 BmcException（如 429 限流、
-                // 401、500）时既不 sleep 也不 break，会以 0 退避疯狂重试，打满 CPU 并轰炸 OCI API。
-                // 现改为带上限（最多 ~2 分钟）与全路径退避的轮询。
+
                 int nlbWaitAttempts = 0;
                 final int NLB_MAX_ATTEMPTS = 60;
                 while (nlbWaitAttempts++ < NLB_MAX_ATTEMPTS) {
@@ -741,16 +883,15 @@ public class OciNetworkService {
                                 .networkLoadBalancerId(existingNlb.getId()).build())
                                 .getNetworkLoadBalancer().getLifecycleState();
                         if (state == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Deleted) {
-                            Thread.sleep(3000); // 🌟 给 OCI 释放后端配额 3 秒的缓冲时间
+                            Thread.sleep(3000);
                             break;
                         }
                         Thread.sleep(2000);
                     } catch (com.oracle.bmc.model.BmcException e) {
                         if (e.getStatusCode() == 404) {
                             Thread.sleep(3000);
-                            break; // 404 == 已删除完成
+                            break;
                         }
-                        // 其它 HTTP 错误：退避后重试，避免空转
                         Thread.sleep(2000);
                     } catch (Exception e) {
                         try { Thread.sleep(2000); } catch (Exception ignored) {}
@@ -779,7 +920,7 @@ public class OciNetworkService {
                 nlbCreated = true;
                 break;
             } catch (com.oracle.bmc.model.BmcException e) {
-                if (e.getStatusCode() == 400 && e.getMessage().contains("LimitExceeded")) {
+                if (e.getStatusCode() == 400 && e.getMessage() != null && e.getMessage().contains("LimitExceeded")) {
                     if (retries < 2) {
                         retries++;
                         System.out.println("甲骨文后端配额刷新延迟，重试创建 NLB (" + retries + "/2) ...");
@@ -795,9 +936,24 @@ public class OciNetworkService {
         }
 
         if (nlbCreated && nlb != null) {
-            while (!nlbClient.getNetworkLoadBalancer(GetNetworkLoadBalancerRequest.builder().networkLoadBalancerId(nlb.getId()).build())
-                    .getNetworkLoadBalancer().getLifecycleState().getValue().equals(com.oracle.bmc.networkloadbalancer.model.LifecycleState.Active.getValue())) {
-                Thread.sleep(1000);
+            long nlbActiveDeadline = System.currentTimeMillis() + 180_000L;
+            boolean nlbActive = false;
+            while (System.currentTimeMillis() < nlbActiveDeadline) {
+                var nlbState = nlbClient.getNetworkLoadBalancer(GetNetworkLoadBalancerRequest.builder().networkLoadBalancerId(nlb.getId()).build())
+                        .getNetworkLoadBalancer().getLifecycleState();
+                if (nlbState == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Active) {
+                    nlbActive = true;
+                    break;
+                }
+                if (nlbState == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Failed
+                        || nlbState == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Deleted
+                        || nlbState == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Deleting) {
+                    throw new RuntimeException("NLB 创建进入异常终态: " + nlbState);
+                }
+                Thread.sleep(2000);
+            }
+            if (!nlbActive) {
+                throw new RuntimeException("等待 NLB 激活超时 (180s)");
             }
         }
 
@@ -842,78 +998,213 @@ public class OciNetworkService {
 
         OciProperties.Account accConfig = ociProperties.getAccounts().get(account);
         if (accConfig == null) throw new RuntimeException("账号不存在");
-        String compartmentId = accConfig.getTenancy();
+        String compartmentId = resolveInstanceCompartmentId(ocid, accConfig.getTenancy());
 
         var vnics = computeClient.listVnicAttachments(ListVnicAttachmentsRequest.builder()
                 .compartmentId(compartmentId).instanceId(ocid).build()).getItems();
         if (vnics.isEmpty()) throw new RuntimeException("实例没有附着VNIC");
         String vnicId = vnics.get(0).getVnicId();
         var vnic = vncClient.getVnic(GetVnicRequest.builder().vnicId(vnicId).build()).getVnic();
+        String oldVnicRouteTableId = vnic.getRouteTableId();
+        var subnet = vncClient.getSubnet(GetSubnetRequest.builder().subnetId(vnic.getSubnetId()).build()).getSubnet();
+        String vcnId = subnet.getVcnId();
+        String vcnCompId = subnet.getCompartmentId() != null ? subnet.getCompartmentId() : compartmentId;
 
-        // 1. 查找并删除关联该实例的 NLB
-        String suffix = ocid.length() > 6 ? ocid.substring(ocid.length() - 6) : ocid;
-        String targetNlbName = "nlb-500m-" + suffix;
-
-        try {
-            var nlbs = nlbClient.listNetworkLoadBalancers(ListNetworkLoadBalancersRequest.builder()
-                    .compartmentId(compartmentId).build())
-                    .getNetworkLoadBalancerCollection().getItems();
-            for (var existingNlb : nlbs) {
-                if (existingNlb.getLifecycleState() == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Deleted
-                        || existingNlb.getLifecycleState() == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Deleting) {
-                    continue;
-                }
-                boolean isTarget = false;
-                if (existingNlb.getDisplayName() != null) {
-                    if (existingNlb.getDisplayName().equals(targetNlbName)) {
-                        isTarget = true;
-                    } else if (existingNlb.getDisplayName().startsWith("nlb-500m")) {
-                        try {
-                            var detailedNlb = nlbClient.getNetworkLoadBalancer(GetNetworkLoadBalancerRequest.builder()
-                                    .networkLoadBalancerId(existingNlb.getId()).build()).getNetworkLoadBalancer();
-                            if (detailedNlb.getBackendSets() != null) {
-                                for (var bs : detailedNlb.getBackendSets().values()) {
-                                    if (bs.getBackends() != null) {
-                                        for (var backend : bs.getBackends()) {
-                                            if (ocid.equals(backend.getTargetId()) || (vnic.getPrivateIp() != null && vnic.getPrivateIp().equals(backend.getIpAddress()))) {
-                                                isTarget = true;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                    if (isTarget) break;
-                                }
-                            }
-                        } catch (Exception ignored) {}
-                    }
-                }
-
-                if (isTarget) {
-                    try {
-                        nlbClient.deleteNetworkLoadBalancer(DeleteNetworkLoadBalancerRequest.builder()
-                                .networkLoadBalancerId(existingNlb.getId()).build());
-                    } catch (Exception e) {
-                        System.err.println("删除 NLB 异常: " + e.getMessage());
-                    }
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("查询/清理 NLB 异常: " + e.getMessage());
-        }
-
-        // 2. 还原 VNIC 路由表与源目检查
+        // 1. 严格还原 VNIC 路由表与源目检查：OCI UpdateVnicDetails 需显式序列化 "routeTableId": null 以解除单网卡路由覆盖并回退至子网路由表
         try {
             vncClient.updateVnic(UpdateVnicRequest.builder().vnicId(vnicId)
                     .updateVnicDetails(UpdateVnicDetails.builder()
                             .skipSourceDestCheck(false)
-                            .routeTableId("")
+                            .routeTableId(null)
                             .build())
                     .build());
-        } catch (Exception e) {
-            System.err.println("重置 VNIC 路由表异常: " + e.getMessage());
+        } catch (com.oracle.bmc.model.BmcException vnicEx) {
+            if (vnicEx.getStatusCode() == 400 && subnet.getRouteTableId() != null && !subnet.getRouteTableId().isBlank()) {
+                vncClient.updateVnic(UpdateVnicRequest.builder().vnicId(vnicId)
+                        .updateVnicDetails(UpdateVnicDetails.builder()
+                                .skipSourceDestCheck(false)
+                                .routeTableId(subnet.getRouteTableId())
+                                .build())
+                        .build());
+            } else {
+                throw vnicEx;
+            }
         }
 
-        // 3. 清除缓存并重新拉取原生公网 IP
+        Set<String> vcnSubnetIds = new HashSet<>();
+        vcnSubnetIds.add(vnic.getSubnetId());
+        try {
+            var vcnSubs = vncClient.listSubnets(ListSubnetsRequest.builder()
+                    .compartmentId(vcnCompId).vcnId(vcnId).build()).getItems();
+            if (vcnSubs != null) {
+                for (Subnet s : vcnSubs) {
+                    if (s != null && s.getId() != null) vcnSubnetIds.add(s.getId());
+                }
+            }
+        } catch (Exception ignored) {}
+
+        // 2. 查找并删除关联该实例的 NLB，等待删除生效（不吞除 404 外的删除失败，防止伪成功）
+        String suffix = ocid.length() > 6 ? ocid.substring(ocid.length() - 6) : ocid;
+        String targetNlbName = "nlb-500m-" + suffix;
+        List<String> deletingNlbIds = new ArrayList<>();
+        boolean other500mNlbActiveInVcn = false;
+
+        var nlbs = nlbClient.listNetworkLoadBalancers(ListNetworkLoadBalancersRequest.builder()
+                .compartmentId(compartmentId).build())
+                .getNetworkLoadBalancerCollection().getItems();
+        for (var existingNlb : nlbs) {
+            if (existingNlb.getLifecycleState() == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Deleted
+                    || existingNlb.getLifecycleState() == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Deleting) {
+                continue;
+            }
+            boolean isTarget = false;
+            if (existingNlb.getDisplayName() != null) {
+                if (existingNlb.getDisplayName().equals(targetNlbName)) {
+                    isTarget = true;
+                } else if (existingNlb.getDisplayName().startsWith("nlb-500m")) {
+                    try {
+                        var detailedNlb = nlbClient.getNetworkLoadBalancer(GetNetworkLoadBalancerRequest.builder()
+                                .networkLoadBalancerId(existingNlb.getId()).build()).getNetworkLoadBalancer();
+                        if (detailedNlb.getBackendSets() != null) {
+                            for (var bs : detailedNlb.getBackendSets().values()) {
+                                if (bs.getBackends() != null) {
+                                    for (var backend : bs.getBackends()) {
+                                        if (ocid.equals(backend.getTargetId()) || (vnic.getPrivateIp() != null && vnic.getPrivateIp().equals(backend.getIpAddress()))) {
+                                            isTarget = true;
+                                            break;
+                                        }
+                                    }
+                                }
+                                if (isTarget) break;
+                            }
+                        }
+                    } catch (Exception ignored) {}
+                    if (!isTarget && existingNlb.getSubnetId() != null && vcnSubnetIds.contains(existingNlb.getSubnetId())) {
+                        other500mNlbActiveInVcn = true;
+                    }
+                }
+            }
+
+            if (isTarget) {
+                try {
+                    nlbClient.deleteNetworkLoadBalancer(DeleteNetworkLoadBalancerRequest.builder()
+                            .networkLoadBalancerId(existingNlb.getId()).build());
+                    deletingNlbIds.add(existingNlb.getId());
+                } catch (com.oracle.bmc.model.BmcException delEx) {
+                    if (delEx.getStatusCode() != 404) {
+                        throw delEx;
+                    }
+                }
+            }
+        }
+
+        for (String nlbId : deletingNlbIds) {
+            long nlbDelDeadline = System.currentTimeMillis() + 90_000L;
+            while (System.currentTimeMillis() < nlbDelDeadline) {
+                try {
+                    var st = nlbClient.getNetworkLoadBalancer(GetNetworkLoadBalancerRequest.builder()
+                            .networkLoadBalancerId(nlbId).build()).getNetworkLoadBalancer().getLifecycleState();
+                    if (st == com.oracle.bmc.networkloadbalancer.model.LifecycleState.Deleted) {
+                        break;
+                    }
+                    Thread.sleep(2000);
+                } catch (com.oracle.bmc.model.BmcException bmcEx) {
+                    if (bmcEx.getStatusCode() == 404) {
+                        break;
+                    }
+                    Thread.sleep(2000);
+                }
+            }
+        }
+
+        // 3. 若同 VCN 下（含所有子区间实例）已无其他 500M 实例/NLB 占用，自动回收专属 nat-route-500m 与 nat-gateway-500m
+        if (!other500mNlbActiveInVcn) {
+            try {
+                Set<String> natRouteIdsInVcn = new HashSet<>();
+                if (oldVnicRouteTableId != null && !oldVnicRouteTableId.isBlank()) {
+                    natRouteIdsInVcn.add(oldVnicRouteTableId);
+                }
+                var rts = vncClient.listRouteTables(ListRouteTablesRequest.builder()
+                        .compartmentId(vcnCompId).vcnId(vcnId).build()).getItems();
+                for (RouteTable rt : rts) {
+                    if (rt.getLifecycleState() == RouteTable.LifecycleState.Available
+                            && "nat-route-500m".equalsIgnoreCase(rt.getDisplayName())) {
+                        natRouteIdsInVcn.add(rt.getId());
+                    }
+                }
+
+                boolean anyOtherVnicUsingNatRoute = false;
+                List<String> checkComps = clientManager.getActiveCompartmentIds(account);
+                if (checkComps == null || checkComps.isEmpty()) {
+                    checkComps = List.of(compartmentId);
+                }
+                for (String cid : checkComps) {
+                    try {
+                        var allVnicAtts = computeClient.listVnicAttachments(ListVnicAttachmentsRequest.builder()
+                                .compartmentId(cid).build()).getItems();
+                        for (var va : allVnicAtts) {
+                            if (va.getLifecycleState() != VnicAttachment.LifecycleState.Attached || vnicId.equals(va.getVnicId())) {
+                                continue;
+                            }
+                            try {
+                                var otherVnic = vncClient.getVnic(GetVnicRequest.builder().vnicId(va.getVnicId()).build()).getVnic();
+                                if (otherVnic.getRouteTableId() != null && natRouteIdsInVcn.contains(otherVnic.getRouteTableId())) {
+                                    anyOtherVnicUsingNatRoute = true;
+                                    break;
+                                }
+                            } catch (Exception ignored) {}
+                        }
+                    } catch (Exception ignored) {}
+                    if (anyOtherVnicUsingNatRoute) break;
+                }
+
+                if (!anyOtherVnicUsingNatRoute) {
+                    for (RouteTable rt : rts) {
+                        if (rt.getLifecycleState() == RouteTable.LifecycleState.Available
+                                && "nat-route-500m".equalsIgnoreCase(rt.getDisplayName())
+                                && !rt.getId().equals(subnet.getRouteTableId())) {
+                            try {
+                                // 先清空指向 NAT 网关的路由规则再删除路由表，彻底解除对 nat-gateway-500m 的引用锁
+                                vncClient.updateRouteTable(UpdateRouteTableRequest.builder()
+                                        .rtId(rt.getId())
+                                        .updateRouteTableDetails(UpdateRouteTableDetails.builder()
+                                                .routeRules(java.util.Collections.emptyList())
+                                                .build())
+                                        .build());
+                            } catch (Exception ignored) {}
+                            try {
+                                vncClient.deleteRouteTable(DeleteRouteTableRequest.builder().rtId(rt.getId()).build());
+                            } catch (Exception ignored) {}
+                        }
+                    }
+
+                    var natGateways = vncClient.listNatGateways(ListNatGatewaysRequest.builder()
+                            .compartmentId(vcnCompId).vcnId(vcnId).build()).getItems();
+                    for (NatGateway ng : natGateways) {
+                        if (ng.getLifecycleState() == NatGateway.LifecycleState.Available
+                                && "nat-gateway-500m".equalsIgnoreCase(ng.getDisplayName())) {
+                            for (int delAttempt = 0; delAttempt < 3; delAttempt++) {
+                                try {
+                                    vncClient.deleteNatGateway(DeleteNatGatewayRequest.builder().natGatewayId(ng.getId()).build());
+                                    break;
+                                } catch (com.oracle.bmc.model.BmcException ngEx) {
+                                    if (ngEx.getStatusCode() == 404) break;
+                                    if (delAttempt < 2) {
+                                        try { Thread.sleep(1500); } catch (InterruptedException ignored) {}
+                                    }
+                                } catch (Exception ignored) {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception cleanupEx) {
+                System.err.println("自动检查/清理闲置 500M NAT 网关警告: " + cleanupEx.getMessage());
+            }
+        }
+
+        // 4. 清除缓存并重新拉取原生公网 IP
         OciCloudService.INSTANCE_CACHE.remove(ocid);
         redisTemplate.delete("oci:ip:" + ocid);
 
@@ -946,8 +1237,9 @@ public class OciNetworkService {
             var computeClient = region != null ? clients.getComputeClientForRegion(region) : clients.getCompute();
             var vncClient = region != null ? clients.getVncClientForRegion(region) : clients.getVnc();
 
+            String compId = resolveInstanceCompartmentId(ocid, accConfig.getTenancy());
             var vnicResponse = computeClient.listVnicAttachments(ListVnicAttachmentsRequest.builder()
-                    .compartmentId(accConfig.getTenancy()).instanceId(ocid).build());
+                    .compartmentId(compId).instanceId(ocid).build());
             if (vnicResponse.getItems().isEmpty()) {
                 return null;
             }
@@ -980,9 +1272,10 @@ public class OciNetworkService {
         var vncClient = region != null ? clients.getVncClientForRegion(region) : clients.getVnc();
 
         String tenancy = accConfig.getTenancy();
+        String compId = resolveInstanceCompartmentId(ocid, tenancy);
 
         var vnicResponse = computeClient.listVnicAttachments(ListVnicAttachmentsRequest.builder()
-                .compartmentId(tenancy)
+                .compartmentId(compId)
                 .instanceId(ocid)
                 .build());
         if (vnicResponse.getItems().isEmpty()) {
@@ -1167,8 +1460,9 @@ public class OciNetworkService {
         var computeClient = region != null ? clients.getComputeClientForRegion(region) : clients.getCompute();
         var vncClient = region != null ? clients.getVncClientForRegion(region) : clients.getVnc();
 
+        String compId = resolveInstanceCompartmentId(ocid, accConfig.getTenancy());
         var vnicResponse = computeClient.listVnicAttachments(ListVnicAttachmentsRequest.builder()
-                .compartmentId(accConfig.getTenancy())
+                .compartmentId(compId)
                 .instanceId(ocid)
                 .build());
         if (vnicResponse.getItems().isEmpty()) {

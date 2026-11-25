@@ -29,18 +29,47 @@ public class OciClientWrapper {
     private volatile UsageapiClient usageapi;
     private volatile NetworkLoadBalancerClient networkLoadBalancer;
 
-    // 🚀 【性能/资源泄漏修复】按 region 复用的客户端 LRU 缓存 (最大 4 个，自动关停超出上限的客户端)。
-    private static final int MAX_REGION_CLIENTS = 4;
+    // 🚀 【性能/资源泄漏修复】按 region 复用的客户端 LRU 缓存 (提升至 32 个，延迟异步关停超出上限的客户端，避免中断在途请求)。
+    private static final int MAX_REGION_CLIENTS = 32;
+    private static final java.util.concurrent.ConcurrentHashMap<String, java.net.PasswordAuthentication> SOCKS_AUTH_REGISTRY =
+            new java.util.concurrent.ConcurrentHashMap<>();
+
+    static {
+        // 允许已配置独立代理凭据的 HttpURLConnection 在 HTTPS CONNECT 隧道上发送 Proxy-Authorization
+        System.setProperty("jdk.http.auth.tunneling.disabledSchemes", "");
+        System.setProperty("jdk.http.auth.proxying.disabledSchemes", "");
+        java.net.Authenticator.setDefault(new java.net.Authenticator() {
+            @Override
+            protected java.net.PasswordAuthentication getPasswordAuthentication() {
+                if ("SOCKS5".equalsIgnoreCase(getRequestingProtocol()) || getRequestingPrompt() != null && getRequestingPrompt().contains("SOCKS")) {
+                    java.net.InetAddress reqAddr = getRequestingSite();
+                    int reqPort = getRequestingPort();
+                    if (reqAddr != null && reqPort > 0) {
+                        java.net.PasswordAuthentication byIp = SOCKS_AUTH_REGISTRY.get(reqAddr.getHostAddress() + ":" + reqPort);
+                        if (byIp != null) return byIp;
+                    }
+                    if (getRequestingHost() != null && reqPort > 0) {
+                        java.net.PasswordAuthentication byHost = SOCKS_AUTH_REGISTRY.get(getRequestingHost().toLowerCase(java.util.Locale.ROOT) + ":" + reqPort);
+                        if (byHost != null) return byHost;
+                    }
+                }
+                return null;
+            }
+        });
+    }
     private final Map<String, AutoCloseable> regionClientCache = java.util.Collections.synchronizedMap(
-        new java.util.LinkedHashMap<String, AutoCloseable>(16, 0.75f, true) {
+        new java.util.LinkedHashMap<String, AutoCloseable>(32, 0.75f, true) {
             @Override
             protected boolean removeEldestEntry(Map.Entry<String, AutoCloseable> eldest) {
                 if (size() > MAX_REGION_CLIENTS) {
                     AutoCloseable client = eldest.getValue();
                     if (client != null) {
-                        try {
-                            client.close();
-                        } catch (Exception ignored) {}
+                        java.util.concurrent.CompletableFuture.delayedExecutor(45, java.util.concurrent.TimeUnit.SECONDS)
+                                .execute(() -> {
+                                    try {
+                                        client.close();
+                                    } catch (Exception ignored) {}
+                                });
                     }
                     return true;
                 }
@@ -75,13 +104,30 @@ public class OciClientWrapper {
     }
 
     public OciClientWrapper(String accountName, SimpleAuthenticationDetailsProvider provider, ClientConfiguration config, OciClientFingerprintService.ClientFingerprint fingerprint, com.oci.ocimanager.config.OciProperties.Account accountConfig) {
+        this(
+                accountName,
+                provider,
+                config,
+                fingerprint,
+                accountConfig,
+                (accountConfig != null && accountConfig.getProxy() != null && !accountConfig.getProxy().trim().isEmpty())
+                        ? parseProxy(accountConfig.getProxy()) : null
+        );
+    }
+
+    OciClientWrapper(
+            String accountName,
+            SimpleAuthenticationDetailsProvider provider,
+            ClientConfiguration config,
+            OciClientFingerprintService.ClientFingerprint fingerprint,
+            com.oci.ocimanager.config.OciProperties.Account accountConfig,
+            com.oracle.bmc.http.client.ProxyConfiguration explicitProxyConfig) {
         this.accountName = accountName;
         this.provider = provider;
         this.config = config;
         this.fingerprint = (fingerprint != null) ? fingerprint :
                 new OciClientFingerprintService().getFingerprint(accountName, accountConfig);
-        this.proxyConfig = (accountConfig != null && accountConfig.getProxy() != null) ?
-                parseProxy(accountConfig.getProxy()) : null;
+        this.proxyConfig = explicitProxyConfig;
     }
 
     public String getAccountName() {
@@ -214,56 +260,137 @@ public class OciClientWrapper {
         return false;
     }
 
+    /**
+     * 解析账号独立代理配置（Fail-Closed）：
+     * 若未配置代理（null 或空白），返回 null（允许本机直连）；
+     * 一旦显式配置了非空代理，若校验或解析失败一律抛出 IllegalArgumentException，绝不静默降级为本机真实 IP 直连。
+     */
     public static com.oracle.bmc.http.client.ProxyConfiguration parseProxy(String proxyStr) {
+        return parseProxyInternal(proxyStr, false);
+    }
+
+    static com.oracle.bmc.http.client.ProxyConfiguration parseProxyForLoopbackTest(String proxyStr) {
+        return parseProxyInternal(proxyStr, true);
+    }
+
+    private static com.oracle.bmc.http.client.ProxyConfiguration parseProxyInternal(String proxyStr, boolean allowLoopbackForTest) {
         if (proxyStr == null || proxyStr.trim().isEmpty()) return null;
-        String unsafeReason = validateProxySafety(proxyStr);
-        if (unsafeReason != null) {
-            System.err.println("🚨 拒绝加载不安全的账号代理配置: " + unsafeReason);
-            return null;
+        if (!allowLoopbackForTest) {
+            String unsafeReason = validateProxySafety(proxyStr);
+            if (unsafeReason != null) {
+                throw new IllegalArgumentException("拒绝加载不安全的账号代理配置: " + unsafeReason);
+            }
         }
         try {
             java.net.URI uri = java.net.URI.create(proxyStr.trim());
+            String scheme = uri.getScheme();
+            if (scheme == null || (!"http".equalsIgnoreCase(scheme)
+                    && !"https".equalsIgnoreCase(scheme)
+                    && !"socks".equalsIgnoreCase(scheme)
+                    && !"socks5".equalsIgnoreCase(scheme))) {
+                throw new IllegalArgumentException("代理协议仅支持 http://、https://、socks:// 或 socks5://");
+            }
             String host = uri.getHost();
             int port = uri.getPort();
-            if (host == null || port <= 0) return null;
+            if (host == null || host.isBlank() || port <= 0 || port > 65535) {
+                throw new IllegalArgumentException("代理地址格式无效，缺少主机或合法端口 (1~65535)");
+            }
 
             java.net.InetAddress[] resolved = java.net.InetAddress.getAllByName(host.trim());
-            if (resolved == null || resolved.length == 0) return null;
-            for (java.net.InetAddress addr : resolved) {
-                if (isBlockedProxyAddress(addr)) {
-                    System.err.println("🚨 拒绝加载指向受限地址的代理: " + addr.getHostAddress());
-                    return null;
+            if (resolved == null || resolved.length == 0) {
+                throw new IllegalArgumentException("代理主机无法解析: " + host);
+            }
+            if (!allowLoopbackForTest) {
+                for (java.net.InetAddress addr : resolved) {
+                    if (isBlockedProxyAddress(addr)) {
+                        throw new IllegalArgumentException("拒绝加载指向受限地址的代理: " + addr.getHostAddress());
+                    }
                 }
             }
 
             java.net.Proxy.Type type = java.net.Proxy.Type.HTTP;
-            if ("socks".equalsIgnoreCase(uri.getScheme()) || "socks5".equalsIgnoreCase(uri.getScheme())) {
+            if ("socks".equalsIgnoreCase(scheme) || "socks5".equalsIgnoreCase(scheme)) {
                 type = java.net.Proxy.Type.SOCKS;
             }
-            // 🔒 绑定已通过安全校验的 InetAddress，阻断 DNS Rebinding (TOCTOU) 二次解析攻击
-            java.net.Proxy proxy = new java.net.Proxy(type, new java.net.InetSocketAddress(resolved[0], port));
+            // 🔒 仅保留纯字节无主机名的 InetAddress，彻底剥离域名缓存与二次解析，阻断 DNS Rebinding (TOCTOU)
+            java.net.InetAddress pinnedIpOnly = java.net.InetAddress.getByAddress(resolved[0].getAddress());
+            java.net.Proxy proxy = new java.net.Proxy(type, new java.net.InetSocketAddress(pinnedIpOnly, port));
 
             var builder = com.oracle.bmc.http.client.ProxyConfiguration.builder().proxy(proxy);
-            String userInfo = uri.getUserInfo();
+            String userInfo = uri.getRawUserInfo();
             if (userInfo != null && !userInfo.isEmpty()) {
                 String[] parts = userInfo.split(":", 2);
-                builder.username(parts[0]);
-                if (parts.length > 1) {
-                    builder.password(parts[1].toCharArray());
+                String decodedUser = java.net.URLDecoder.decode(parts[0], java.nio.charset.StandardCharsets.UTF_8);
+                char[] decodedPass = parts.length > 1
+                        ? java.net.URLDecoder.decode(parts[1], java.nio.charset.StandardCharsets.UTF_8).toCharArray()
+                        : new char[0];
+                builder.username(decodedUser);
+                builder.password(decodedPass);
+                if (type == java.net.Proxy.Type.SOCKS && !decodedUser.isEmpty()) {
+                    SOCKS_AUTH_REGISTRY.put(
+                            pinnedIpOnly.getHostAddress() + ":" + port,
+                            new java.net.PasswordAuthentication(decodedUser, decodedPass));
                 }
             }
             return builder.build();
+        } catch (IllegalArgumentException e) {
+            throw e;
         } catch (Exception e) {
-            System.err.println("解析账号代理配置异常: " + e.getMessage());
+            throw new IllegalArgumentException("解析账号代理配置异常: " + e.getMessage(), e);
+        }
+    }
+
+    private static java.net.Authenticator buildPerConnectionProxyAuthenticator(com.oracle.bmc.http.client.ProxyConfiguration cfg) {
+        if (cfg == null || cfg.getUsername() == null || cfg.getUsername().isEmpty()) {
             return null;
         }
+        final String user = cfg.getUsername();
+        final char[] pass = cfg.getPassword() != null ? cfg.getPassword().clone() : new char[0];
+        return new java.net.Authenticator() {
+            @Override
+            protected java.net.PasswordAuthentication getPasswordAuthentication() {
+                if (getRequestorType() == RequestorType.PROXY) {
+                    return new java.net.PasswordAuthentication(user, pass.clone());
+                }
+                return null;
+            }
+        };
     }
 
     private <B extends com.oracle.bmc.common.ClientBuilderBase<B, ?>> B decorate(B builder) {
         builder.additionalClientConfigurator(clientBuilder -> {
-            // 🌟 若账号配置了独立代理出口，绑定专用代理配置，实现各账号物理网络隔离
-            if (proxyConfig != null) {
-                clientBuilder.property(com.oracle.bmc.http.client.StandardClientProperties.PROXY, proxyConfig);
+            // 🌟 统一启用 Jersey 4.x 原生 HttpUrlConnectorProvider，彻底规避 jersey-apache-connector:3.0.8 版本断层及 Apache 空闲监控线程开销
+            clientBuilder.property(com.oracle.bmc.http.client.jersey3.Jersey3ClientProperties.USE_APACHE_CONNECTOR, Boolean.FALSE);
+
+            // 🌟 若账号配置了独立代理出口，直接挂载自定义 ConnectionFactory 绑定已钉死 IP 的 java.net.Proxy (HTTP / SOCKS5)：
+            // 绕过 Jersey 4.0.3 UriClientProxy 硬编码 Proxy.Type.HTTP 导致 SOCKS5 失效及主机名二次解析漏洞，并绑定每连接独立代理鉴权器
+            if (proxyConfig != null && proxyConfig.getProxy() != null) {
+                final java.net.Proxy boundProxy = proxyConfig.getProxy();
+                final java.net.Authenticator perConnAuth = buildPerConnectionProxyAuthenticator(proxyConfig);
+                clientBuilder.property(com.oracle.bmc.http.client.jersey3.ClientBuilderDecorator.PROPERTY, jerseyClientBuilder -> {
+                    if (jerseyClientBuilder.getConfiguration() instanceof org.glassfish.jersey.client.ClientConfig cc) {
+                        org.glassfish.jersey.client.HttpUrlConnectorProvider proxyConnectorProvider =
+                                new org.glassfish.jersey.client.HttpUrlConnectorProvider()
+                                        .useSetMethodWorkaround()
+                                        .connectionFactory(new org.glassfish.jersey.client.HttpUrlConnectorProvider.ConnectionFactory() {
+                                            @Override
+                                            public java.net.HttpURLConnection getConnection(java.net.URL url) throws java.io.IOException {
+                                                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection(boundProxy);
+                                                if (perConnAuth != null) {
+                                                    conn.setAuthenticator(perConnAuth);
+                                                }
+                                                return conn;
+                                            }
+
+                                            @Override
+                                            public java.net.HttpURLConnection getConnection(java.net.URL url, java.net.Proxy ignored) throws java.io.IOException {
+                                                return getConnection(url);
+                                            }
+                                        });
+                        cc.connectorProvider(proxyConnectorProvider);
+                    }
+                    return jerseyClientBuilder.build();
+                });
             }
 
             // 🌟 优先级设为 6000（确保在 OCI SDK 内部 ClientIdFilter 之后执行，彻底覆盖默认 User-Agent/opc-client-info 并消除双 UA 残留）

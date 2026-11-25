@@ -72,8 +72,12 @@ public class OciCloudService {
     // 🌟 新增优化：镜像、可用区、子网级别的静态内存缓存，彻底切断重试时的冗余发包
     static final Map<String, java.util.List<String>> AD_LIST_CACHE = new ConcurrentHashMap<>();
     static final Map<String, String> IMAGE_CACHE = new ConcurrentHashMap<>();
+    static final Map<String, Long> IMAGE_CACHE_TIME = new ConcurrentHashMap<>();
     static final Map<String, String> SUBNET_CACHE = new ConcurrentHashMap<>();
+    static final Map<String, Long> SUBNET_CACHE_TIME = new ConcurrentHashMap<>();
     static final Map<String, java.util.List<String>> SUBSCRIBED_REGIONS_CACHE = new ConcurrentHashMap<>();
+    static final Map<String, java.util.List<String>> COMPARTMENT_IDS_CACHE = new ConcurrentHashMap<>();
+    static final Map<String, Long> COMPARTMENT_IDS_CACHE_TIME = new ConcurrentHashMap<>();
 
     // 🌟 核心并发锁：保证多线程并发时各个租户独立初始化网络时不冲突
     static final Map<String, Object> TENANCY_LOCKS = new ConcurrentHashMap<>();
@@ -138,6 +142,14 @@ public class OciCloudService {
         return clientManager.getSubscribedRegions(accountName);
     }
 
+    public java.util.List<String> getCachedSubscribedRegions(String accountName) {
+        return clientManager.getCachedSubscribedRegions(accountName);
+    }
+
+    public java.util.List<String> getActiveCompartmentIds(String accountName) {
+        return clientManager.getActiveCompartmentIds(accountName);
+    }
+
     public Map<String, Object> getAccountRegionInfo(String accountName) {
         return clientManager.getAccountRegionInfo(accountName);
     }
@@ -200,6 +212,14 @@ public class OciCloudService {
 
     public void clearBannedCache() {
         billingService.clearBannedCache();
+    }
+
+    public void migrateAccountBillingState(String oldKey, String newKey) {
+        billingService.migrateAccountState(oldKey, newKey);
+    }
+
+    public void purgeAccountBillingState(String accountKey) {
+        billingService.purgeAccountState(accountKey);
     }
 
     public boolean getCachedPaygStatus(String accountName) {
@@ -292,6 +312,14 @@ public class OciCloudService {
         return computeService.reinstallInstance(ocid, accountName, instanceName, osName, osVersion, customImageOcid, sshKey, rootPwd);
     }
 
+    public void startReinstallMonitor(String ocid, String accountName, String instanceName, String rootPwd, String oldBootVolumeId) {
+        computeService.startReinstallMonitor(ocid, accountName, instanceName, rootPwd, oldBootVolumeId, true);
+    }
+
+    public void startReinstallMonitor(String ocid, String accountName, String instanceName, String rootPwd, String oldBootVolumeId, boolean sendInitialNotice) {
+        computeService.startReinstallMonitor(ocid, accountName, instanceName, rootPwd, oldBootVolumeId, sendInitialNotice);
+    }
+
     public String getInstanceStatus(String ocid, String accountName) {
         return computeService.getInstanceStatus(ocid, accountName);
     }
@@ -354,6 +382,10 @@ public class OciCloudService {
 
     public String getIpLocation(String ip) {
         return networkService.getIpLocation(ip);
+    }
+
+    public String getInstanceLocation(String ip, String region) {
+        return networkService.getInstanceLocation(ip, region);
     }
 
     public String enableAmd500Mbps(String ocid, String account) throws Exception {

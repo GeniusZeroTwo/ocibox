@@ -6,7 +6,7 @@ import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 /**
- * 🛠️ Spring MVC 配置：注册全局鉴权拦截器
+ * Spring MVC 配置：注册全局鉴权拦截器
  */
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
@@ -19,6 +19,7 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(adminAuthInterceptor)
                 .addPathPatterns("/api/admin/**")
                 .excludePathPatterns(
+                        "/api/admin/auth-config",
                         "/api/admin/login",
                         "/api/admin/logout",
                         "/api/admin/send-code",
@@ -26,4 +27,3 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 );
     }
 }
-
